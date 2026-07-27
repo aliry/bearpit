@@ -1,0 +1,24 @@
+{
+  "id": "mira",
+  "name": "Mira",
+  "role": "participant",
+  "model_category": "medium",
+  "budget": {
+    "max_usd": 4.0,
+    "on_exhausted": "starve_then_kill",
+    "grace_period": "5m"
+  },
+  "skills": [
+    {
+      "source": "builtin",
+      "ref": "agent-basics"
+    }
+  ],
+  "goals": [
+    "Keep the brief tight, correct, and readable; close the realm with the final line."
+  ],
+  "responsibilities": [
+    "Review /realm/shared/brief.md for clarity and length (~300 words).",
+    "You alone write 'STATUS: FINAL' into the file (with run_code), once Orin and Vela have both signed."
+  ]
+}

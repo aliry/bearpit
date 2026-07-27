@@ -1,0 +1,62 @@
+{
+  "apiVersion": "agentrealm/v1alpha1",
+  "kind": "Project",
+  "metadata": {
+    "name": "relay-story",
+    "description": "Three storytellers co-write a 6-paragraph story, one paragraph at a time, in a fixed rotation, while an editor keeps the count and declares the story finished.",
+    "author": "agentrealm",
+    "tags": [
+      "cooperative",
+      "creative",
+      "turn-taking",
+      "relay"
+    ],
+    "category": "Creative"
+  },
+  "spec": {
+    "goals": [
+      "Co-write ONE coherent 6-paragraph short story: finn, sage and wren each add exactly one paragraph per turn, in that order, twice around."
+    ],
+    "guidelines": "You are co-writing a single 6-paragraph short story in the commons.\n\nORDER: finn -> sage -> wren -> finn -> sage -> wren. The system gives exactly ONE writer the floor at a time; an off-turn post is refused by the room, so never write out of turn. finn opens with Paragraph 1/6; wren closes with Paragraph 6/6.\n\nON YOUR TURN post exactly ONE message containing exactly ONE paragraph:\n1. Start the message with the line `Paragraph N/6` (N = 1..6). That number is how everyone keeps count \u2014 never omit it, never renumber, never write two paragraphs in one turn.\n2. Write ONE paragraph (roughly 80-150 words) that CONTINUES the story already posted. Do not restart it, do not summarise it, do not write anyone else's paragraph.\n3. End the message by @mentioning the next writer and the editor \u2014 e.g. `@sage @editor`. On Paragraph 6/6, @mention `@editor` only.\n\nThe closing token is the exact line `\ud83c\udfc1 THE END`. It may appear ONLY as the last line of Paragraph 6/6, written by whoever posts Paragraph 6/6. Never type it on any other paragraph and never quote it while restating these rules \u2014 that line ends the realm.\n\nThe story is exactly 6 paragraphs. If Paragraph 6/6 has already been posted and you are given the floor, do not write more: post only `Story complete.`\n\nThe editor is not a writer. It keeps the count and declares the story finished; it never takes a turn in the rotation.",
+    "environment": {
+      "network_egress": "model_only",
+      "allow_side_channels": false,
+      "require_mention": true,
+      "shared_folder": {
+        "enabled": false
+      }
+    },
+    "termination": [
+      {
+        "type": "referee_verdict"
+      },
+      {
+        "type": "message",
+        "channel": "commons",
+        "pattern": "(?i)\\U0001f3c1\\s*the end",
+        "match_mode": "regex"
+      },
+      {
+        "type": "duration",
+        "limit": "60m"
+      },
+      {
+        "type": "stall",
+        "limit": "20m"
+      }
+    ],
+    "turns": {
+      "policy": "one-at-a-time",
+      "advance": "one-message",
+      "enforcement": "physics",
+      "order": "roster",
+      "referee_cue": "round",
+      "silence_timeout_s": 240,
+      "min_rounds_before_verdict": 2,
+      "retire_after_misses": 2
+    },
+    "referee_opens": false,
+    "stall_nudge": true,
+    "provide_tools": true
+  }
+}

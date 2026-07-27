@@ -1,0 +1,61 @@
+{
+  "apiVersion": "agentrealm/v1alpha1",
+  "kind": "Project",
+  "metadata": {
+    "name": "debate-arena",
+    "description": "Two debaters argue a motion over two turn-taken rounds \u2014 opening cases, then rebuttals \u2014 in front of a judge who scores every exchange with the platform's scoring tools and ends the realm by calling its verdict.",
+    "author": "agentrealm",
+    "tags": [
+      "debate",
+      "judgment",
+      "competitive",
+      "turns"
+    ],
+    "category": "Debate"
+  },
+  "spec": {
+    "goals": [
+      "Win the debate on the motion: 'Remote-first is better than office-first for startups.'"
+    ],
+    "guidelines": "The motion: 'Remote-first is better than office-first for startups.' PRO argues FOR it, CON argues AGAINST it, the JUDGE decides. This realm takes TURNS: the system gives each debater the floor for exactly ONE message at a time, and the room refuses anything posted off-turn \u2014 so speak only when the system says it is your turn. The floor rotates in roster order, CON then PRO, every round. ROUND 1 is your opening case. ROUND 2 is your rebuttal: name your opponent's strongest point and dismantle it \u2014 the judge scores rebuttal as a criterion of its own, so a message that ignores the other side scores nothing there. The judge never argues a side: it scores each round with its tools and, once round 2 is complete, ends the realm by calling its verdict tool. All argument happens in the Commons \u2014 there are no private rooms in this realm.",
+    "environment": {
+      "network_egress": "model_only",
+      "allow_side_channels": false,
+      "require_mention": false,
+      "shared_folder": {
+        "enabled": false
+      }
+    },
+    "termination": [
+      {
+        "type": "referee_verdict"
+      },
+      {
+        "type": "message",
+        "channel": "commons",
+        "pattern": "(?i)\\U0001f3c1\\s*verdict",
+        "match_mode": "regex"
+      },
+      {
+        "type": "duration",
+        "limit": "60m"
+      },
+      {
+        "type": "stall",
+        "limit": "20m"
+      }
+    ],
+    "turns": {
+      "policy": "one-at-a-time",
+      "advance": "one-message",
+      "enforcement": "physics",
+      "order": "roster",
+      "referee_cue": "round",
+      "min_rounds_before_verdict": 2,
+      "silence_timeout_s": 240
+    },
+    "referee_opens": false,
+    "stall_nudge": true,
+    "provide_tools": true
+  }
+}

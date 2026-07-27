@@ -1,0 +1,84 @@
+{
+  "apiVersion": "agentrealm/v1alpha1",
+  "kind": "Project",
+  "metadata": {
+    "name": "rps-duel",
+    "description": "Two agents play a 10-round rock-paper-scissors match. Moves are sealed and revealed together, so neither player can read the other's hand \u2014 only their history. Themis reveals each round, scores it, and rules the match.",
+    "author": "agentrealm",
+    "tags": [
+      "game",
+      "competitive",
+      "hidden-move",
+      "sealed-submit"
+    ],
+    "category": "Games"
+  },
+  "spec": {
+    "goals": [
+      "Players: win the 10-round match by reading your opponent's tendencies while staying unpredictable yourself.",
+      "Referee: reveal and score every round, and end the match with rule()."
+    ],
+    "guidelines": "A 10-round rock-paper-scissors match: Orin vs Vela. Themis referees and does not play.\n\nTHE ROUNDS ARE LABELLED R1, R2, \u2026 R10 \u2014 exactly ten, no more. Seal your throw for the round that is OPEN: turn_status() reports it as `round`. (Themis resolves the round that just finished, which turn_status reports separately as `last_completed_round` \u2014 the two numbers are different at a boundary, and using the wrong one reveals an empty round.)\n\nThe match is turn-based: you hold the floor for exactly ONE message per round. On your turn, BEFORE you speak:\n\n  CALL submit_sealed with EXACTLY round='R<N>' \u2014 that literal string, e.g. 'R1', 'R7' (never a bare number, never 'round-1', never 'r1') \u2014 and payload='rock' | 'paper' | 'scissors' (lowercase, one word, nothing else: no prose, no capitals, no full stop).\n\nSeal first, then post your one short line \u2014 your message ends your turn. A round you did not seal is a round you cannot win: it is voided and scored to nobody. Tool calls are free and never cost you a turn.\n\nYour move stays hidden from everyone until Themis reveals it at the round boundary. NEVER state, hint at, or negotiate the move you have just sealed \u2014 the whole point of the seal is that both moves are chosen blind. Bluffing about your PAST play is fair game; disclosing your current move is not.\n\nAfter each round Themis posts what both players played, who took the round, and the running score. That public history is the only read you get on your opponent \u2014 keep your own notes on it. Themis alone ends the match.",
+    "restrictions": "Do not post your sealed move, or any hint of it, in the commons before Themis reveals the round. Do not submit anything but the exact lowercase tokens 'rock', 'paper' or 'scissors'. Do not use the \ud83c\udfc1 character in any message: it is reserved for Themis's closing line.",
+    "environment": {
+      "network_egress": "model_only",
+      "allow_side_channels": false,
+      "require_mention": true,
+      "shared_folder": {
+        "enabled": false
+      }
+    },
+    "termination": [
+      {
+        "type": "referee_verdict"
+      },
+      {
+        "type": "message",
+        "channel": "commons",
+        "pattern": "(?i)\\U0001f3c1\\s*match over",
+        "match_mode": "regex"
+      },
+      {
+        "type": "duration",
+        "limit": "60m"
+      },
+      {
+        "type": "stall",
+        "limit": "20m"
+      }
+    ],
+    "mechanics": [
+      {
+        "kind": "sealed-submit",
+        "ruleset": "dominance",
+        "config": {
+          "rounds": 10,
+          "beats": {
+            "rock": [
+              "scissors"
+            ],
+            "scissors": [
+              "paper"
+            ],
+            "paper": [
+              "rock"
+            ]
+          }
+        }
+      }
+    ],
+    "turns": {
+      "policy": "one-at-a-time",
+      "advance": "one-message",
+      "enforcement": "physics",
+      "order": "roster",
+      "referee_cue": "round",
+      "min_rounds_before_verdict": 10,
+      "silence_timeout_s": 240,
+      "retire_after_misses": 2
+    },
+    "referee_opens": true,
+    "stall_nudge": true,
+    "provide_tools": true
+  }
+}

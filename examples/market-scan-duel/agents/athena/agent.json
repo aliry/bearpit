@@ -1,0 +1,24 @@
+{
+  "id": "athena",
+  "name": "Athena",
+  "role": "participant",
+  "model_category": "medium",
+  "budget": {
+    "max_usd": 3.0,
+    "on_exhausted": "starve_then_kill",
+    "grace_period": "5m"
+  },
+  "skills": [
+    {
+      "source": "builtin",
+      "ref": "agent-basics"
+    },
+    {
+      "source": "builtin",
+      "ref": "competitor"
+    }
+  ],
+  "goals": [
+    "Write the sharpest, best-structured market scan to /realm/shared/athena/report.md — and be FINAL first."
+  ]
+}

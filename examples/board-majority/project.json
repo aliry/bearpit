@@ -1,0 +1,69 @@
+{
+  "apiVersion": "agentrealm/v1alpha1",
+  "kind": "Project",
+  "metadata": {
+    "name": "board-majority",
+    "description": "The five-member board of Corvid Instruments votes yes/no on a $210M acquisition. One debate round, then a sealed ballot; the secretary opens the ballots, counts them, and rules. Two directors are firmly for, one firmly against, and two are genuinely undecided \u2014 so the argument, not the roster, decides it.",
+    "author": "agentrealm",
+    "tags": [
+      "vote",
+      "majority",
+      "governance",
+      "deliberation",
+      "sealed-ballot"
+    ],
+    "category": "Governance"
+  },
+  "spec": {
+    "goals": [
+      "Decide the Halyard acquisition: each of the five directors seals `yes` or `no` for round 'merger'. Three of the five carries the motion. The secretary opens the ballots, counts them, and rules."
+    ],
+    "guidelines": "BOARD MEETING \u2014 Corvid Instruments, special session. The board is five directors: dana, emil, faye, gus, hana. The secretary is the meeting's officer: they run the vote, open the ballots and record the decision. The secretary is NOT a director and does NOT vote \u2014 there are exactly five votes.\n\nTHE MOTION (binding tonight \u2014 the offer lapses at midnight; there is no option to defer):\nCorvid acquires Halyard Systems for $210M \u2014 $130M cash (all of Corvid's reserves) plus $80M of new debt at 9% (debt service $7.2M/yr).\n- Corvid: industrial sensors. 640 staff, $84M revenue, flat for three years, no analytics product.\n- Halyard: 90 people, edge-analytics software. $19M revenue, growing 40%/yr.\n- Management's synergy case: $28M/yr of cross-sell by year three.\n- The CFO's dissent, circulated with the board pack: realistic synergy is $9-12M/yr; 46% of Halyard's revenue is a single customer (Meridian Freight) whose contract renews in 11 months; the $80M facility carries a covenant capping net debt/EBITDA at 3.0x.\n- Retention: Halyard's four engineering leads hold 18-month packages. Two have already declined.\n- After the deal, Corvid's cash covers about 3 months of R&D (14 months today).\nThese numbers are the facts of the case. Argue from them; do not invent new ones.\n\nHOW THE MEETING RUNS. The system gives each director the floor for exactly one message at a time.\n- ROUND 1 - DEBATE. Make your case with the numbers, and answer the argument that was actually made before you. Do NOT seal a vote in round 1.\n- ROUND 2 - THE VOTE. On your turn, post your one-line final position and seal your ballot with the tool:\n      submit_sealed(round=\"merger\", payload=\"yes\")   - for the motion\n      submit_sealed(round=\"merger\", payload=\"no\")    - against the motion\n  The round label is exactly `merger`. The payload must be EXACTLY the lowercase word `yes` or `no` - nothing else: no reasoning, no punctuation, no capital letters. Any other payload is a spoiled ballot and does not count as a vote.\n- NEVER state which way you voted, in the Commons or anywhere else. Ballots are sealed and opened all at once, so there is no bandwagon to join. Make your argument in the Commons; the payload is one word.\n- THE RULE: the motion carries if and only if 3 or more of the 5 directors sealed `yes`. Anything else - 2 yes, an abstention, a spoiled ballot - and the motion fails for want of a majority. There is no chair's casting vote.\n- The secretary's ruling ends the meeting.",
+    "environment": {
+      "network_egress": "model_only",
+      "allow_side_channels": false,
+      "require_mention": true,
+      "shared_folder": {
+        "enabled": false
+      }
+    },
+    "termination": [
+      {
+        "type": "referee_verdict"
+      },
+      {
+        "type": "message",
+        "channel": "commons",
+        "pattern": "(?i)\\U0001f3c1\\s*decision",
+        "match_mode": "regex"
+      },
+      {
+        "type": "duration",
+        "limit": "75m"
+      },
+      {
+        "type": "stall",
+        "limit": "25m"
+      }
+    ],
+    "mechanics": [
+      {
+        "kind": "sealed-submit",
+        "ruleset": "majority"
+      }
+    ],
+    "turns": {
+      "policy": "one-at-a-time",
+      "advance": "one-message",
+      "enforcement": "physics",
+      "order": "roster",
+      "referee_cue": "round",
+      "min_rounds_before_verdict": 2,
+      "silence_timeout_s": 240,
+      "retire_after_misses": 2
+    },
+    "referee_opens": true,
+    "stall_nudge": true,
+    "provide_tools": true
+  }
+}

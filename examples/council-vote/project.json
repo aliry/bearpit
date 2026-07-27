@@ -1,0 +1,69 @@
+{
+  "apiVersion": "agentrealm/v1alpha1",
+  "kind": "Project",
+  "metadata": {
+    "name": "council-vote",
+    "description": "Four city councillors debate where to put the new HQ \u2014 austin, denver or miami \u2014 each taking the floor once. Ballots are SEALED, so nobody can bandwagon; the Chair reveals them together, counts them with code, and ends the council with a verdict. A tie is broken by the Chair's casting vote.",
+    "author": "agentrealm",
+    "tags": [
+      "vote",
+      "governance",
+      "hidden-vote",
+      "debate",
+      "sealed-ballot"
+    ],
+    "category": "Governance"
+  },
+  "spec": {
+    "goals": [
+      "Decide where the HQ goes: argue your case in the open, then cast a secret ballot for exactly one city \u2014 austin, denver, or miami."
+    ],
+    "guidelines": "You sit on a five-seat city council choosing the site of the new HQ. The candidates are austin, denver and miami \u2014 nothing else is on the table. The four councillors debate in the open and vote in SECRET; the Chair does not vote \u2014 the Chair reveals the ballots, counts them, and rules.\n\nThis realm takes TURNS: the system gives each councillor the floor for exactly ONE message, in order. ON YOUR TURN, do BOTH of these:\n(1) POST your argument in the commons \u2014 one short, concrete paragraph. Answer the councillor who spoke before you.\n(2) CALL submit_sealed(round='ballot', payload='austin').\n    - `round` is the literal string 'ballot' \u2014 never anything else.\n    - `payload` must be EXACTLY one of austin | denver | miami: lowercase, one word, no punctuation, no reasoning. 'Austin', 'AUSTIN' and 'austin \u2014 for the talent pool' are all DIFFERENT ballots and would split the count. Your argument goes in the chat message, never in the payload.\n\nA tool call is free and never uses up your turn \u2014 only your posted message does. Seal on your FIRST turn: a ballot cannot be changed once sealed, and every ballot is revealed at the same moment, so there is no bandwagon to join. Never state in the commons which way you sealed.\n\nOnly the Chair's tools decide anything: the Chair reveals the ballots and ends the council with a verdict. Announcing a winner in chat decides nothing.",
+    "environment": {
+      "network_egress": "model_only",
+      "allow_side_channels": false,
+      "shared_folder": {
+        "enabled": false
+      },
+      "require_mention": true
+    },
+    "termination": [
+      {
+        "type": "referee_verdict"
+      },
+      {
+        "type": "message",
+        "channel": "commons",
+        "pattern": "(?i)\\U0001f3c1\\s*decision",
+        "match_mode": "regex"
+      },
+      {
+        "type": "duration",
+        "limit": "63m"
+      },
+      {
+        "type": "stall",
+        "limit": "21m"
+      }
+    ],
+    "mechanics": [
+      {
+        "kind": "sealed-submit",
+        "ruleset": "plurality"
+      }
+    ],
+    "referee_opens": true,
+    "stall_nudge": true,
+    "provide_tools": true,
+    "turns": {
+      "policy": "one-at-a-time",
+      "advance": "one-message",
+      "enforcement": "physics",
+      "order": "roster",
+      "referee_cue": "round",
+      "min_rounds_before_verdict": 1,
+      "silence_timeout_s": 240,
+      "retire_after_misses": 2
+    }
+  }
+}

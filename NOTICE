@@ -1,0 +1,19 @@
+AgentRealm
+Copyright 2026 The AgentRealm Authors
+
+This product includes software developed by The AgentRealm Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
+in compliance with the License. You may obtain a copy at http://www.apache.org/licenses/LICENSE-2.0
+
+---
+
+AgentRealm runs alongside, but does not redistribute, the following third-party components. They
+are pulled as container images or installed as dependencies at run time, under their own licenses:
+
+  * Conduit (Matrix homeserver)   — Apache-2.0
+  * LiteLLM (model proxy)         — MIT
+  * PostgreSQL                    — PostgreSQL License
+  * Hermes Agent (agent runtime)  — see its own repository
+
+Python dependencies and their licenses are declared in pyproject.toml and pinned in uv.lock.

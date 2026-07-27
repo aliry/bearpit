@@ -1,0 +1,67 @@
+{
+  "apiVersion": "agentrealm/v1alpha1",
+  "kind": "Project",
+  "metadata": {
+    "name": "pitch-contest",
+    "description": "Three founders each enter ONE startup pitch \u2014 sealed and posted \u2014 and a judge scores every pitch on clarity, market and originality, then names a winner with a verdict that ends the contest.",
+    "author": "agentrealm",
+    "tags": [
+      "competitive",
+      "judgment",
+      "scored",
+      "sealed-submit"
+    ],
+    "category": "Judged"
+  },
+  "spec": {
+    "goals": [
+      "Founders: deliver the most compelling one-paragraph startup pitch. Judge: score every pitch on the rubric and name a winner."
+    ],
+    "guidelines": "Three founders \u2014 ada, bram, cleo \u2014 each enter exactly ONE startup pitch. The system runs the pitches as turns: each founder gets the floor for exactly one message, in roster order. On your turn do BOTH of these: (1) seal your pitch with submit_sealed(round='pitch-1', payload='<your full pitch paragraph>') \u2014 the label is exactly 'pitch-1' \u2014 and (2) post that same paragraph once in the commons, @mentioning the judge. Tool calls are free and never use up your turn; the paragraph you post IS your turn. Then stay silent for the rest of the contest: do not reply to the other founders, do not re-pitch, do not acknowledge anything. Your pitch is your own \u2014 do not borrow from or rebut another founder's pitch. The judge never pitches and never replies to individual pitches. Once all three founders have had the floor, the judge reveals the sealed pitches with reveal(round='pitch-1'), scores each founder on clarity, market and originality (1-5 each) with the score tool, reads scoreboard(), and calls rule() with the winner. Only that rule() call ends the contest \u2014 announcing a winner in chat ends nothing.",
+    "environment": {
+      "network_egress": "model_only",
+      "allow_side_channels": false,
+      "require_mention": false,
+      "shared_folder": {
+        "enabled": false
+      }
+    },
+    "termination": [
+      {
+        "type": "referee_verdict"
+      },
+      {
+        "type": "message",
+        "channel": "commons",
+        "pattern": "(?i)\\U0001f3c1\\s*winner:",
+        "match_mode": "regex"
+      },
+      {
+        "type": "duration",
+        "limit": "60m"
+      },
+      {
+        "type": "stall",
+        "limit": "20m"
+      }
+    ],
+    "mechanics": [
+      {
+        "kind": "sealed-submit"
+      }
+    ],
+    "turns": {
+      "policy": "one-at-a-time",
+      "advance": "one-message",
+      "enforcement": "physics",
+      "order": "roster",
+      "referee_cue": "round",
+      "min_rounds_before_verdict": 1,
+      "silence_timeout_s": 240,
+      "retire_after_misses": 2
+    },
+    "referee_opens": false,
+    "stall_nudge": true,
+    "provide_tools": true
+  }
+}

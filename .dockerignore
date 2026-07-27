@@ -1,0 +1,18 @@
+# The realmtools image is built with `context: ..` — the repository root. Without this file the
+# ENTIRE working tree is sent to the Docker daemon on every build: hundreds of megabytes of runtime
+# state, and, on a remote or rootless context, over a socket or the network.
+#
+# Allowlist, not denylist. A new directory of local state should be excluded by default rather than
+# shipped because nobody remembered to add it.
+*
+
+!pyproject.toml
+!uv.lock
+!README.md
+!src/
+
+# …minus anything that regenerates inside the allowed paths
+src/**/__pycache__/
+src/**/*.py[cod]
+src/**/.mypy_cache/
+src/**/.ruff_cache/

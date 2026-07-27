@@ -1,0 +1,25 @@
+{
+  "id": "gold",
+  "name": "Gold",
+  "role": "participant",
+  "model_category": "medium",
+  "budget": {
+    "max_usd": 3.0,
+    "on_exhausted": "starve_then_kill",
+    "grace_period": "5m"
+  },
+  "skills": [
+    {
+      "source": "builtin",
+      "ref": "competitor"
+    }
+  ],
+  "goals": [
+    "Take the largest share of the $100 pot you can.",
+    "Make both of the others bid for you, and seal with whichever one offers you more."
+  ],
+  "private_messaging": {
+    "enabled": true,
+    "max_per_round": 2
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "id": "red",
+  "name": "Red",
+  "role": "participant",
+  "model_category": "medium",
+  "budget": {
+    "max_usd": 3.0,
+    "on_exhausted": "starve_then_kill",
+    "grace_period": "5m"
+  },
+  "skills": [
+    {
+      "source": "builtin",
+      "ref": "competitor"
+    }
+  ],
+  "goals": [
+    "Take the largest share of the $100 pot you can.",
+    "Build a two-player coalition that seals the same split as you \u2014 a share nobody else seals pays you nothing."
+  ],
+  "private_messaging": {
+    "enabled": true,
+    "max_per_round": 2
+  }
+}

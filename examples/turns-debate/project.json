@@ -1,0 +1,59 @@
+{
+  "apiVersion": "agentrealm/v1alpha1",
+  "kind": "Project",
+  "metadata": {
+    "name": "turns-debate",
+    "description": "Three advocates argue for a startup HQ city, one at a time; a chair watches the floor, scores every argument, and records the winner with a verdict.",
+    "author": "agentrealm",
+    "tags": [
+      "debate",
+      "turns",
+      "deliberation"
+    ],
+    "category": "Debate"
+  },
+  "spec": {
+    "goals": [
+      "Persuade the chair that your city is the best HQ: Austin, Miami, or Denver."
+    ],
+    "guidelines": "This is a turn-based roundtable. When it is your turn you get ONE message to make your case for your assigned city \u2014 the system passes the floor after it, and you cannot post out of turn. Tool calls are free and never use up your turn: recall() your notes before you speak, and remember(...) afterwards what you mean to attack next round. Round 2 is for REBUTTAL \u2014 name a rival's claim and break it. After every advocate has spoken (a round or two), the chair scores each argument and records the winner with its verdict tool; that tool call, not anything said in chat, is what ends the debate.",
+    "environment": {
+      "network_egress": "model_only",
+      "shared_folder": {
+        "enabled": false
+      },
+      "require_mention": false
+    },
+    "turns": {
+      "policy": "one-at-a-time",
+      "advance": "one-message",
+      "enforcement": "physics",
+      "order": "roster",
+      "referee_cue": "round",
+      "silence_timeout_s": 240,
+      "min_rounds_before_verdict": 1,
+      "retire_after_misses": 2
+    },
+    "termination": [
+      {
+        "type": "referee_verdict"
+      },
+      {
+        "type": "message",
+        "channel": "commons",
+        "pattern": "(?i)\\U0001f3c1\\s*verdict",
+        "match_mode": "regex"
+      },
+      {
+        "type": "duration",
+        "limit": "60m"
+      },
+      {
+        "type": "stall",
+        "limit": "20m"
+      }
+    ],
+    "referee_opens": false,
+    "provide_tools": true
+  }
+}

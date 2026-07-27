@@ -1,0 +1,11 @@
+{
+  "id": "ping",
+  "name": "Ping",
+  "model_category": "medium",
+  "budget": {
+    "max_usd": 2.0,
+    "on_exhausted": "starve_then_kill",
+    "grace_period": "5m"
+  },
+  "skills": []
+}

@@ -1,0 +1,20 @@
+{
+  "id": "bram",
+  "name": "Bram",
+  "role": "participant",
+  "model_category": "small",
+  "budget": {
+    "max_usd": 2.0,
+    "on_exhausted": "starve_then_kill",
+    "grace_period": "5m"
+  },
+  "skills": [
+    {
+      "source": "builtin",
+      "ref": "agent-basics"
+    }
+  ],
+  "goals": [
+    "Deliver the winning pitch."
+  ]
+}

@@ -1,0 +1,69 @@
+{
+  "apiVersion": "agentrealm/v1alpha1",
+  "kind": "Project",
+  "metadata": {
+    "name": "jury-unanimous",
+    "description": "Three jurors, one arson case, up to three sealed ballots. Each juror noticed a different detail in the exhibits, so none of them can reach a just verdict alone. The foreperson runs the ballots, reports only the split, and records the jury's verdict \u2014 unanimous, or hung.",
+    "author": "agentrealm",
+    "tags": [
+      "jury",
+      "unanimous",
+      "deliberation",
+      "sealed-ballot",
+      "hidden-information"
+    ],
+    "category": "Governance"
+  },
+  "spec": {
+    "goals": [
+      "Jurors: pool what each of you noticed, argue it honestly, and seal a ballot every round \u2014 unanimity or a hung jury, never a lazy verdict.",
+      "Foreperson: run the ballots, report only the split, and record the jury's verdict with rule()."
+    ],
+    "guidelines": "THE CASE \u2014 State v. Merrick Vance, arson of the Harborview warehouse on the night of 14 March.\nTHE CHARGE: that Vance set fire to his own warehouse to collect on the stock insured inside. The fire began at about 00:01.\n\nTHE PROSECUTION'S EVIDENCE:\n  P1. The access log shows a Vance company keycard opened the loading door at 23:41 \u2014 twenty minutes before the fire.\n  P2. Eleven days before the fire, Vance signed a policy raising the cover on the stock from $150,000 to $400,000.\n  P3. Dolan, the night clerk across the street, saw a man of Vance's build leave by the alley at 23:55.\n\nTHE DEFENCE'S EVIDENCE:\n  D1. Vance reported a keycard LOST on 11 March and was issued a replacement.\n  D2. The fire marshal placed the ignition point at the wiring cabinet, which is on the building's known-faulty list.\n  D3. Dolan watched from 40 metres, at night, in rain, and admits he never saw the man's face.\n\nTHE STANDARD: convict ONLY if guilt is proved BEYOND REASONABLE DOUBT. If a reasonable doubt remains, the verdict is not-guilty.\n\nEach juror also noticed ONE detail in the exhibits that the other two missed \u2014 it is in your own brief. Deliberation is worth nothing unless you put it on the table.\n\nHOW THE BALLOTS WORK. The jury room is turn-based: you hold the floor for exactly ONE message per round, and there are at most THREE ballots. THE BALLOT NUMBER IS THE ROUND NUMBER (round 1 = ballot-1, round 2 = ballot-2, round 3 = ballot-3); call turn_status() if you are unsure which round you are in.\nOn your turn: (1) answer the argument made before yours and say where you now stand; (2) seal your ballot \u2014 MANDATORY, every round \u2014 with\n    submit_sealed(round='ballot-<N>', payload='guilty')\n  or\n    submit_sealed(round='ballot-<N>', payload='not-guilty')\nThe payload is EXACTLY one of those two lowercase tokens: no prose, no prefix, no 'VERDICT:', no capitals, no full stop. Anything else is counted as a different vote and can hang the jury by accident.\nBallots are sealed and revealed together, so there is no bandwagon to join. The foreperson reports only the SPLIT (e.g. '2-1'), never who voted which way. You may change your mind BETWEEN ballots; a ballot you have already sealed can never be changed.\nThe foreperson does not deliberate and does not vote. Only the foreperson's rule() call ends the trial.",
+    "restrictions": "Do not invent evidence: the exhibits are exactly the guidelines above plus the one detail in your own brief. Do not post a ballot as a chat line instead of sealing it \u2014 an unsealed 'vote' counts for nothing. Do not use the \ud83c\udfc1 character in any message: it is reserved for the foreperson's closing line.",
+    "environment": {
+      "network_egress": "model_only",
+      "allow_side_channels": false,
+      "require_mention": true,
+      "shared_folder": {
+        "enabled": false
+      }
+    },
+    "termination": [
+      {
+        "type": "referee_verdict"
+      },
+      {
+        "type": "message",
+        "channel": "commons",
+        "pattern": "(?i)\\U0001f3c1\\s*verdict",
+        "match_mode": "regex"
+      },
+      {
+        "type": "duration",
+        "limit": "60m"
+      },
+      {
+        "type": "stall",
+        "limit": "20m"
+      }
+    ],
+    "mechanics": [
+      {
+        "kind": "sealed-submit"
+      }
+    ],
+    "turns": {
+      "policy": "one-at-a-time",
+      "advance": "one-message",
+      "enforcement": "physics",
+      "order": "roster",
+      "referee_cue": "round",
+      "min_rounds_before_verdict": 1,
+      "silence_timeout_s": 240
+    },
+    "referee_opens": true,
+    "stall_nudge": true,
+    "provide_tools": true
+  }
+}

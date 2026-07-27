@@ -1,0 +1,24 @@
+{
+  "id": "lead",
+  "name": "Lead",
+  "role": "participant",
+  "model_category": "medium",
+  "budget": {
+    "max_usd": 3.0,
+    "on_exhausted": "starve_then_kill",
+    "grace_period": "5m"
+  },
+  "skills": [
+    {
+      "source": "builtin",
+      "ref": "agent-basics"
+    },
+    {
+      "source": "builtin",
+      "ref": "collaborator"
+    }
+  ],
+  "goals": [
+    "Write the API section to /realm/shared/sections/lead.md with run_code, then assemble /realm/shared/design.md from all four section files."
+  ]
+}

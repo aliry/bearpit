@@ -1,0 +1,21 @@
+{
+  "id": "mira",
+  "name": "Mira",
+  "role": "participant",
+  "model_category": "medium",
+  "budget": {
+    "max_usd": 10.0,
+    "on_exhausted": "starve_then_kill",
+    "grace_period": "5m"
+  },
+  "skills": [
+    {
+      "source": "builtin",
+      "ref": "social-deduction"
+    }
+  ],
+  "goals": [
+    "Find and eject both impostors, or finish the ship's 12 repairs.",
+    "Reason from contradictions in what players claim \u2014 never from who is quiet."
+  ]
+}

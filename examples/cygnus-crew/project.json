@@ -1,0 +1,68 @@
+{
+  "apiVersion": "agentrealm/v1alpha1",
+  "kind": "Project",
+  "metadata": {
+    "name": "cygnus-crew",
+    "description": "Eight crew aboard the Cygnus; two are secret impostors. A full hidden-information simulation: players move around a 7-room ship, do secret work orders, kill, vent and sabotage \u2014 all sealed and simultaneous. Mother whispers each player only what they could perceive, so every word spoken in the meeting is a claim that might be a lie.",
+    "author": "agentrealm",
+    "tags": [
+      "social-deduction",
+      "hidden-role",
+      "hidden-information",
+      "deception",
+      "voting"
+    ],
+    "category": "Social Deduction"
+  },
+  "spec": {
+    "goals": [
+      "Crew: eject both impostors, or complete the ship's 12 repairs. Impostors: kill until you equal the crew's number, without being ejected."
+    ],
+    "guidelines": "You are crew aboard the survey ship Cygnus. Two of the eight of you are secret impostors. Each round has an ACTION phase \u2014 you seal a private action with submit_sealed(round='R<N>-act', ...) \u2014 and then a MEETING, where the system gives each living player the floor for exactly ONE message. Mother privately whispers you only what YOU could perceive: your room, who was in it with you, what you witnessed. Nobody sees the whole ship, so every location, task and alibi anyone states is a CLAIM that may be a lie \u2014 cross-check claims against each other and hunt for contradictions. On your turn, post your statement AND seal your vote with submit_sealed(round='R<N>-vote', payload='VOTE: <name>') \u2014 votes are revealed all at once, so there is no bandwagon to join. Vote only for a LIVING player, never for Mother. Mother alone declares the end of the game.",
+    "environment": {
+      "network_egress": "model_only",
+      "allow_side_channels": true,
+      "shared_folder": {
+        "enabled": false
+      },
+      "require_mention": true
+    },
+    "termination": [
+      {
+        "type": "referee_verdict"
+      },
+      {
+        "type": "message",
+        "channel": "commons",
+        "pattern": "(?i)\\U0001f3c1\\s*game over",
+        "match_mode": "regex"
+      },
+      {
+        "type": "duration",
+        "limit": "3h"
+      },
+      {
+        "type": "stall",
+        "limit": "37m"
+      }
+    ],
+    "mechanics": [
+      {
+        "kind": "sealed-submit"
+      }
+    ],
+    "referee_opens": true,
+    "stall_nudge": true,
+    "turns": {
+      "policy": "one-at-a-time",
+      "advance": "one-message",
+      "enforcement": "physics",
+      "order": "roster",
+      "referee_cue": "round",
+      "silence_timeout_s": 240,
+      "min_rounds_before_verdict": 0,
+      "retire_after_misses": 2
+    },
+    "provide_tools": true
+  }
+}

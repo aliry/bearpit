@@ -1,0 +1,23 @@
+{
+  "id": "orin",
+  "name": "Orin",
+  "role": "participant",
+  "model_category": "medium",
+  "budget": {
+    "max_usd": 4.0,
+    "on_exhausted": "starve_then_kill",
+    "grace_period": "5m"
+  },
+  "skills": [
+    {
+      "source": "builtin",
+      "ref": "agent-basics"
+    }
+  ],
+  "goals": [
+    "Supply the substantive content of the brief."
+  ],
+  "responsibilities": [
+    "Draft the body sections from your own knowledge; flag any claim you are not confident in rather than inventing a source."
+  ]
+}

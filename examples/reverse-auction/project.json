@@ -1,0 +1,68 @@
+{
+  "apiVersion": "agentrealm/v1alpha1",
+  "kind": "Project",
+  "metadata": {
+    "name": "reverse-auction",
+    "description": "Three suppliers each seal ONE integer price bid for a single supply contract; the buyer reveals them together and awards the contract to the LOWEST bid. Every supplier has a different private cost floor, so nobody knows how far a rival can go.",
+    "author": "agentrealm",
+    "tags": [
+      "competitive",
+      "auction",
+      "procurement",
+      "sealed-bid",
+      "low-bid"
+    ],
+    "category": "Auction"
+  },
+  "spec": {
+    "goals": [
+      "SUPPLIERS (athena, boreas, cassia): win the supply contract by sealing the lowest price bid that still clears your own private cost floor.",
+      "THE BUYER: reveal the three sealed bids, tally them with the low-bid ruleset, and award the contract to the lowest bidder with your verdict tool."
+    ],
+    "guidelines": "This is a sealed-bid REVERSE auction for ONE supply contract: the LOWEST price wins. There is exactly ONE bidding round and its label is 'final'. There is no second round and no re-bid.\n\nSUPPLIERS (athena, boreas, cassia) \u2014 on your turn, in this order: (1) call submit_sealed(round='final', payload='<integer>'). The payload is the BARE INTEGER and nothing else \u2014 payload='47', never '47 credits', '$47' or 'I bid 47'; a malformed payload can void the auction for everyone. Tool calls are free and do not use up your turn. (2) THEN post ONE short message to the commons. NEVER state your number, or any number, in the commons \u2014 your bid is sealed precisely so that a rival cannot undercut it by one. Your seal is immutable and you get exactly one.\n\nTHE BUYER \u2014 does not bid. It opens the auction, waits until all three bids are sealed, then reveals them, tallies with the low-bid ruleset, and awards the contract with its verdict tool.\n\nTIE-BREAK: if two suppliers seal the same lowest price, the contract goes to the one whose id comes FIRST alphabetically.",
+    "environment": {
+      "network_egress": "model_only",
+      "shared_folder": {
+        "enabled": false
+      },
+      "require_mention": true
+    },
+    "termination": [
+      {
+        "type": "referee_verdict"
+      },
+      {
+        "type": "message",
+        "channel": "commons",
+        "pattern": "(?i)\\U0001f3c1\\s*contract awarded",
+        "match_mode": "regex"
+      },
+      {
+        "type": "duration",
+        "limit": "60m"
+      },
+      {
+        "type": "stall",
+        "limit": "20m"
+      }
+    ],
+    "mechanics": [
+      {
+        "kind": "sealed-submit",
+        "ruleset": "low-bid"
+      }
+    ],
+    "turns": {
+      "policy": "one-at-a-time",
+      "advance": "one-message",
+      "enforcement": "physics",
+      "order": "roster",
+      "referee_cue": "round",
+      "min_rounds_before_verdict": 1,
+      "silence_timeout_s": 240
+    },
+    "referee_opens": true,
+    "stall_nudge": true,
+    "provide_tools": true
+  }
+}

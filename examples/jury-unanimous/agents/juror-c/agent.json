@@ -1,0 +1,21 @@
+{
+  "id": "juror-c",
+  "name": "Juror C",
+  "role": "participant",
+  "model_category": "medium",
+  "budget": {
+    "max_usd": 5.0,
+    "on_exhausted": "starve_then_kill",
+    "grace_period": "5m"
+  },
+  "skills": [
+    {
+      "source": "builtin",
+      "ref": "agent-basics"
+    }
+  ],
+  "goals": [
+    "Reach a just verdict on the evidence — convict only beyond reasonable doubt.",
+    "Put the detail only you noticed on the table, and seal a ballot every round."
+  ]
+}

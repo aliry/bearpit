@@ -1,0 +1,55 @@
+{
+  "apiVersion": "agentrealm/v1alpha1",
+  "kind": "Project",
+  "metadata": {
+    "name": "toolcheck",
+    "description": "Platform diagnostic: a ONE-round word relay that exercises context replay (echo the previous word), strict turns, a participant tool (submit_sealed), and the referee's toolkit (reveal, score, eliminate, rule). Short and cheap by design.",
+    "author": "agentrealm",
+    "tags": [
+      "diagnostic",
+      "platform-test",
+      "relay"
+    ],
+    "category": "Diagnostics"
+  },
+  "spec": {
+    "goals": [
+      "Relay one word cleanly: echo the previous word, seal your own with the tool, and survive the cut. The umpire verifies every step with its tools."
+    ],
+    "guidelines": "A ONE-ROUND word relay used to verify the platform end to end. On your turn do BOTH steps in order:\n(1) CALL the submit_sealed tool with EXACTLY round='R1' (that literal string \u2014 never a number) and payload=<a NEW fruit word nobody has used>.\n(2) THEN post exactly one one-line message: '<last word> -> <your word>', where <last word> is the newest word in the conversation before your turn (the umpire's seed word, or the previous player's word) and <your word> is the exact word you just sealed.\nThe echo proves you can see the conversation; the seal proves your tools work. A tool call is free and never ends your turn \u2014 only your posted message does. Only the umpire's tools change the game state.",
+    "environment": {
+      "network_egress": "model_only",
+      "allow_side_channels": false,
+      "shared_folder": {
+        "enabled": false
+      },
+      "require_mention": true
+    },
+    "termination": [
+      {
+        "type": "referee_verdict"
+      },
+      {
+        "type": "duration",
+        "limit": "60m"
+      },
+      {
+        "type": "stall",
+        "limit": "20m"
+      }
+    ],
+    "mechanics": [],
+    "referee_opens": true,
+    "provide_tools": true,
+    "turns": {
+      "policy": "one-at-a-time",
+      "advance": "one-message",
+      "enforcement": "physics",
+      "order": "roster",
+      "referee_cue": "round",
+      "silence_timeout_s": 240,
+      "min_rounds_before_verdict": 1,
+      "retire_after_misses": 2
+    }
+  }
+}

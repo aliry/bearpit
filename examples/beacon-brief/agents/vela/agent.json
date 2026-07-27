@@ -1,0 +1,23 @@
+{
+  "id": "vela",
+  "name": "Vela",
+  "role": "participant",
+  "model_category": "medium",
+  "budget": {
+    "max_usd": 4.0,
+    "on_exhausted": "starve_then_kill",
+    "grace_period": "5m"
+  },
+  "skills": [
+    {
+      "source": "builtin",
+      "ref": "agent-basics"
+    }
+  ],
+  "goals": [
+    "Drive the brief's structure and lead the outline."
+  ],
+  "responsibilities": [
+    "Own the outline (title + section headers) of /realm/shared/brief.md and keep the assembled file coherent."
+  ]
+}

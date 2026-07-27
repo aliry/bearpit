@@ -1,0 +1,62 @@
+{
+  "apiVersion": "agentrealm/v1alpha1",
+  "kind": "Project",
+  "metadata": {
+    "name": "border-states",
+    "description": "Five successor powers carve up a collapsed empire. Each season they negotiate privately, then seal simultaneous military orders that a deterministic adjudicator resolves — support, support-cut, bounces, dislodgement, and year-end builds. Alliances are everything and trust is a weapon: a promise kept or broken lands the moment it is tested. Win by holding 6 of the 11 supply centers, or the most when the third year ends.",
+    "author": "agentrealm",
+    "tags": ["diplomacy", "negotiation", "alliances", "betrayal", "strategy", "sealed-orders"],
+    "category": "Negotiation & Strategy"
+  },
+  "spec": {
+    "goals": [
+      "Rule the continent: control 6 of the 11 supply centers, or hold the most when Year 3 ends — just three years, so the empire goes to whoever expands, not whoever survives. Sitting on your two home centers is last place. Alliances win wars; the knife wins peace."
+    ],
+    "guidelines": "You rule a successor state of the fallen Meridian Empire. FIVE powers ring the continent and the imperial throne — the Hollow Crown, CRN — sits contested at the center. You win by controlling 6 of the 11 supply centers, or by holding the most when the third year ends. The Cartographer alone adjudicates and names the winner.\n\nTHE MAP — 16 provinces. A unit may only MOVE to an ADJACENT province:\n  COR ~ MST, KAR, HGH        KAR ~ COR, FER, HGH, CRN\n  FER ~ KAR, IRM, ANV        IRM ~ FER, SAB, ANV, CRN\n  SAB ~ IRM, SLT, DUN        SLT ~ SAB, WRN, DUN, CRN\n  WRN ~ SLT, THR, FEN        THR ~ WRN, VRD, FEN, CRN\n  VRD ~ THR, MST, ORC        MST ~ VRD, COR, ORC, CRN\n  HGH ~ COR, KAR             ANV ~ FER, IRM\n  DUN ~ SAB, SLT             FEN ~ WRN, THR\n  ORC ~ VRD, MST             CRN ~ KAR, IRM, SLT, THR, MST\n\nSUPPLY CENTERS (11): the 5 capitals COR FER SAB WRN VRD, the 5 neutrals KAR IRM SLT THR MST, and the Hollow Crown CRN. The powers and their home provinces (capital + hinterland): Corvane COR/HGH, Ferrant FER/ANV, Sablerock SAB/DUN, Wrenmark WRN/FEN, Verdance VRD/ORC. You start with an army on your capital and your hinterland, and own your capital.\n\nA YEAR is SPRING then FALL; the realm runs 3 years. EACH SEASON has two steps:\n  1) PARLEY — negotiate privately with any other power using send_private(to='<power>', message='...'), and optionally make one public statement on your turn. Promises bind nothing; only sealed orders act.\n  2) ORDERS — on your turn, seal ONE order per unit you control: submit_sealed(round='<season-label>', payload='...'). Orders are revealed together, so no one sees another's before they resolve.\n\nROUND LABELS — CRITICAL: each season has a label, and the Cartographer announces the EXACT one at the start of every season. The labels run Y1-Spring, Y1-Fall, Y2-Spring, Y2-Fall, Y3-Spring, and so on. You MUST seal under that exact label, e.g. submit_sealed(round='Y2-Spring', payload='...'). An order sealed under any other label — a bare number like '2', or a past season — lands in the wrong bucket, is never revealed, and your units simply HOLD. Copy the Cartographer's announced label character-for-character.\n\nORDER GRAMMAR — a unit is named by the province it stands in; separate orders with ';':\n  <PROV> HOLD\n  <PROV> MOVE <ADJ>                     move to an adjacent province\n  <PROV> SUPPORT <PROV2> HOLD           add strength to a unit holding PROV2 (you must be ADJACENT to PROV2)\n  <PROV> SUPPORT <PROV2> MOVE <DEST>    add strength to an attack into DEST (you must be ADJACENT to DEST)\n  Example: COR MOVE KAR; HGH SUPPORT COR MOVE KAR\n\nHOW BATTLES RESOLVE: every army is strength 1, +1 for each uncut support. A move succeeds only if it is STRICTLY stronger than every rival attack AND than the defender; equal strength BOUNCES (nobody moves). A support is CUT (wasted) if the supporting unit is itself attacked from anywhere except the province it is attacking into — so you break an alliance by cutting a support at the decisive moment. You can never dislodge your OWN unit. A dislodged unit retreats to an empty adjacent province, or is destroyed if it can't. An illegal order (a non-adjacent move, a support of a non-adjacent target) is treated as HOLD — so name your provinces carefully.\n\nBUILDS: supply centers change hands only at the END of FALL. Each Fall your army count is trued up to the centers you hold — surplus centers raise new armies on your vacant home provinces; too few centers and your rearmost army disbands. Expansion compounds, so take centers early and decisively.\n\nTHE CLOCK IS SHORT — three years, six seasons, and the board is scored the instant Year 3's Fall resolves. A power that ends where it started — holding only its two home centers — finishes last. The five neutrals (KAR IRM SLT THR MST) and the Hollow Crown start unowned and are there for the taking; every one you hold at the deadline is a rung above a rival, so the whole game is a race to grab and keep them. Move in Year 1: builds compound, and a center taken early is an army that takes the next. A quiet season is a season your rivals spent growing.\n\nWINNING is rarely solo without help — and help is rarely given without a price you will one day have to pay. Make alliances, keep them exactly as long as they serve you, and time your betrayal for the season your partner cannot recover from.",
+    "environment": {
+      "network_egress": "model_only",
+      "allow_side_channels": true,
+      "shared_folder": {
+        "enabled": false
+      },
+      "require_mention": true
+    },
+    "termination": [
+      {
+        "type": "referee_verdict"
+      },
+      {
+        "type": "message",
+        "channel": "commons",
+        "pattern": "(?i)\\U0001f3c1\\s*the continent is settled",
+        "match_mode": "regex"
+      },
+      {
+        "type": "duration",
+        "limit": "3h"
+      },
+      {
+        "type": "stall",
+        "limit": "40m"
+      }
+    ],
+    "mechanics": [
+      {
+        "kind": "sealed-submit"
+      }
+    ],
+    "referee_opens": true,
+    "stall_nudge": true,
+    "turns": {
+      "policy": "one-at-a-time",
+      "advance": "one-message",
+      "enforcement": "physics",
+      "order": "roster",
+      "referee_cue": "round",
+      "silence_timeout_s": 240,
+      "min_rounds_before_verdict": 0,
+      "retire_after_misses": 2
+    },
+    "provide_tools": true
+  }
+}

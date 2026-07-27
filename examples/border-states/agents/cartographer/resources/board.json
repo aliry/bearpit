@@ -1,0 +1,40 @@
+{
+  "adjacency": {
+    "COR": ["MST", "KAR", "HGH"],
+    "KAR": ["COR", "FER", "HGH", "CRN"],
+    "FER": ["KAR", "IRM", "ANV"],
+    "IRM": ["FER", "SAB", "ANV", "CRN"],
+    "SAB": ["IRM", "SLT", "DUN"],
+    "SLT": ["SAB", "WRN", "DUN", "CRN"],
+    "WRN": ["SLT", "THR", "FEN"],
+    "THR": ["WRN", "VRD", "FEN", "CRN"],
+    "VRD": ["THR", "MST", "ORC"],
+    "MST": ["VRD", "COR", "ORC", "CRN"],
+    "HGH": ["COR", "KAR"],
+    "ANV": ["FER", "IRM"],
+    "DUN": ["SAB", "SLT"],
+    "FEN": ["WRN", "THR"],
+    "ORC": ["VRD", "MST"],
+    "CRN": ["KAR", "IRM", "SLT", "THR", "MST"]
+  },
+  "centers": ["COR", "FER", "SAB", "WRN", "VRD", "KAR", "IRM", "SLT", "THR", "MST", "CRN"],
+  "homes": {
+    "corvane": ["COR", "HGH"],
+    "ferrant": ["FER", "ANV"],
+    "sablerock": ["SAB", "DUN"],
+    "wrenmark": ["WRN", "FEN"],
+    "verdance": ["VRD", "ORC"]
+  },
+  "units": {
+    "COR": "corvane", "HGH": "corvane",
+    "FER": "ferrant", "ANV": "ferrant",
+    "SAB": "sablerock", "DUN": "sablerock",
+    "WRN": "wrenmark", "FEN": "wrenmark",
+    "VRD": "verdance", "ORC": "verdance"
+  },
+  "owners": {
+    "COR": "corvane", "FER": "ferrant", "SAB": "sablerock",
+    "WRN": "wrenmark", "VRD": "verdance"
+  },
+  "season": "Y1-Spring"
+}

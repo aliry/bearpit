@@ -1,0 +1,117 @@
+# AgentRealm platform (M8, architecture §5/§15). One `docker compose up` brings up the
+# control plane and its backing services. Agent containers are provisioned dynamically by
+# Forge onto per-realm networks — they are NOT defined here.
+#
+# Pinned versions (execution rule #4). Copy .env.example -> .env and fill it in before `up`.
+#
+# Every published port is bound to 127.0.0.1 on purpose. These services hold the whole realm —
+# transcripts, private notes, revealed submissions, and your provider key — and only the host-side
+# platform ever talks to them. Binding them to 0.0.0.0 would expose all of that to anyone on the
+# same network as your machine.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: arealm-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: arealm
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      POSTGRES_DB: agentrealm
+    ports: ["127.0.0.1:5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U arealm -d agentrealm"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  conduit:
+    image: matrixconduit/matrix-conduit:v0.10.9
+    container_name: arealm-conduit
+    restart: unless-stopped
+    ports: ["127.0.0.1:6167:6167"]
+    environment:
+      CONDUIT_CONFIG: ""                 # configure via env only (caveat C13)
+      CONDUIT_SERVER_NAME: realm.local
+      CONDUIT_ADDRESS: 0.0.0.0
+      CONDUIT_PORT: "6167"
+      CONDUIT_DATABASE_BACKEND: rocksdb
+      CONDUIT_DATABASE_PATH: /var/lib/matrix-conduit
+      CONDUIT_ALLOW_REGISTRATION: "true"  # private homeserver; Herald registers the system acct first
+      CONDUIT_ALLOW_FEDERATION: "false"
+      CONDUIT_ALLOW_CHECK_FOR_UPDATES: "false"
+      CONDUIT_MAX_REQUEST_SIZE: "20000000"
+      CONDUIT_LOG: warn
+    volumes: ["conduit:/var/lib/matrix-conduit"]
+
+  litellm-db:
+    image: postgres:16-alpine
+    container_name: arealm-litellm-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: llm
+      POSTGRES_PASSWORD: ${LITELLM_DB_PASSWORD:?set LITELLM_DB_PASSWORD in deploy/.env}
+      POSTGRES_DB: litellm
+    volumes: ["litellm-db:/var/lib/postgresql/data"]
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    container_name: arealm-litellm
+    restart: unless-stopped
+    depends_on: [litellm-db]
+    ports: ["127.0.0.1:4000:4000"]
+    environment:
+      DATABASE_URL: postgresql://llm:${LITELLM_DB_PASSWORD}@litellm-db:5432/litellm
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?set LITELLM_MASTER_KEY in .env}
+      STORE_MODEL_IN_DB: "True"          # Ledger mints virtual keys + registers models at run time
+    # so LiteLLM can reach a model endpoint running on the HOST at host.docker.internal — the
+    # api_base of any locally-hosted provider. Harmless otherwise. host-gateway works on
+    # Docker Desktop, colima, and Linux.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["--port", "4000"]
+
+  # Realmtools MCP server (#39) — serves the sealed-submit mechanic to agents. Forge attaches
+  # it to each realm network that declares a mechanic; agents reach it at
+  # http://arealm-realmtools:9100/mcp. Its REALMTOOLS_SECRET must match the control plane's
+  # (used to mint per-agent tokens).
+  realmtools:
+    build:
+      context: ..
+      dockerfile: deploy/realmtools.Dockerfile
+    image: arealm-realmtools:latest
+    container_name: arealm-realmtools
+    restart: unless-stopped
+    ports:
+      # loopback-only: a host-side process may need to reach the realm's tools on an agent's
+      # behalf, and this port must never be reachable from anywhere else.
+      # Every request needs a signed per-agent bearer token, so exposure is the operator's own
+      # machine + token-gated identity (the operator already holds REALMTOOLS_SECRET).
+      - "127.0.0.1:9100:9100"
+    depends_on:
+      postgres: {condition: service_healthy}
+    environment:
+      AGENTREALM_DATABASE_URL: postgresql+asyncpg://arealm:${POSTGRES_PASSWORD}@postgres:5432/agentrealm
+      REALMTOOLS_SECRET: ${REALMTOOLS_SECRET:?set REALMTOOLS_SECRET in .env}
+      REALMTOOLS_PORT: "9100"
+
+  # The control plane (Gatekeeper/Forge/Warden/Ledger/Chronicle/Herald) — one app process.
+  # Commented until the app has an entrypoint (built out across M2–M7); infra above is usable now.
+  # app:
+  #   build: ..
+  #   container_name: arealm-app
+  #   depends_on:
+  #     postgres: {condition: service_healthy}
+  #     conduit: {condition: service_started}
+  #     litellm: {condition: service_started}
+  #   environment:
+  #     AGENTREALM_DATABASE_URL: postgresql+asyncpg://arealm:${POSTGRES_PASSWORD}@postgres:5432/agentrealm
+  #     AGENTREALM_MATRIX_HOMESERVER: http://conduit:6167
+  #     AGENTREALM_LITELLM_URL: http://litellm:4000
+  #   volumes: ["/var/run/docker.sock:/var/run/docker.sock"]  # Forge provisions agent containers
+
+volumes:
+  pgdata:
+  conduit:
+  litellm-db:

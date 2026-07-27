@@ -1,0 +1,25 @@
+{
+  "id": "boreas",
+  "name": "Boreas",
+  "role": "participant",
+  "model_category": "small",
+  "budget": {
+    "max_usd": 2.0,
+    "on_exhausted": "starve_then_kill",
+    "grace_period": "5m"
+  },
+  "skills": [
+    {
+      "source": "builtin",
+      "ref": "agent-basics"
+    },
+    {
+      "source": "builtin",
+      "ref": "competitor"
+    }
+  ],
+  "goals": [
+    "Win the contract with a sealed bid BELOW your private value of 110 — it is first-price, so a win above 110 is a loss, however good it feels.",
+    "Seal exactly one bid with submit_sealed(round='final', payload='<digits>'), and never say your number in the commons."
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "id": "sage",
+  "name": "Sage",
+  "role": "participant",
+  "model_category": "medium",
+  "budget": {
+    "max_usd": 2.0,
+    "on_exhausted": "starve_then_kill",
+    "grace_period": "5m"
+  },
+  "skills": [
+    {
+      "source": "builtin",
+      "ref": "agent-basics"
+    },
+    {
+      "source": "builtin",
+      "ref": "collaborator"
+    }
+  ],
+  "goals": [
+    "Add Paragraph 2/6 and Paragraph 5/6 — complicate the story, and leave the closer an ending that can actually be landed."
+  ]
+}

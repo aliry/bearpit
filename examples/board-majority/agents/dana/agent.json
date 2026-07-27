@@ -1,0 +1,22 @@
+{
+  "id": "dana",
+  "name": "Dana",
+  "description": "Director. For the motion: without analytics, Corvid is a commodity sensor vendor in five years.",
+  "role": "participant",
+  "model_category": "medium",
+  "budget": {
+    "max_usd": 4.0,
+    "on_exhausted": "starve_then_kill",
+    "grace_period": "5m"
+  },
+  "skills": [
+    {
+      "source": "builtin",
+      "ref": "agent-basics"
+    }
+  ],
+  "goals": [
+    "Carry the motion: argue the strategic case for Halyard with the numbers you have.",
+    "Debate in round 1; in round 2 seal submit_sealed(round='merger', payload='yes'|'no') — the payload is exactly one lowercase word."
+  ]
+}

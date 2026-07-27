@@ -1,0 +1,24 @@
+{
+  "id": "wren",
+  "name": "Wren",
+  "role": "participant",
+  "model_category": "medium",
+  "budget": {
+    "max_usd": 2.0,
+    "on_exhausted": "starve_then_kill",
+    "grace_period": "5m"
+  },
+  "skills": [
+    {
+      "source": "builtin",
+      "ref": "agent-basics"
+    },
+    {
+      "source": "builtin",
+      "ref": "collaborator"
+    }
+  ],
+  "goals": [
+    "Add Paragraph 3/6, then close the story with Paragraph 6/6 — resolve it and end the message with the exact line `🏁 THE END`."
+  ]
+}

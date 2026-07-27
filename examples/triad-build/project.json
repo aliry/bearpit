@@ -1,0 +1,53 @@
+{
+  "apiVersion": "agentrealm/v1alpha1",
+  "kind": "Project",
+  "metadata": {
+    "name": "triad-build",
+    "description": "Four engineers co-author a URL-shortener design doc in the shared folder \u2014 one section file each, assembled by the lead into /realm/shared/design.md \u2014 and sign it off. An editor-in-chief reads the finished doc, checks it against an acceptance checklist, and rules it shipped.",
+    "author": "agentrealm",
+    "tags": [
+      "cooperative",
+      "multi-party",
+      "shared-folder",
+      "referee",
+      "co-authoring"
+    ],
+    "category": "Cooperative"
+  },
+  "spec": {
+    "goals": [
+      "Engineers (lead, store, scale, review): each write your own section file to /realm/shared/sections/<your-id>.md, review each other, revise \u2014 then lead assembles the four into '/realm/shared/design.md': a crisp URL-shortener design that all four endorse.",
+      "Editor: read /realm/shared/design.md, check it against the acceptance checklist, and call rule() once it is complete and signed. Only the editor's verdict ends this realm."
+    ],
+    "guidelines": "You are four engineers co-authoring ONE design doc for a URL shortener, plus an editor-in-chief who ships it.\n\nTHE DOC IS A FILE, and the ONLY way to touch a file is the `run_code` tool \u2014 there is no file tool, no shell, no browser. The shared folder is mounted at /realm/shared in your container.\n\nYOUR OWN SECTION FILE IS /realm/shared/sections/<your-id>.md \u2014 lead.md, store.md, scale.md, review.md. The folder does not exist yet, so create it in the same call:\n  run_code(code=\"import os; os.makedirs('/realm/shared/sections', exist_ok=True); open('/realm/shared/sections/<your-id>.md','w').write('## <Your section>\\n\\n...')\")\nRead what the others wrote with:\n  run_code(code=\"import os; print(os.listdir('/realm/shared/sections'))\")\n  run_code(code=\"print(open('/realm/shared/sections/store.md').read())\")\nNEVER write /realm/shared/design.md yourself \u2014 only lead assembles it, out of the section files. Two agents writing the same file clobber each other and sections silently vanish.\n\nTHE ORDER OF WORK. Follow it; do not run ahead.\n  1. DRAFT \u2014 each of you writes your OWN section file with run_code (~200-300 words), then says so in one short line in the commons.\n  2. REVIEW \u2014 read the other three section files with run_code and post SHORT, concrete review notes in the commons (name the file, name the fix).\n  3. REVISE \u2014 authors rewrite their own section file with run_code. Do not paste revisions into chat.\n  4. ASSEMBLE \u2014 LEAD, and only lead, writes /realm/shared/design.md from the four section files with run_code, in this order: API, Storage, Scaling, Risks & open questions.\n  5. SIGN \u2014 only once design.md actually exists and you have read it back, each of you posts exactly '\u2705 SIGNED' in the commons. Once each, and never before design.md exists. Do not use the word SIGNED in any other sentence.\n  6. FINALIZE \u2014 REVIEW prepends 'STATUS: FINAL' as the first line of /realm/shared/design.md with run_code (read it, prepend, write it back) once all four \u2705 SIGNED posts are in.\n\nNothing you say in chat writes, edits or finalizes anything \u2014 only run_code does. Posting the design in the commons does not count; the file counts. Keep notes with remember(...) and read them back with recall() at the start of every turn: which sections exist, whose review notes are still outstanding, who has already signed.\n\nThe editor alone ends this realm: it reads design.md, checks it, and rules. Keep the commons short \u2014 it is a working channel, not the doc.",
+    "environment": {
+      "network_egress": "model_only",
+      "require_mention": false,
+      "shared_folder": {
+        "enabled": true
+      }
+    },
+    "termination": [
+      {
+        "type": "referee_verdict"
+      },
+      {
+        "type": "message",
+        "channel": "commons",
+        "pattern": "(?i)\\U0001f3c1\\s*SHIPPED",
+        "match_mode": "regex",
+        "count": 1
+      },
+      {
+        "type": "duration",
+        "limit": "60m"
+      },
+      {
+        "type": "stall",
+        "limit": "20m"
+      }
+    ],
+    "stall_nudge": true,
+    "provide_tools": true
+  }
+}

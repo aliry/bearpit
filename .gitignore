@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node / UI
+node_modules/
+.next/
+dist/
+
+# Secrets & local config
+.env
+.env.*
+!.env.example
+*.key
+
+# Runtime data (realms, volumes, archives)
+data/
+archives/
+
+# OS / editor / tooling
+.DS_Store
+.idea/
+.vscode/
+*.swp
+.coverage
+htmlcov/
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+# secrets & local runtime state, wherever they appear
+**/.env
+**/.secrets/
+**/azure.env
+**/homes/
+**/hermes-home/
+
+# an agent-authored skill bundle once landed in a committed transcript artifact; keep the
+# mechanism that produced it from doing so again
+**/artifacts/*-skills/
+
+# browser-automation scratch (screenshots, snapshots) — never part of the repo
+/.playwright-mcp/
+/*.png

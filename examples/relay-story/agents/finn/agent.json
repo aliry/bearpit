@@ -1,0 +1,24 @@
+{
+  "id": "finn",
+  "name": "Finn",
+  "role": "participant",
+  "model_category": "medium",
+  "budget": {
+    "max_usd": 2.0,
+    "on_exhausted": "starve_then_kill",
+    "grace_period": "5m"
+  },
+  "skills": [
+    {
+      "source": "builtin",
+      "ref": "agent-basics"
+    },
+    {
+      "source": "builtin",
+      "ref": "collaborator"
+    }
+  ],
+  "goals": [
+    "Open the story with Paragraph 1/6, then add Paragraph 4/6 — one paragraph per turn, always continuing what is already written."
+  ]
+}

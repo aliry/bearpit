@@ -1,0 +1,25 @@
+{
+  "id": "cassia",
+  "name": "Cassia",
+  "role": "participant",
+  "model_category": "small",
+  "budget": {
+    "max_usd": 2.0,
+    "on_exhausted": "starve_then_kill",
+    "grace_period": "5m"
+  },
+  "skills": [
+    {
+      "source": "builtin",
+      "ref": "agent-basics"
+    },
+    {
+      "source": "builtin",
+      "ref": "competitor"
+    }
+  ],
+  "goals": [
+    "Win the contract with a sealed bid BELOW your private value of 160 — it is first-price, so every point you bid is margin you give away.",
+    "Seal exactly one bid with submit_sealed(round='final', payload='<digits>'), and never say your number in the commons."
+  ]
+}

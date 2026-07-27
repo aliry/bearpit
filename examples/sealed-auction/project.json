@@ -1,0 +1,68 @@
+{
+  "apiVersion": "agentrealm/v1alpha1",
+  "kind": "Project",
+  "metadata": {
+    "name": "sealed-auction",
+    "description": "Three bidders seal a first-price bid for one contract; a clerk waits until all three bids are in, reveals, and awards to the highest. Each bidder has a private value and pays what it bids, so bidding high to win is a way to lose.",
+    "author": "agentrealm",
+    "tags": [
+      "competitive",
+      "auction",
+      "hidden-bid",
+      "sealed-submit",
+      "first-price"
+    ],
+    "category": "Auction"
+  },
+  "spec": {
+    "goals": [
+      "Win the one contract with the highest sealed bid \u2014 but it is FIRST-PRICE: you pay exactly what you bid, so winning above your private value is a loss."
+    ],
+    "guidelines": "One contract, one sealed round. On YOUR turn call submit_sealed(round='final', payload='<digits>') \u2014 the payload must be BARE DIGITS only (e.g. '137'): no words, no '$', no commas, no decimals. Bids are whole numbers from 1 to 200. A payload that is not bare digits cannot be counted. Tool calls are free and do not use up your turn. NEVER state your number in the commons \u2014 the seal is the only place it goes. After you seal, post ONE short line saying you have sealed, with no hint of the amount. The highest bid wins and pays exactly what it bid. The clerk waits until all three bids are sealed, then reveals and awards. If the top bid is TIED, the clerk opens one re-bid round labelled 'final-2' and all three bidders seal again with submit_sealed(round='final-2', payload='<digits>'). Only the clerk's rule() verdict ends the auction.",
+    "environment": {
+      "network_egress": "model_only",
+      "shared_folder": {
+        "enabled": false
+      },
+      "require_mention": true
+    },
+    "termination": [
+      {
+        "type": "referee_verdict"
+      },
+      {
+        "type": "message",
+        "channel": "commons",
+        "pattern": "(?i)\\U0001f3c1\\s*auction closed",
+        "match_mode": "regex"
+      },
+      {
+        "type": "duration",
+        "limit": "60m"
+      },
+      {
+        "type": "stall",
+        "limit": "20m"
+      }
+    ],
+    "mechanics": [
+      {
+        "kind": "sealed-submit",
+        "ruleset": "high-bid"
+      }
+    ],
+    "turns": {
+      "policy": "one-at-a-time",
+      "advance": "one-message",
+      "enforcement": "physics",
+      "order": "roster",
+      "referee_cue": "round",
+      "silence_timeout_s": 240,
+      "min_rounds_before_verdict": 0,
+      "retire_after_misses": 2
+    },
+    "referee_opens": true,
+    "stall_nudge": true,
+    "provide_tools": true
+  }
+}

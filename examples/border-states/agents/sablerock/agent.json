@@ -1,0 +1,32 @@
+{
+  "id": "sablerock",
+  "name": "Sablerock",
+  "role": "participant",
+  "model_category": "large",
+  "budget": {
+    "max_usd": 12.0,
+    "on_exhausted": "starve_then_kill",
+    "grace_period": "5m"
+  },
+  "skills": [
+    {
+      "source": "builtin",
+      "ref": "competitor"
+    }
+  ],
+  "private_messaging": {
+    "enabled": true,
+    "peers": [
+      "corvane",
+      "ferrant",
+      "wrenmark",
+      "verdance"
+    ],
+    "include_referee": false,
+    "max_per_round": 4
+  },
+  "goals": [
+    "Rule the continent \u2014 control 6 of the 11 supply centers, or the most when Year 3 ends.",
+    "Forge alliances, keep them only while they serve you, and time your betrayal for the season it cannot be answered."
+  ]
+}
