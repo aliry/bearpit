@@ -41,8 +41,10 @@ CATEGORIES = (ModelCategory.SMALL, ModelCategory.MEDIUM, ModelCategory.LARGE)
 #
 # NOTE ON THE SEED VALUES: model ids, per-token prices, and context windows are a snapshot, not a
 # contract. Providers rename models and change prices; every field below is editable on the
-# Settings page and the prices only ever meter YOUR budgets. Check them against your provider's
-# current pricing page before you rely on a cap.
+# Settings page. Verified against live provider data on 2026-07-27 — and worth doing, because the
+# first draft was written from memory and understated the GPT prices by up to 24x. Prices are what
+# budget caps are computed from, so an understated price silently lets an agent spend past its cap:
+# check them against your provider's current pricing before you rely on one.
 DEFAULT_PROVIDERS: dict[str, dict[str, Any]] = {
     AZURE: {
         "label": "Azure",
@@ -52,14 +54,14 @@ DEFAULT_PROVIDERS: dict[str, dict[str, Any]] = {
         # reasoning_effort param is dropped by the proxy if the deployment rejects it.
         "categories": {
             "small":  {"model": "gpt-5.4-mini", "effort": None,
-                       "input_cost_per_token": 1.5e-7, "output_cost_per_token": 6e-7,
-                       "context_length": 128000},
+                       "input_cost_per_token": 7.5e-07, "output_cost_per_token": 4.5e-06,
+                       "context_length": 400000},
             "medium": {"model": "gpt-5.4", "effort": None,
-                       "input_cost_per_token": 5e-7, "output_cost_per_token": 4e-6,
-                       "context_length": 128000},
+                       "input_cost_per_token": 2.5e-06, "output_cost_per_token": 1.5e-05,
+                       "context_length": 1050000},
             "large":  {"model": "gpt-5.4-pro", "effort": None,
-                       "input_cost_per_token": 1.25e-6, "output_cost_per_token": 1e-5,
-                       "context_length": 128000},
+                       "input_cost_per_token": 3e-05, "output_cost_per_token": 0.00018,
+                       "context_length": 1050000},
         },
     },
     OPENAI: {
@@ -69,14 +71,14 @@ DEFAULT_PROVIDERS: dict[str, dict[str, Any]] = {
         "setup_hint": "run `arealm keys add openai-main --provider openai --api-key sk-...`",
         "categories": {
             "small":  {"model": "gpt-5.4-mini", "effort": None,
-                       "input_cost_per_token": 1.5e-7, "output_cost_per_token": 6e-7,
-                       "context_length": 128000},
+                       "input_cost_per_token": 7.5e-07, "output_cost_per_token": 4.5e-06,
+                       "context_length": 400000},
             "medium": {"model": "gpt-5.4", "effort": None,
-                       "input_cost_per_token": 5e-7, "output_cost_per_token": 4e-6,
-                       "context_length": 128000},
+                       "input_cost_per_token": 2.5e-06, "output_cost_per_token": 1.5e-05,
+                       "context_length": 1050000},
             "large":  {"model": "gpt-5.4-pro", "effort": None,
-                       "input_cost_per_token": 1.25e-6, "output_cost_per_token": 1e-5,
-                       "context_length": 128000},
+                       "input_cost_per_token": 3e-05, "output_cost_per_token": 0.00018,
+                       "context_length": 1050000},
         },
     },
     ANTHROPIC: {
@@ -88,14 +90,14 @@ DEFAULT_PROVIDERS: dict[str, dict[str, Any]] = {
         ),
         "categories": {
             "small":  {"model": "claude-haiku-4-5", "effort": "low",
-                       "input_cost_per_token": 1e-6, "output_cost_per_token": 5e-6,
+                       "input_cost_per_token": 1e-06, "output_cost_per_token": 5e-06,
                        "context_length": 200000},
             "medium": {"model": "claude-sonnet-5", "effort": "medium",
-                       "input_cost_per_token": 3e-6, "output_cost_per_token": 1.5e-5,
-                       "context_length": 200000},
+                       "input_cost_per_token": 2e-06, "output_cost_per_token": 1e-05,
+                       "context_length": 1000000},
             "large":  {"model": "claude-opus-5", "effort": "high",
-                       "input_cost_per_token": 1.5e-5, "output_cost_per_token": 7.5e-5,
-                       "context_length": 200000},
+                       "input_cost_per_token": 5e-06, "output_cost_per_token": 2.5e-05,
+                       "context_length": 1000000},
         },
     },
     OPENROUTER: {
@@ -108,14 +110,14 @@ DEFAULT_PROVIDERS: dict[str, dict[str, Any]] = {
         ),
         "categories": {
             "small":  {"model": "anthropic/claude-haiku-4.5", "effort": "low",
-                       "input_cost_per_token": 1e-6, "output_cost_per_token": 5e-6,
+                       "input_cost_per_token": 1e-06, "output_cost_per_token": 5e-06,
                        "context_length": 200000},
             "medium": {"model": "anthropic/claude-sonnet-5", "effort": "medium",
-                       "input_cost_per_token": 3e-6, "output_cost_per_token": 1.5e-5,
-                       "context_length": 200000},
+                       "input_cost_per_token": 2e-06, "output_cost_per_token": 1e-05,
+                       "context_length": 1000000},
             "large":  {"model": "openai/gpt-5.4", "effort": None,
-                       "input_cost_per_token": 5e-7, "output_cost_per_token": 4e-6,
-                       "context_length": 128000},
+                       "input_cost_per_token": 2.5e-06, "output_cost_per_token": 1.5e-05,
+                       "context_length": 1050000},
         },
     },
 }
