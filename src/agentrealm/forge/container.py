@@ -183,10 +183,20 @@ class DockerRuntime:
             environment=environment, detach=True,
             **limits,
             # The container boundary is one of the four control boundaries (architecture §6), and
-            # what runs inside it is code a language model chose to write. Drop every capability —
-            # an agent needs none of them to run Python — and forbid privilege escalation, so a
-            # setuid binary in the image cannot become a route back to root.
+            # what runs inside it is code a language model chose to write. So: drop every
+            # capability, then add back only what the image's init system needs to start.
+            #
+            # `cap_drop=["ALL"]` ALONE KILLS THE AGENT. The runtime image runs s6-overlay, which
+            # starts as root and drops to the agent uid — without SETUID/SETGID that fails with
+            # "s6-applyuidgid: fatal: unable to set supplementary group list" and the container
+            # exits 111 before the agent ever runs. It is invisible to the test suite, because no
+            # unit test starts a real runtime container; it took a live realm to surface.
+            #
+            # What stays dropped is the part that matters: NET_ADMIN, NET_RAW, SYS_ADMIN,
+            # SYS_PTRACE, SYS_MODULE, MKNOD and the rest. Nothing here lets an agent touch the
+            # host, the network stack, or another container.
             cap_drop=["ALL"],
+            cap_add=["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID", "KILL"],
             security_opt=["no-new-privileges:true"],
             # NOT "unless-stopped". That resurrects an agent on every Docker/Colima restart — and
             # it comes back with a live model key, no budget enforcement, no termination and no
