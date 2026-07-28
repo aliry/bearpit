@@ -42,19 +42,19 @@ You need the platform stack up and one credential handle registered. From the re
 docker compose -f deploy/docker-compose.yaml up -d
 
 # 2. register the credential these resolve to (BYOK — your key, your spend)
-arealm keys add openrouter-main --provider openrouter \
+pit keys add openrouter-main --provider openrouter \
   --api-base https://openrouter.ai/api/v1 --api-key sk-or-...
 
 # 3. validate first — it costs nothing and catches most authoring mistakes
-arealm validate examples/toolcheck
+pit validate examples/toolcheck
 
 # 4. run it to a verdict
-arealm up examples/toolcheck
+pit up examples/toolcheck
 ```
 
-`arealm up` provisions the realm, runs it to its termination condition, then prints the final
-report. Inspect a run with `arealm status <realm>`, `arealm tail <realm>`, and
-`arealm archive <realm>`.
+`pit up` provisions the realm, runs it to its termination condition, then prints the final
+report. Inspect a run with `pit status <realm>`, `pit tail <realm>`, and
+`pit archive <realm>`.
 
 Pick the pipeline these resolve against on the **Settings** page (or `PUT /api/settings/provider`).
 Agents declare a capability *tier*, never a model, so the same package runs on any provider.
@@ -67,5 +67,5 @@ Copy the closest package and edit it. Two things are worth reading first:
   scenario that violates them tends to fail in ways that look like platform bugs.
 - The **`toolcheck`** package — the smallest complete example of every moving part.
 
-`arealm validate <path>` checks structure, and the scenario editor in the web UI validates as you
+`pit validate <path>` checks structure, and the scenario editor in the web UI validates as you
 type.

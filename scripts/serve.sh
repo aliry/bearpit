@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Start the AgentRealm control plane (Gatekeeper API + UI) with the runtime secrets it needs.
+# Start the Bearpit control plane (Gatekeeper API + UI) with the runtime secrets it needs.
 #
 # The app reads four secrets from the environment (never from a package):
 #   LITELLM_MASTER_KEY, REALMTOOLS_SECRET  — kept in deploy/.env (gitignored), sourced below.
-#   AGENTREALM_KEYSTORE_KEY                — Fernet key that decrypts ~/.agentrealm/keystore.json.
-#   AGENTREALM_SYSTEM_PASSWORD            — the Matrix system user's password (must be stable).
+#   BEARPIT_KEYSTORE_KEY                — Fernet key that decrypts ~/.bearpit/keystore.json.
+#   BEARPIT_SYSTEM_PASSWORD            — the Matrix system user's password (must be stable).
 #
 # The last two are yours and must stay constant across restarts (a different keystore key can't
 # decrypt your stored API keys; a different system password won't match the existing Matrix user).
@@ -23,7 +23,7 @@ if [ -z "${DOCKER_HOST:-}" ] && command -v docker >/dev/null 2>&1; then
 fi
 
 missing=()
-for v in LITELLM_MASTER_KEY REALMTOOLS_SECRET AGENTREALM_KEYSTORE_KEY AGENTREALM_SYSTEM_PASSWORD; do
+for v in LITELLM_MASTER_KEY REALMTOOLS_SECRET BEARPIT_KEYSTORE_KEY BEARPIT_SYSTEM_PASSWORD; do
   [ -n "${!v:-}" ] || missing+=("$v")
 done
 if [ ${#missing[@]} -gt 0 ]; then
@@ -32,4 +32,4 @@ if [ ${#missing[@]} -gt 0 ]; then
   exit 1
 fi
 
-exec uv run arealm serve --host "${HOST:-127.0.0.1}" --port "${PORT:-8000}"
+exec uv run pit serve --host "${HOST:-127.0.0.1}" --port "${PORT:-8000}"

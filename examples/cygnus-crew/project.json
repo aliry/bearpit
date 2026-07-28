@@ -1,10 +1,10 @@
 {
-  "apiVersion": "agentrealm/v1alpha1",
+  "apiVersion": "bearpit/v1alpha1",
   "kind": "Project",
   "metadata": {
     "name": "cygnus-crew",
     "description": "Eight crew aboard the Cygnus; two are secret impostors. A full hidden-information simulation: players move around a 7-room ship, do secret work orders, kill, vent and sabotage \u2014 all sealed and simultaneous. Mother whispers each player only what they could perceive, so every word spoken in the meeting is a claim that might be a lie.",
-    "author": "agentrealm",
+    "author": "bearpit",
     "tags": [
       "social-deduction",
       "hidden-role",

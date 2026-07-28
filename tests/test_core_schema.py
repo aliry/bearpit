@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from agentrealm.core.schema import (
+from bearpit.core.schema import (
     AgentRole,
     AgentSpec,
     ModelRef,
@@ -74,7 +74,7 @@ def test_project_integrity():
 
 
 def test_effective_termination_honors_verdict_ends_realm():
-    from agentrealm.core.schema import RefereePowers, TerminationKind
+    from bearpit.core.schema import RefereePowers, TerminationKind
 
     meta = ProjectMeta(name="p")
     part = AgentSpec(id="p1", model=_model())
@@ -133,7 +133,7 @@ def test_turns_rejects_unimplemented_options():
 
 
 def test_budget_cap_requires_per_token_costs():
-    from agentrealm.core.schema import AgentSpec
+    from bearpit.core.schema import AgentSpec
     no_cost = {"provider": "azure", "model": "m", "api_key_ref": "azure-main"}
     with_cost = {**no_cost, "input_cost_per_token": 1e-7, "output_cost_per_token": 6e-7}
     # a cap without costs would silently no-op -> rejected
@@ -154,8 +154,8 @@ def test_budget_termination_scope_validated():
 
 
 def test_effective_budget_combines_usd_and_tokens():
-    from agentrealm.core.schema import AgentSpec
-    from agentrealm.ledger.ledger import _effective_budget_usd
+    from bearpit.core.schema import AgentSpec
+    from bearpit.ledger.ledger import _effective_budget_usd
     m = {"provider": "azure", "model": "m", "api_key_ref": "azure-main",
          "input_cost_per_token": 1e-6, "output_cost_per_token": 2e-6}
     # max_tokens 1000 * higher cost 2e-6 = 0.002; min(max_usd 0.01, 0.002) = 0.002
@@ -166,7 +166,7 @@ def test_effective_budget_combines_usd_and_tokens():
 
 
 def test_mechanic_ruleset_validated():
-    from agentrealm.core.schema import Mechanic
+    from bearpit.core.schema import Mechanic
     Mechanic(kind="sealed-submit", ruleset="low-bid")       # built-in ok
     Mechanic(kind="sealed-submit", ruleset="custom:mine")   # custom: escape ok
     Mechanic(kind="sealed-submit")                          # None ok
@@ -177,7 +177,7 @@ def test_mechanic_ruleset_validated():
 def test_a_bare_hex_key_is_rejected_as_a_handle():
     """A 32-char hex string is the shape of an Azure OpenAI key. The old detector needed
     len>=40 AND >=8 digits, so it let one through — baking a live secret into a package."""
-    from agentrealm.core.schema import ModelRef
+    from bearpit.core.schema import ModelRef
 
     for handle in ("azure-main", "anthropic-main", "themis-scorer", "k"):
         ModelRef(provider="azure", model="m", api_key_ref=handle)  # legit handles pass
@@ -190,7 +190,7 @@ def test_a_bare_hex_key_is_rejected_as_a_handle():
 def test_a_per_round_dm_quota_needs_a_turns_block():
     """max_per_round is per-ROUND. Without a turns block the runner has no round, so it would
     silently become a whole-run cap under a 'per round' name — reject it at load."""
-    from agentrealm.core.schema import (
+    from bearpit.core.schema import (
         AgentSpec,
         ModelRef,
         PrivateMessaging,

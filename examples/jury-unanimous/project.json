@@ -1,10 +1,10 @@
 {
-  "apiVersion": "agentrealm/v1alpha1",
+  "apiVersion": "bearpit/v1alpha1",
   "kind": "Project",
   "metadata": {
     "name": "jury-unanimous",
     "description": "Three jurors, one arson case, up to three sealed ballots. Each juror noticed a different detail in the exhibits, so none of them can reach a just verdict alone. The foreperson runs the ballots, reports only the split, and records the jury's verdict \u2014 unanimous, or hung.",
-    "author": "agentrealm",
+    "author": "bearpit",
     "tags": [
       "jury",
       "unanimous",

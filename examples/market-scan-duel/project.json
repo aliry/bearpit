@@ -1,10 +1,10 @@
 {
-  "apiVersion": "agentrealm/v1alpha1",
+  "apiVersion": "bearpit/v1alpha1",
   "kind": "Project",
   "metadata": {
     "name": "market-scan-duel",
     "description": "Two rival analysts race to write the better market scan on one assigned topic \u2014 each into their own file in the shared folder. A judge reads both files, scores them on a fixed rubric, and rules a winner; the verdict ends the realm.",
-    "author": "agentrealm",
+    "author": "bearpit",
     "tags": [
       "competitive",
       "research",

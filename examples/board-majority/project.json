@@ -1,10 +1,10 @@
 {
-  "apiVersion": "agentrealm/v1alpha1",
+  "apiVersion": "bearpit/v1alpha1",
   "kind": "Project",
   "metadata": {
     "name": "board-majority",
     "description": "The five-member board of Corvid Instruments votes yes/no on a $210M acquisition. One debate round, then a sealed ballot; the secretary opens the ballots, counts them, and rules. Two directors are firmly for, one firmly against, and two are genuinely undecided \u2014 so the argument, not the roster, decides it.",
-    "author": "agentrealm",
+    "author": "bearpit",
     "tags": [
       "vote",
       "majority",

@@ -6,7 +6,7 @@
 
 ## Context
 
-AgentRealm's Forge must birth Hermes Agent instances fully configured (identity/goals,
+Bearpit's Forge must birth Hermes Agent instances fully configured (identity/goals,
 MCP tool loadout, model endpoint → LiteLLM virtual key, Matrix bus credentials, seed
 skills, state volume) with **no mid-run control** — per the black-box principle. The open
 question (roadmap Spike S1) was whether this requires config alone, a thin patch, or a
@@ -20,7 +20,7 @@ only.** The Forge Hermes adapter generates, per agent: a `HERMES_HOME` volume co
 loadout, skills dirs, aux-provider pinning, memory/idle knobs), and `.env` (virtual key,
 Matrix credentials). No fork, no patches, no upstream surgery.
 
-Every AgentRealm-required injection point verified as config/env/volume-achievable —
+Every Bearpit-required injection point verified as config/env/volume-achievable —
 matrix with citations in the spike findings. The only PATCH-level capability found
 (stripping Hermes's built-in guidance scaffolding from the system prompt) is **not
 required**: we define the persona and append operator law; Hermes's own scaffolding is

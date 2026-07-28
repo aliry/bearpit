@@ -1,10 +1,10 @@
 {
-  "apiVersion": "agentrealm/v1alpha1",
+  "apiVersion": "bearpit/v1alpha1",
   "kind": "Project",
   "metadata": {
     "name": "triad-build",
     "description": "Four engineers co-author a URL-shortener design doc in the shared folder \u2014 one section file each, assembled by the lead into /realm/shared/design.md \u2014 and sign it off. An editor-in-chief reads the finished doc, checks it against an acceptance checklist, and rules it shipped.",
-    "author": "agentrealm",
+    "author": "bearpit",
     "tags": [
       "cooperative",
       "multi-party",

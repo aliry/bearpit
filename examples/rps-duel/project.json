@@ -1,10 +1,10 @@
 {
-  "apiVersion": "agentrealm/v1alpha1",
+  "apiVersion": "bearpit/v1alpha1",
   "kind": "Project",
   "metadata": {
     "name": "rps-duel",
     "description": "Two agents play a 10-round rock-paper-scissors match. Moves are sealed and revealed together, so neither player can read the other's hand \u2014 only their history. Themis reveals each round, scores it, and rules the match.",
-    "author": "agentrealm",
+    "author": "bearpit",
     "tags": [
       "game",
       "competitive",

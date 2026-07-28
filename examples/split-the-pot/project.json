@@ -1,10 +1,10 @@
 {
-  "apiVersion": "agentrealm/v1alpha1",
+  "apiVersion": "bearpit/v1alpha1",
   "kind": "Project",
   "metadata": {
     "name": "split-the-pot",
     "description": "Three players divide a $100 pot, but no money moves unless two of them seal the same split. Any two can cut a private side-deal to freeze out the third \u2014 and any partner can be outbid before the seals open.",
-    "author": "agentrealm",
+    "author": "bearpit",
     "tags": [
       "negotiation",
       "coalition",

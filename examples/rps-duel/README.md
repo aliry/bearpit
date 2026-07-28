@@ -73,5 +73,5 @@ burning the players' budgets in silence).
 ## Run it
 
 ```sh
-uv run arealm up examples/rps-duel
+uv run pit up examples/rps-duel
 ```

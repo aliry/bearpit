@@ -5,7 +5,7 @@
 
 ## What this project is
 
-**AgentRealm** — a platform where a user defines a project (goals, rules, resources, termination conditions) and a roster of AI agents, and the system runs those agents as **independent, always-on, black-box actors** in an isolated "realm" where they collaborate or compete until the project ends. v1 agents are [Hermes Agent](https://github.com/nousresearch/hermes-agent) instances; the core is runtime-agnostic.
+**Bearpit** — a platform where a user defines a project (goals, rules, resources, termination conditions) and a roster of AI agents, and the system runs those agents as **independent, always-on, black-box actors** in an isolated "realm" where they collaborate or compete until the project ends. v1 agents are [Hermes Agent](https://github.com/nousresearch/hermes-agent) instances; the core is runtime-agnostic.
 
 ## Project status
 
@@ -24,7 +24,7 @@ each one paid for by a failed live run.
 
 ## Task tracking — GitHub Issues (source of truth)
 
-All phases, tasks, and bugs are tracked as **GitHub issues on `aliry/agentrealm`** — not in docs, not in TODO lists. Conventions:
+All phases, tasks, and bugs are tracked as **GitHub issues on `aliry/bearpit`** — not in docs, not in TODO lists. Conventions:
 
 - **Milestones = phases** (Phase 0 Spikes → Phase 1 POC → Phase 2 MVP → v2 → v3 → v4).
 - **Labels:** `priority/P0` (do now) > `P1` (next phase) > `P2` (committed) > `P3` (future); `type/{spike,task,bug,chore,epic}`; `area/{core,forge,herald,warden,ledger,chronicle,arbiter,cli,ui,infra,docs}`.
@@ -38,7 +38,7 @@ Package manager is **uv** (do not use pip/poetry).
 
 ```sh
 uv sync              # install deps
-uv run arealm --help # CLI entry point
+uv run pit --help # CLI entry point
 uv run pytest        # tests (from repo root)
 uv run ruff check .  # lint (line length 100)
 uv run mypy          # type check (strict)
@@ -72,11 +72,11 @@ Modular monolith (Python/FastAPI) with modules: **Gatekeeper** (API), **Forge** 
 
 ## Tech stack (decided)
 
-Python 3.12 + FastAPI + Pydantic · Postgres 16 · Docker Engine API (docker-py) · Conduit (Matrix, client-server API) · LiteLLM proxy · MCP Python SDK · Typer CLI (`arealm`) · a dependency-free web console (vanilla JS — the realm CSP blocks external hosts) · uv, ruff, pytest, mypy · docker compose.
+Python 3.12 + FastAPI + Pydantic · Postgres 16 · Docker Engine API (docker-py) · Conduit (Matrix, client-server API) · LiteLLM proxy · MCP Python SDK · Typer CLI (`pit`) · a dependency-free web console (vanilla JS — the realm CSP blocks external hosts) · uv, ruff, pytest, mypy · docker compose.
 
 ## Conventions
 
 - **ADRs:** every irreversible/architectural decision gets `docs/adr/NNN-title.md`. ADR-001 is reserved for the Hermes fork-vs-config decision (Spike S1).
 - **Pin everything:** Hermes, Conduit, LiteLLM versions are pinned; upgrades are deliberate PRs, not drift.
-- Repo layout: src layout — `src/agentrealm/<module>/` with subpackages matching the module names above (see architecture.md §17). Tests in `tests/`, example manifests in `examples/`.
+- Repo layout: src layout — `src/bearpit/<module>/` with subpackages matching the module names above (see architecture.md §17). Tests in `tests/`, example manifests in `examples/`.
 - Commit style: imperative subject, body explains why; small focused commits.

@@ -2,8 +2,8 @@
 
 from datetime import timedelta
 
-from agentrealm.chronicle import Chronicle, EventKind
-from agentrealm.core.schema import (
+from bearpit.chronicle import Chronicle, EventKind
+from bearpit.core.schema import (
     AgentSpec,
     ModelRef,
     Project,
@@ -11,11 +11,11 @@ from agentrealm.core.schema import (
     ProjectSpec,
     TerminationCondition,
 )
-from agentrealm.forge import Forge
-from agentrealm.gatekeeper.runner import Runner
-from agentrealm.herald import Herald
-from agentrealm.ledger import KeyStore, Ledger
-from agentrealm.warden import RealmSnapshot, Warden
+from bearpit.forge import Forge
+from bearpit.gatekeeper.runner import Runner
+from bearpit.herald import Herald
+from bearpit.ledger import KeyStore, Ledger
+from bearpit.warden import RealmSnapshot, Warden
 
 
 class FakeMatrix:
@@ -185,9 +185,9 @@ async def test_runner_provisions_runs_watches_concludes():
 
 
 async def test_live_snapshot_labels_commons_so_message_termination_fires():
-    from agentrealm.core.schema import TerminationCondition
-    from agentrealm.gatekeeper.runner import LiveSnapshot
-    from agentrealm.warden import evaluate_termination
+    from bearpit.core.schema import TerminationCondition
+    from bearpit.gatekeeper.runner import LiveSnapshot
+    from bearpit.warden import evaluate_termination
 
     chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
     # a system kickoff that QUOTES the termination phrase must NOT count (else turn-0 end)
@@ -225,9 +225,9 @@ async def test_live_snapshot_labels_commons_so_message_termination_fires():
 
 
 async def test_live_snapshot_tracks_idle_for_stall():
-    from agentrealm.core.schema import TerminationCondition
-    from agentrealm.gatekeeper.runner import LiveSnapshot
-    from agentrealm.warden import evaluate_termination
+    from bearpit.core.schema import TerminationCondition
+    from bearpit.gatekeeper.runner import LiveSnapshot
+    from bearpit.warden import evaluate_termination
 
     chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
 
@@ -291,7 +291,7 @@ async def test_runner_manual_stop():
 async def test_runner_wires_turns_end_to_end():
     """A turns-enabled project: kickoff does NOT broadcast, the TurnManager grants the first
     floor (a power-level state event), and conclude lifts the gate."""
-    from agentrealm.core.schema import Turns
+    from bearpit.core.schema import Turns
 
     chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
     ks = KeyStore(KeyStore.generate_key())
@@ -327,9 +327,9 @@ async def test_turn_manager_verdict_tool_wiring():
     # The round cue advertises the referee's `rule` verdict tool ONLY when the realmtools are
     # wired (provide_tools) AND its verdict ends the realm — an unwired tool must not be advertised
     # (among-us originally had provide_tools=false, so `rule` never even reached the model).
-    from agentrealm.core.schema import RefereePowers, Turns
-    from agentrealm.herald.herald import BusProvision
-    from agentrealm.herald.types import MatrixCreds
+    from bearpit.core.schema import RefereePowers, Turns
+    from bearpit.herald.herald import BusProvision
+    from bearpit.herald.types import MatrixCreds
 
     chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
     ks = KeyStore(KeyStore.generate_key())
@@ -372,7 +372,7 @@ async def test_live_snapshot_feeds_elimination_events_to_the_turns():
     # the referee's `eliminate` tool call lands as an ELIMINATION event; the snapshot layer must
     # enforce each one exactly once via turns.apply_resolutions — physics from a tool, not from
     # parsing referee prose.
-    from agentrealm.gatekeeper.runner import LiveSnapshot
+    from bearpit.gatekeeper.runner import LiveSnapshot
 
     chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
     await chron.append_event("r", EventKind.ELIMINATION, {"agent": "juno", "issued_by": "mother"})
@@ -421,9 +421,9 @@ async def test_private_messages_are_capped_per_round():
     impostors traded 25 messages of "Copy"/"Agreed" inside one round, burning the round and the
     budget). The quota is PHYSICS: past its budget the host simply stops DELIVERING. The attempt is
     still chronicled, so the operator can still see what the agent tried to say."""
-    from agentrealm.chronicle import EventKind
-    from agentrealm.gatekeeper.runner import LiveSnapshot
-    from agentrealm.herald.types import MatrixCreds
+    from bearpit.chronicle import EventKind
+    from bearpit.gatekeeper.runner import LiveSnapshot
+    from bearpit.herald.types import MatrixCreds
 
     chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
 
@@ -493,8 +493,8 @@ async def test_run_code_executes_in_the_CALLERS_OWN_container_only():
     small agent-facing server would turn any bug in it into host root), and the HOST performs it.
     The agent comes from the caller's VERIFIED TOKEN, never from a tool argument, so the container
     map is the security boundary: an agent can only ever execute inside its own sandbox."""
-    from agentrealm.chronicle import EventKind
-    from agentrealm.gatekeeper.runner import LiveSnapshot
+    from bearpit.chronicle import EventKind
+    from bearpit.gatekeeper.runner import LiveSnapshot
 
     chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
 
@@ -550,8 +550,8 @@ async def test_run_code_executes_in_the_CALLERS_OWN_container_only():
 async def test_a_crashing_exec_still_answers_the_waiting_agent():
     # realmtools blocks waiting for EXEC_RESULT; if the host threw and never replied, the agent
     # would stall for the full 90s timeout on every call.
-    from agentrealm.chronicle import EventKind
-    from agentrealm.gatekeeper.runner import LiveSnapshot
+    from bearpit.chronicle import EventKind
+    from bearpit.gatekeeper.runner import LiveSnapshot
 
     chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
 
@@ -591,8 +591,8 @@ async def test_an_agent_that_spends_its_budget_is_actually_killed():
     failure into the room. debate-1 drowned in 2,540 copies of "the model provider is rate-limiting
     requests", and the chair, seeing no arguments at all, ruled "no contest". `Ledger.exhausted()`
     even documented itself as "(Warden acts on these)" and had no caller in production."""
-    from agentrealm.chronicle import EventKind
-    from agentrealm.gatekeeper.runner import LiveSnapshot
+    from bearpit.chronicle import EventKind
+    from bearpit.gatekeeper.runner import LiveSnapshot
 
     chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
 
@@ -649,7 +649,7 @@ async def test_an_agent_that_spends_its_budget_is_actually_killed():
 async def test_starve_policy_leaves_the_container_alone():
     # `starve` is a real, declared choice: the agent lives on, unable to call the model. The
     # platform must honour it and NOT kill.
-    from agentrealm.gatekeeper.runner import LiveSnapshot
+    from bearpit.gatekeeper.runner import LiveSnapshot
 
     chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
 
@@ -690,10 +690,10 @@ async def test_exec_output_is_scrubbed_of_platform_minted_credentials():
     without masking those land verbatim in an append-only log that is served over the API and
     included in exports — live, replayable credentials. The platform minted them, so it substitutes
     them on the way out (core.redact)."""
-    from agentrealm.chronicle import EventKind
-    from agentrealm.core.redact import MASK
-    from agentrealm.gatekeeper.runner import LiveSnapshot
-    from agentrealm.herald.types import MatrixCreds
+    from bearpit.chronicle import EventKind
+    from bearpit.core.redact import MASK
+    from bearpit.gatekeeper.runner import LiveSnapshot
+    from bearpit.herald.types import MatrixCreds
 
     chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
     token = "syt_dmVsYQ_QWERTYuiopASDFGHjkl_2xY9Zq"
@@ -748,10 +748,10 @@ async def test_all_three_of_an_agents_credentials_are_scrubbed():
     realmtools bearer. The last is the worst to leak — it is the credential that calls
     eliminate()/tally() and reads sealed submissions AS that agent — and it was the one the first
     version of this missed, because Forge mints it and the Runner never saw it."""
-    from agentrealm.chronicle import EventKind
-    from agentrealm.core.redact import MASK
-    from agentrealm.gatekeeper.runner import LiveSnapshot
-    from agentrealm.herald.types import MatrixCreds
+    from bearpit.chronicle import EventKind
+    from bearpit.core.redact import MASK
+    from bearpit.gatekeeper.runner import LiveSnapshot
+    from bearpit.herald.types import MatrixCreds
 
     chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
     matrix = "syt_dmVsYQ_QWERTYuiopASDFGHjkl_2xY9Zq"

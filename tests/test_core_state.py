@@ -2,7 +2,7 @@
 
 import pytest
 
-from agentrealm.core.state import (
+from bearpit.core.state import (
     AgentState,
     InvalidTransition,
     RealmState,

@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from agentrealm.chronicle import Chronicle, EventKind
-from agentrealm.core.schema import AgentSpec, Budget, ModelRef
-from agentrealm.ledger import KeyStore, KeyStoreError, Ledger
+from bearpit.chronicle import Chronicle, EventKind
+from bearpit.core.schema import AgentSpec, Budget, ModelRef
+from bearpit.ledger import KeyStore, KeyStoreError, Ledger
 
 
 # --- keystore ---------------------------------------------------------------
@@ -20,7 +20,7 @@ def test_keystore_roundtrip_and_persistence(tmp_path: Path):
     assert KeyStore(key, tmp_path / "ks.json").get("azure-main").api_key == "REALKEY"
     # and the on-disk file is ciphertext, not the plaintext key
     assert "REALKEY" not in (tmp_path / "ks.json").read_text()
-    # `arealm keys list` uses handles(); `keys add` on an existing handle replaces it
+    # `pit keys list` uses handles(); `keys add` on an existing handle replaces it
     assert store.handles() == ["azure-main"]
     store.put("azure-main", "NEWKEY", api_base="https://new.services.ai.azure.com/openai/v1")
     assert store.get("azure-main").api_key == "NEWKEY"  # replaced in place
@@ -116,8 +116,8 @@ async def test_a_provider_hook_can_encode_effort_into_the_model_string():
     """Some runtimes decode reasoning effort from the model name and reject a separate parameter.
     A provider plugin says so through `encode_model`; the Ledger just asks and registers whatever
     it gets back. This drives the REAL lookup, so it also proves the hook is actually wired."""
-    from agentrealm.core import plugins
-    from agentrealm.core.plugins import ProviderHooks
+    from bearpit.core import plugins
+    from bearpit.core.plugins import ProviderHooks
 
     class _Plugin:
         def profiles(self):

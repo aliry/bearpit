@@ -16,8 +16,8 @@ import pytest
 from fakes import FakeLLMBackend, FakePackageStore
 from starlette.testclient import TestClient
 
-from agentrealm.chronicle import Chronicle
-from agentrealm.core.schema import (
+from bearpit.chronicle import Chronicle
+from bearpit.core.schema import (
     AgentSpec,
     Project,
     ProjectMeta,
@@ -25,8 +25,8 @@ from agentrealm.core.schema import (
     TerminationCondition,
     TerminationKind,
 )
-from agentrealm.gatekeeper.api import create_app
-from agentrealm.scribe.types import Completion, ToolCall, Usage
+from bearpit.gatekeeper.api import create_app
+from bearpit.scribe.types import Completion, ToolCall, Usage
 
 _VALID_SPEC = {
     "metadata": {"name": "duel"},

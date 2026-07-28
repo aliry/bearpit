@@ -12,9 +12,9 @@ import json
 
 from fakes import FakeLLMBackend, FakeMemory, FakePackageStore, FakeVersions
 
-from agentrealm.scribe.loop import ScribeLoop
-from agentrealm.scribe.tools import AuthoringTools
-from agentrealm.scribe.types import Completion, Message, ToolCall, Usage
+from bearpit.scribe.loop import ScribeLoop
+from bearpit.scribe.tools import AuthoringTools
+from bearpit.scribe.types import Completion, Message, ToolCall, Usage
 
 _VALID_SPEC = {
     "metadata": {"name": "duel"},

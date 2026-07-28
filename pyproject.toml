@@ -1,12 +1,12 @@
 [project]
-name = "agentrealm"
+name = "bearpit"
 version = "0.1.0"
 description = "Run realms of autonomous AI agents that collaborate or compete on user-defined projects"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
-authors = [{ name = "The AgentRealm Authors" }]
+authors = [{ name = "The Bearpit Authors" }]
 keywords = ["ai", "agents", "multi-agent", "llm", "simulation", "orchestration"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -33,13 +33,13 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/aliry/agentrealm"
-Documentation = "https://github.com/aliry/agentrealm/tree/main/docs"
-Repository = "https://github.com/aliry/agentrealm"
-Issues = "https://github.com/aliry/agentrealm/issues"
+Homepage = "https://github.com/aliry/bearpit"
+Documentation = "https://github.com/aliry/bearpit/tree/main/docs"
+Repository = "https://github.com/aliry/bearpit"
+Issues = "https://github.com/aliry/bearpit/issues"
 
 [project.scripts]
-arealm = "agentrealm.cli.main:app"
+pit = "bearpit.cli.main:app"
 
 [build-system]
 requires = ["uv_build>=0.11.32,<0.12.0"]
@@ -76,7 +76,7 @@ strict = true
 # The platform only. A locally-installed provider plugin type-checks itself, from its own package
 # (`uv run --group <name> mypy -p <package>`); naming one here would put it in the platform's own
 # published metadata.
-packages = ["agentrealm"]
+packages = ["bearpit"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,4 +1,4 @@
-"""Service wiring + the `arealm assist` driver (Task 7).
+"""Service wiring + the `pit assist` driver (Task 7).
 
 build_scribe wires the real components; ScribeSession holds the running history so a multi-turn
 conversation accumulates. The create flow is exercised end-to-end with fakes (no network).
@@ -11,10 +11,10 @@ from pathlib import Path
 from fakes import FakeLLMBackend, FakePackageStore
 from typer.testing import CliRunner
 
-from agentrealm.cli.main import app
-from agentrealm.scribe.loop import ScribeLoop
-from agentrealm.scribe.service import ScribeSession, build_scribe
-from agentrealm.scribe.types import Completion, ToolCall, Usage
+from bearpit.cli.main import app
+from bearpit.scribe.loop import ScribeLoop
+from bearpit.scribe.service import ScribeSession, build_scribe
+from bearpit.scribe.types import Completion, ToolCall, Usage
 
 runner = CliRunner()
 

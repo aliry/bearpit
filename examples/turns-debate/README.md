@@ -51,6 +51,6 @@ silence timeout on it every round.
 ## Run it
 
 ```sh
-uv run arealm validate examples/turns-debate
-uv run arealm up examples/turns-debate
+uv run pit validate examples/turns-debate
+uv run pit up examples/turns-debate
 ```

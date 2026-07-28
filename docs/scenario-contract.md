@@ -196,7 +196,7 @@ sealed mechanics are the place where the same mistake would be hardest to see.
 > A cautionary note on diagnosis, from `council-1`: the referee's audit log WRAPS long lines, so a
 > grep for `tool=submit_sealed .* by=<realm>/<agent>` silently matches nothing and the run looks
 > like a fabrication when it was flawless. **Judge a run from the telemetry event stream
-> (`agentrealm.response.events`), never from a grep of the wrapped audit log.**
+> (`bearpit.response.events`), never from a grep of the wrapped audit log.**
 
 ## 18. Elimination is enforced at the container boundary — an eliminated agent fully leaves
 

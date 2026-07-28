@@ -2,9 +2,9 @@
 
 import yaml
 
-from agentrealm.core.schema import AgentSpec, ModelRef
-from agentrealm.forge.adapters.hermes.config import MatrixCreds, render_hermes_home
-from agentrealm.ledger import AgentCredential
+from bearpit.core.schema import AgentSpec, ModelRef
+from bearpit.forge.adapters.hermes.config import MatrixCreds, render_hermes_home
+from bearpit.ledger import AgentCredential
 
 
 def _render(require_mention: bool = True, persona: str | None = "# Vela\nWin.") -> dict[str, str]:
@@ -101,12 +101,12 @@ def test_system_prompt_and_soul():
 
 def test_default_soul_when_no_persona():
     files = _render(persona=None)
-    assert "autonomous agent in AgentRealm" in files["SOUL.md"]
+    assert "autonomous agent in Bearpit" in files["SOUL.md"]
 
 
 def test_realmtools_mcp_wired_when_provided():
-    from agentrealm.core.schema import AgentSpec, ModelRef
-    from agentrealm.forge.adapters.hermes.config import RealmtoolsCreds
+    from bearpit.core.schema import AgentSpec, ModelRef
+    from bearpit.forge.adapters.hermes.config import RealmtoolsCreds
 
     agent = AgentSpec(id="vela", model=ModelRef(provider="azure", model="m", api_key_ref="k"))
     cred = AgentCredential(virtual_key="vk", model_name="r--vela", proxy_url="http://p")
@@ -114,10 +114,10 @@ def test_realmtools_mcp_wired_when_provided():
         homeserver="h", user_id="@vela:realm.local", access_token="t",
         allowed_users=[], commons_room="!c",
     )
-    rt = RealmtoolsCreds(url="http://arealm-realmtools:9100/mcp", token="rt-tok-123")
+    rt = RealmtoolsCreds(url="http://pit-realmtools:9100/mcp", token="rt-tok-123")
     files = render_hermes_home(agent, cred, matrix, realmtools=rt)
     cfg = yaml.safe_load(files["config.yaml"])
-    assert cfg["mcp_servers"]["realmtools"]["url"] == "http://arealm-realmtools:9100/mcp"
+    assert cfg["mcp_servers"]["realmtools"]["url"] == "http://pit-realmtools:9100/mcp"
     # token via env interpolation (in .env, not config.yaml — C10 style)
     auth = cfg["mcp_servers"]["realmtools"]["headers"]["Authorization"]
     assert auth == "Bearer ${REALMTOOLS_TOKEN}"
@@ -173,7 +173,7 @@ def test_referee_rubric_is_seeded_into_the_soul():
     # only per-agent text Hermes injects into the model's system prompt, so the rubric MUST ride
     # there — a rubric that exists only in the manifest never reaches the model (among-us-tele3:
     # Mother hunted the filesystem for a "crew manifest", not knowing the roles her rubric named).
-    from agentrealm.core.schema import AgentRole
+    from bearpit.core.schema import AgentRole
 
     referee = AgentSpec(
         id="mother", role=AgentRole.REFEREE,
@@ -200,7 +200,7 @@ def test_realmtools_mcp_gets_generous_timeouts():
     # slow call must not read as a dead session (tele5: referee lost eliminate/rule all run).
     import yaml as _yaml
 
-    from agentrealm.forge.adapters.hermes.config import RealmtoolsCreds
+    from bearpit.forge.adapters.hermes.config import RealmtoolsCreds
 
     agent = AgentSpec(
         id="vela", model=ModelRef(provider="azure", model="m", api_key_ref="azure-main"),
@@ -219,7 +219,7 @@ def test_realmtools_mcp_gets_generous_timeouts():
 
 
 def test_agents_are_told_they_have_a_container_and_a_notebook():
-    from agentrealm.forge.adapters.hermes.config import RealmtoolsCreds
+    from bearpit.forge.adapters.hermes.config import RealmtoolsCreds
 
     """An agent begins EVERY turn with no memory of the last one, and it is a language model: left
     to itself it re-derives the world from the chat log and does its arithmetic in its head. It has
@@ -231,7 +231,7 @@ def test_agents_are_told_they_have_a_container_and_a_notebook():
         homeserver="h", user_id="@vela:realm.local", access_token="t",
         allowed_users=[], commons_room="!c",
     )
-    rt = RealmtoolsCreds(url="http://arealm-realmtools:9100/mcp", token="tok")
+    rt = RealmtoolsCreds(url="http://pit-realmtools:9100/mcp", token="tok")
     prompt = yaml.safe_load(
         render_hermes_home(agent, cred, matrix, realmtools=rt)["config.yaml"]
     )["agent"]["system_prompt"]
@@ -250,7 +250,7 @@ def test_a_shared_folder_realm_tells_the_agent_the_folder_exists_and_how_to_use_
     allowlist is the realm's MCP tools only. So `run_code` is the ONLY way to touch it, and nothing
     in the prompt ever said the folder existed. Every file-based scenario (co-author a brief, ship a
     report) was unwinnable: a deliverable, a mounted volume, and no idea either was there."""
-    from agentrealm.forge.adapters.hermes.config import RealmtoolsCreds
+    from bearpit.forge.adapters.hermes.config import RealmtoolsCreds
 
     agent = AgentSpec(id="vela", model=ModelRef(provider="azure", model="m", api_key_ref="k"))
     cred = AgentCredential(virtual_key="vk", model_name="r--vela", proxy_url="http://p")
@@ -258,7 +258,7 @@ def test_a_shared_folder_realm_tells_the_agent_the_folder_exists_and_how_to_use_
         homeserver="h", user_id="@vela:realm.local", access_token="t",
         allowed_users=[], commons_room="!c",
     )
-    rt = RealmtoolsCreds(url="http://arealm-realmtools:9100/mcp", token="tok")
+    rt = RealmtoolsCreds(url="http://pit-realmtools:9100/mcp", token="tok")
 
     with_folder = yaml.safe_load(render_hermes_home(
         agent, cred, matrix, realmtools=rt, shared_folder=True)["config.yaml"]

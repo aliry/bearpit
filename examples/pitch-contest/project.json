@@ -1,10 +1,10 @@
 {
-  "apiVersion": "agentrealm/v1alpha1",
+  "apiVersion": "bearpit/v1alpha1",
   "kind": "Project",
   "metadata": {
     "name": "pitch-contest",
     "description": "Three founders each enter ONE startup pitch \u2014 sealed and posted \u2014 and a judge scores every pitch on clarity, market and originality, then names a winner with a verdict that ends the contest.",
-    "author": "agentrealm",
+    "author": "bearpit",
     "tags": [
       "competitive",
       "judgment",

@@ -66,6 +66,6 @@ in order of preference:
 ## Run it
 
 ```sh
-uv run arealm validate examples/reverse-auction
-uv run arealm up examples/reverse-auction
+uv run pit validate examples/reverse-auction
+uv run pit up examples/reverse-auction
 ```

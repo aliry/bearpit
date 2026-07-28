@@ -1,10 +1,10 @@
 {
-  "apiVersion": "agentrealm/v1alpha1",
+  "apiVersion": "bearpit/v1alpha1",
   "kind": "Project",
   "metadata": {
     "name": "beacon-brief",
     "description": "Three agents co-author a one-page brief in a shared folder, review each other, and sign off. A cooperative realm \u2014 no referee, no winner: the file IS the outcome.",
-    "author": "agentrealm",
+    "author": "bearpit",
     "tags": [
       "cooperative",
       "writing",

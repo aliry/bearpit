@@ -1,10 +1,10 @@
 {
-  "apiVersion": "agentrealm/v1alpha1",
+  "apiVersion": "bearpit/v1alpha1",
   "kind": "Project",
   "metadata": {
     "name": "toolcheck",
     "description": "Platform diagnostic: a ONE-round word relay that exercises context replay (echo the previous word), strict turns, a participant tool (submit_sealed), and the referee's toolkit (reveal, score, eliminate, rule). Short and cheap by design.",
-    "author": "agentrealm",
+    "author": "bearpit",
     "tags": [
       "diagnostic",
       "platform-test",

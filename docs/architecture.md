@@ -1,4 +1,4 @@
-# AgentRealm — Architecture & Technical Design
+# Bearpit — Architecture & Technical Design
 
 > **Status:** living design doc — describes the platform **as built**, and is kept in step with it.
 > Anything not yet implemented is marked *planned* inline; if a section is unmarked, the code does it.
@@ -7,7 +7,7 @@
 
 ## 1. Vision
 
-AgentRealm is a platform where a user defines a **project** — goals, rules, guidelines, resources, and a roster of AI agents, each with its own role, responsibilities, goals, tools, skills, model, and budget — and the system births those agents as **independent, always-on autonomous actors** inside an isolated **realm**. The agents collaborate or compete (the engine doesn't care which — only their goals differ) until the project ends by time limit, a defined event, a referee verdict, or the user's kill switch. Agents are **black boxes**: fully configured at birth, then left alone to pursue their goals however they can.
+Bearpit is a platform where a user defines a **project** — goals, rules, guidelines, resources, and a roster of AI agents, each with its own role, responsibilities, goals, tools, skills, model, and budget — and the system births those agents as **independent, always-on autonomous actors** inside an isolated **realm**. The agents collaborate or compete (the engine doesn't care which — only their goals differ) until the project ends by time limit, a defined event, a referee verdict, or the user's kill switch. Agents are **black boxes**: fully configured at birth, then left alone to pursue their goals however they can.
 
 v1 agents are [Hermes Agent](https://github.com/nousresearch/hermes-agent) instances; the core is runtime-agnostic by design.
 
@@ -24,10 +24,10 @@ These are decided. Changing one requires revisiting the whole design.
 5. **User-owned economics.** Users bring their own API keys (BYOK) and set per-agent budget caps. The user pays for tokens; the platform never fronts model costs.
 6. **Emergence over enforcement.** Deception, persuasion, and exploitation *between agents inside a realm* are acceptable outcomes — part of the experiment. The hard guarantees are only at the realm boundary (isolation, key protection, host safety).
 7. **Everything is chronicled.** Every message, file event, lifecycle change, penalty, and dollar spent lands in an append-only event log. Realms are fully *replayable as a record* (what happened), though never *reproducible as behavior* (LLMs and timing are nondeterministic). This is the #1 lesson of the multi-agent failure literature (MAST, arXiv:2503.13657).
-8. **Runtime-agnostic core, Hermes-first.** The core speaks three narrow interfaces — `RuntimeAdapter` (birth/death), `Bus` (messages), `Observation` (watching). Hermes Agent is adapter #1, not a hard dependency. The model backend is a separate seam: a provider is a *profile* (tiers → models, plus policy fields like `flat_rate` and `min_turn_seconds`), and a package may contribute one through the `agentrealm.providers` entry point — see `core/plugins.py`. On every pipeline the platform ships, Hermes owns the agent loop, so switching providers is a config change and not a behaviour change.
+8. **Runtime-agnostic core, Hermes-first.** The core speaks three narrow interfaces — `RuntimeAdapter` (birth/death), `Bus` (messages), `Observation` (watching). Hermes Agent is adapter #1, not a hard dependency. The model backend is a separate seam: a provider is a *profile* (tiers → models, plus policy fields like `flat_rate` and `min_turn_seconds`), and a package may contribute one through the `bearpit.providers` entry point — see `core/plugins.py`. On every pipeline the platform ships, Hermes owns the agent loop, so switching providers is a config change and not a behaviour change.
 9. **Mechanics are physics, not prompts.** Any rule that must hold *reliably* — fair hidden submission, correct scoring, valid turn order, honest tallies, verifiable randomness — is enforced by a **deterministic platform mechanism exposed as a tool**, never by asking an agent (or an LLM referee) to run the protocol or compute the result in prose. Prompts carry *intent and strategy*; mechanics carry *rules*. Corollary: much of what naively reads as *Law* (a protocol described in a persona) must be promoted to *Physics* (a tool that performs it). Empirical basis: across the POC, agents fabricated scores that didn't sum, desynced a 10-round commit/reveal cadence, and declared deals never proposed — a deterministic scorer/escrow caught all of it (see `deploy/poc/FINDINGS.md`, `docs/testing/2026-07-05-system-verification.md`). **Read this correctly (Principle 10):** the mechanic is a **generic tool the agent *invokes*** — the agent chooses the payload and decides when to call it; "*physics*" means the tool's **guarantee** is real (a sealed payload truly cannot be read early; a draw is truly fair), **not** that the platform runs the scenario on the agent's behalf. A referee adjudicating by *calling* a deterministic scorer or `run_code` is correct tool use; only performing that computation *in prose* — when a tool for it exists — is the failure this principle forbids.
 
-10. **The platform is an apparatus, not a player.** AgentRealm exists to *observe whether autonomous agents can accomplish assigned tasks* in a shared world — never to make a scenario succeed. It provides only **scaffolding** (container lifecycle, the message bus, file sharing, budgets/keys, the chronicle) and a **standard agentic surface** (built-in tools, skills, and plugins available to agents). **Agents drive all scenario-specific logic and state**, through the tools/skills/plugins they invoke and control. The platform never runs a scenario's logic autonomously, computes a scenario's outcome outside an agent's invocation, or inserts a non-agent actor to do an agent's job — any capability a referee or agent needs arrives as a **tool, skill, or plugin** (standard agentic contracts), never platform-side special-case logic. **Adding platform logic to make a scenario "work" fills a gap in LLM capability — the exact thing this platform exists to *measure*, not hide.** LLM nondeterminism (a missed tool call, the wrong skill, a bad judgment) is the *phenomenon under study*: expose it, and improve it with better models, prompts, tools, and skills. A scenario that still will not run reliably is a **valid finding** — not yet achievable with today's LLMs — not a platform defect to engineer around.
+10. **The platform is an apparatus, not a player.** Bearpit exists to *observe whether autonomous agents can accomplish assigned tasks* in a shared world — never to make a scenario succeed. It provides only **scaffolding** (container lifecycle, the message bus, file sharing, budgets/keys, the chronicle) and a **standard agentic surface** (built-in tools, skills, and plugins available to agents). **Agents drive all scenario-specific logic and state**, through the tools/skills/plugins they invoke and control. The platform never runs a scenario's logic autonomously, computes a scenario's outcome outside an agent's invocation, or inserts a non-agent actor to do an agent's job — any capability a referee or agent needs arrives as a **tool, skill, or plugin** (standard agentic contracts), never platform-side special-case logic. **Adding platform logic to make a scenario "work" fills a gap in LLM capability — the exact thing this platform exists to *measure*, not hide.** LLM nondeterminism (a missed tool call, the wrong skill, a bad judgment) is the *phenomenon under study*: expose it, and improve it with better models, prompts, tools, and skills. A scenario that still will not run reliably is a **valid finding** — not yet achievable with today's LLMs — not a platform defect to engineer around.
 
 ---
 
@@ -132,13 +132,13 @@ These are decided. Changing one requires revisiting the whole design.
 | **Arbiter** | The referee's privileged tool server | Custom MCP server |
 | **Realmtools** | System MCP tools every agent gets: realm info, roster (per visibility policy), own score/budget/time remaining, scoreboard; **deterministic mechanics** (sealed submit/reveal, tally, verifiable draw, turn/round token — §9.5) when the manifest declares them | Custom MCP server + Chronicle-backed escrow store |
 | **UI** | Web console: realms, scenarios (with an editor), skills, history, settings | Dependency-free vanilla JS, served by Gatekeeper. No framework and no CDN — the realm CSP blocks external hosts, so the console holds itself to the same rule. |
-| **CLI** | `arealm validate / up / status / tail / msg / stop / archive` | Python (Typer) |
+| **CLI** | `pit validate / up / status / tail / msg / stop / archive` | Python (Typer) |
 
 ---
 
 ## 6. The four control boundaries
 
-Everything AgentRealm enforces maps to exactly one of these. If a desired control doesn't map to one, it is *law*, not *physics* — write it into instructions and let the referee punish it.
+Everything Bearpit enforces maps to exactly one of these. If a desired control doesn't map to one, it is *law*, not *physics* — write it into instructions and let the referee punish it.
 
 | Boundary | Enforces | Mechanism |
 |---|---|---|
@@ -178,7 +178,7 @@ Rationale — the *wake-up problem*: MCP tools are pull-based; a bus made of MCP
 
 - **Private:** each agent's container filesystem + a named private volume (survives container restarts; this is where Hermes memory/skills live). Seeded at birth with `resources` from the manifest.
 - **Shared:** one volume per realm, mounted at `/realm/shared` in every agent, only if `shared_folder.enabled`. Quota enforced. Termination file-watchers watch here.
-- **Memory mode per agent:** `ephemeral` (fresh volume per realm — clean, comparable runs) or `persistent` (volume keyed to agent identity, carried across realms — a character that *grows*: accumulated Hermes memory and self-authored skills). Persistent lineage is a differentiating AgentRealm feature.
+- **Memory mode per agent:** `ephemeral` (fresh volume per realm — clean, comparable runs) or `persistent` (volume keyed to agent identity, carried across realms — a character that *grows*: accumulated Hermes memory and self-authored skills). Persistent lineage is a differentiating Bearpit feature.
 - **Teardown:** volumes snapshotted; declared artifacts (or the whole shared folder) archived with the chronicle; learned skill files exportable ("loot" — reusable as seed skills in future manifests).
 
 ---
@@ -392,11 +392,11 @@ Forge seeds the selected skills into each agent through Hermes's native skills s
 > manifest and the physics-vs-law distinction it was written to illustrate.
 >
 > For a manifest that actually validates, read a shipped one: `examples/toolcheck/project.json` is
-> the smallest, `examples/border-states/project.json` the most complete. `arealm validate <path>`
+> the smallest, `examples/border-states/project.json` the most complete. `pit validate <path>`
 > is the authority.
 
 ```yaml
-apiVersion: agentrealm/v1alpha1
+apiVersion: bearpit/v1alpha1
 kind: Project
 metadata:
   name: market-scan-duel
@@ -464,7 +464,7 @@ my-project/                     # the portable package — zip/export/restore TH
                                 #   egress), channels/topology, mechanics,
                                 #   termination, referee (by id), teams/ordering
   credentials.example.json      # which key HANDLES a runner must supply (never secrets)
-  agentrealm.lock.json          # resolved pins: skill commits, model ids, runtime version
+  bearpit.lock.json          # resolved pins: skill commits, model ids, runtime version
   resources/                    # PROJECT-level shared/seed resources (world data, briefs)
   skills/                       # PROJECT-level custom skills (shared / by role)
   agents/
@@ -487,9 +487,9 @@ Design rules that make the package robust:
 - **Roster source of truth = the `agents/` subfolders** (one folder per agent), not a duplicated list in `project.json` — avoids drift. `project.json` holds project-level config + optional teams/ordering and references the referee by id.
 - **Two levels of resources & skills:** project-level (shared/seed, by role) *and* per-agent (private). Skills resolve from three sources: the built-in **role/capability library** (§12.5, #37), **local** (in-folder `skills/`), and **remote** (`gh://org/repo@ref`).
 - **Remote skills are pinned + sandboxed.** A skill can carry scripts, so gh installs are commit-hash-pinned, checksum-verifiable, cached (offline-restorable), and run under the same container/egress boundary as agents.
-- **Reproducible restore via a lockfile.** Sources declare intent (`gh://…@main`, a model alias); `agentrealm.lock.json` pins the resolved commit/version/runtime so a restore reproduces the same setup.
+- **Reproducible restore via a lockfile.** Sources declare intent (`gh://…@main`, a model alias); `bearpit.lock.json` pins the resolved commit/version/runtime so a restore reproduces the same setup.
 - **Parameters/templating.** `project.json` may declare `parameters` (e.g. `topic`, `rounds`) filled at instantiation, turning a package into a reusable template (scenario templates, #25).
-- **Validate the package as a unit.** `arealm validate` checks: JSON-Schema conformance, unique ids, `agents/` folders match roster, skill refs resolve, required credential handles known, and no secret material committed.
+- **Validate the package as a unit.** `pit validate` checks: JSON-Schema conformance, unique ids, `agents/` folders match roster, skill refs resolve, required credential handles known, and no secret material committed.
 
 ---
 
@@ -525,7 +525,7 @@ Design rules that make the package robust:
 | Agent runtime | **Hermes Agent** (pinned version) | See §12 |
 | System tools | **MCP servers** (Python SDK): Realmtools, Arbiter | Per-agent loadouts are MCP configs — the standard |
 | UI | **Vanilla JS**, no build step | A framework would need a CDN or a bundler; the console ships as three static files Gatekeeper serves directly. Replay viewer is *planned*. |
-| CLI | **Typer** (`arealm`) | validate/up/status/tail/msg/stop/archive |
+| CLI | **Typer** (`pit`) | validate/up/status/tail/msg/stop/archive |
 | Deploy | **docker compose** | Whole platform on one host |
 | Quality | uv, ruff, pytest, mypy | |
 
@@ -551,9 +551,9 @@ ground truth instead of inferring from the commons transcript.
 
 ## Design: OpenTelemetry-aligned, file-backed today
 
-`agentrealm.telemetry` emits one JSON object per span to a file (JSONL). Field names follow the
+`bearpit.telemetry` emits one JSON object per span to a file (JSONL). Field names follow the
 OpenTelemetry **semantic conventions** — the [GenAI conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/)
-(`gen_ai.*`) for model calls, plus `agentrealm.*` for what OTel doesn't standardize yet (the full
+(`gen_ai.*`) for model calls, plus `bearpit.*` for what OTel doesn't standardize yet (the full
 rendered system prompt, tool JSON schemas, and how the call was actually issued).
 
 Because the call sites already speak OTel semantics, the **migration path** is a sink swap, not a
@@ -563,7 +563,7 @@ exports spans over OTLP to a collector (Jaeger / Tempo / Grafana). Callers (`emi
 
 ### Enabling capture
 
-> **Status:** the span contract, the writer, and `arealm trace` all exist and are tested. What does
+> **Status:** the span contract, the writer, and `pit trace` all exist and are tested. What does
 > not exist yet is a capture call site on the API pipelines: agent traffic goes straight through the
 > LiteLLM proxy, so capturing raw I/O there means hooking LiteLLM's logging callbacks. Until that
 > lands (#90), the only spans you will see are ones emitted by a provider integration that captures
@@ -573,8 +573,8 @@ Off by default (zero overhead, no content written). Turn it on by pointing a sin
 writable file — any of these work (checked in order):
 
 ```
-AGENTREALM_TELEMETRY   # preferred
-AGENTREALM_LLM_TRACE   # alias
+BEARPIT_TELEMETRY   # preferred
+BEARPIT_LLM_TRACE   # alias
 ```
 
 Set it on whatever component sits at the LLM chokepoint, then launch a realm as usual. Each model
@@ -585,10 +585,10 @@ call — success **or** error — appends one span.
 
 ```sh
 # summarise the last calls: model, tokens, tools offered/called, prompt + output previews
-uv run arealm trace ~/.agentrealm/llm-trace.jsonl
+uv run pit trace ~/.bearpit/llm-trace.jsonl
 
 # isolate one agent's calls (grep the system prompt / completion) and check a specific tool
-uv run arealm trace ~/.agentrealm/llm-trace.jsonl --grep "referee-social-deduction" --tool rule --full
+uv run pit trace ~/.bearpit/llm-trace.jsonl --grep "referee-social-deduction" --tool rule --full
 ```
 
 `--tool rule` reports, per span and in a summary, whether `rule` was **offered** to the model and
@@ -597,7 +597,7 @@ whether the model **called** it — the direct check for the among-us "game neve
 The raw file is plain JSONL, so `jq` works too:
 
 ```sh
-jq -r 'select(.attributes["agentrealm.request.tool_names"] | index("rule")) | .attributes["agentrealm.response.tool_calls"]' ~/.agentrealm/llm-trace.jsonl
+jq -r 'select(.attributes["bearpit.request.tool_names"] | index("rule")) | .attributes["bearpit.response.tool_calls"]' ~/.bearpit/llm-trace.jsonl
 ```
 
 ### Span shape
@@ -613,13 +613,13 @@ jq -r 'select(.attributes["agentrealm.request.tool_names"] | index("rule")) | .a
     "gen_ai.request.reasoning_effort": "high",
     "gen_ai.usage.input_tokens": 4210,
     "gen_ai.usage.output_tokens": 180,
-    "agentrealm.request.model_alias": "realm-7f2a--umpire",
-    "agentrealm.request.system_prompt": "…the FULL rendered system prompt, incl. tool protocol…",
-    "agentrealm.request.prompt": "…the user turn / transcript…",
-    "agentrealm.request.tool_names": ["send_private", "rule", "scoreboard"],
-    "agentrealm.request.tool_schemas": [ /* full JSON schemas */ ],
-    "agentrealm.response.completion": "…the raw model output…",
-    "agentrealm.response.tool_calls": ["rule"]
+    "bearpit.request.model_alias": "realm-7f2a--umpire",
+    "bearpit.request.system_prompt": "…the FULL rendered system prompt, incl. tool protocol…",
+    "bearpit.request.prompt": "…the user turn / transcript…",
+    "bearpit.request.tool_names": ["send_private", "rule", "scoreboard"],
+    "bearpit.request.tool_schemas": [ /* full JSON schemas */ ],
+    "bearpit.response.completion": "…the raw model output…",
+    "bearpit.response.tool_calls": ["rule"]
   }
 }
 ```
@@ -631,18 +631,18 @@ cache hit-rate measurable rather than assumed:
 
 | Attribute | Meaning |
 |---|---|
-| `agentrealm.session.id` | the CLI session this agent is using (stable across its calls) |
-| `agentrealm.session.resumed` | `false` = created (full transcript sent), `true` = continued (delta only) |
-| `agentrealm.session.turns_sent` | how many conversation turns crossed the wire this call |
-| `agentrealm.session.chars_sent` | what we actually sent |
-| `agentrealm.session.chars_full` | what a stateless call *would* have sent — the two together are the saving |
+| `bearpit.session.id` | the CLI session this agent is using (stable across its calls) |
+| `bearpit.session.resumed` | `false` = created (full transcript sent), `true` = continued (delta only) |
+| `bearpit.session.turns_sent` | how many conversation turns crossed the wire this call |
+| `bearpit.session.chars_sent` | what we actually sent |
+| `bearpit.session.chars_full` | what a stateless call *would* have sent — the two together are the saving |
 
 ```sh
 # session hit-rate + bytes saved for one realm
-jq -r 'select(.attributes["agentrealm.realm.id"]=="<realm>") |
-  [.attributes["agentrealm.agent.id"], .attributes["agentrealm.session.resumed"],
-   .attributes["agentrealm.session.chars_sent"], .attributes["agentrealm.session.chars_full"]] | @tsv' \
-  ~/.agentrealm/llm-trace.jsonl
+jq -r 'select(.attributes["bearpit.realm.id"]=="<realm>") |
+  [.attributes["bearpit.agent.id"], .attributes["bearpit.session.resumed"],
+   .attributes["bearpit.session.chars_sent"], .attributes["bearpit.session.chars_full"]] | @tsv' \
+  ~/.bearpit/llm-trace.jsonl
 ```
 
 ---
@@ -650,8 +650,8 @@ jq -r 'select(.attributes["agentrealm.realm.id"]=="<realm>") |
 ## 17. Repository layout
 
 ```
-agentrealm/
-├── src/agentrealm/        # Python package (uv-managed, src layout)
+bearpit/
+├── src/bearpit/        # Python package (uv-managed, src layout)
 │   ├── core/              # domain model, manifest schema, provider profiles, plugin seam
 │   ├── gatekeeper/        # FastAPI app + the web console (static/), realm manager, Scribe API
 │   ├── forge/             # provisioner (networks, volumes, containers) + adapters/hermes/
@@ -664,7 +664,7 @@ agentrealm/
 │   │                      #   a participant's token cannot call a referee tool.
 │   ├── scribe/            # the scenario-authoring assistant (control plane, not a realm agent)
 │   ├── telemetry.py       # OTel-aligned span emission
-│   └── cli/               # arealm (Typer)
+│   └── cli/               # pit (Typer)
 ├── tests/
 ├── examples/              # portable project packages
 ├── deploy/                # docker-compose.yaml, realmtools.Dockerfile, .env.example

@@ -91,12 +91,12 @@ docker compose -f deploy/docker-compose.yaml up -d
 # 2. register the credential handle (BYOK — your key, your spend; see the top-level README)
 
 # 3. validate, then run
-arealm validate examples/triad-build
-arealm up examples/triad-build
+pit validate examples/triad-build
+pit up examples/triad-build
 ```
 
-Watch it with `arealm tail <realm>`; read the doc and the verdict afterwards with
-`arealm archive <realm>`.
+Watch it with `pit tail <realm>`; read the doc and the verdict afterwards with
+`pit archive <realm>`.
 
 ## Difficulty dials
 

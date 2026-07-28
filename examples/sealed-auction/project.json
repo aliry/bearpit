@@ -1,10 +1,10 @@
 {
-  "apiVersion": "agentrealm/v1alpha1",
+  "apiVersion": "bearpit/v1alpha1",
   "kind": "Project",
   "metadata": {
     "name": "sealed-auction",
     "description": "Three bidders seal a first-price bid for one contract; a clerk waits until all three bids are in, reveals, and awards to the highest. Each bidder has a private value and pays what it bids, so bidding high to win is a way to lose.",
-    "author": "agentrealm",
+    "author": "bearpit",
     "tags": [
       "competitive",
       "auction",

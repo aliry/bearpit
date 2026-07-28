@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from agentrealm.core.schema import Project
-from agentrealm.scribe.types import Completion, Message, ToolSpec
+from bearpit.core.schema import Project
+from bearpit.scribe.types import Completion, Message, ToolSpec
 
 
 class FakeLLMBackend:
@@ -110,7 +110,7 @@ FLAT_RATE_PROFILE: dict[str, Any] = {
     "flat_rate": True,
     "min_budget_usd": 25.0,
     "min_turn_seconds": 240.0,
-    "setup_hint": "run `arealm keys add fake-main`",
+    "setup_hint": "run `pit keys add fake-main`",
     "categories": {
         "small": {"model": "fake-s", "effort": "low",
                   "input_cost_per_token": 1e-6, "output_cost_per_token": 5e-6,
@@ -129,7 +129,7 @@ def flat_rate_table() -> dict[str, dict[str, Any]]:
     """The shipped provider table plus the fake flat-rate pipeline (a fresh copy each call)."""
     import copy
 
-    from agentrealm.core.providers import default_providers
+    from bearpit.core.providers import default_providers
 
     cfg = default_providers()
     cfg[FLAT] = copy.deepcopy(FLAT_RATE_PROFILE)

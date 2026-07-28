@@ -16,9 +16,9 @@ import pytest
 from starlette.testclient import TestClient
 from test_api import FakeManager
 
-from agentrealm.chronicle import Chronicle, EventKind
-from agentrealm.gatekeeper.api import create_app
-from agentrealm.gatekeeper.auth import (
+from bearpit.chronicle import Chronicle, EventKind
+from bearpit.gatekeeper.api import create_app
+from bearpit.gatekeeper.auth import (
     COOKIE_NAME,
     is_public_path,
     load_or_create_token,
@@ -132,14 +132,14 @@ def test_public_paths_are_exactly_the_shell_and_its_assets() -> None:
 
 def test_the_token_persists_and_the_env_wins(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.delenv("AGENTREALM_API_TOKEN", raising=False)
+    monkeypatch.delenv("BEARPIT_API_TOKEN", raising=False)
     first = load_or_create_token()
     assert len(first) >= 32
     assert load_or_create_token() == first  # stable across restarts, or the cookie breaks nightly
 
-    stored = tmp_path / ".agentrealm" / "api-token"
+    stored = tmp_path / ".bearpit" / "api-token"
     assert stored.is_file()
     assert oct(stored.stat().st_mode & 0o777) == "0o600"
 
-    monkeypatch.setenv("AGENTREALM_API_TOKEN", "pinned-by-the-operator")
+    monkeypatch.setenv("BEARPIT_API_TOKEN", "pinned-by-the-operator")
     assert load_or_create_token() == "pinned-by-the-operator"

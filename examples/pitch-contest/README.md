@@ -77,8 +77,8 @@ reveal comes back `n=0` (a round-label typo).
 ## Run it
 
 ```sh
-uv run arealm validate examples/pitch-contest
-uv run arealm up examples/pitch-contest
+uv run pit validate examples/pitch-contest
+uv run pit up examples/pitch-contest
 ```
 
 ## Dials

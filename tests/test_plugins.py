@@ -12,16 +12,16 @@ from typing import Any
 import pytest
 import typer
 
-from agentrealm.core import plugins
-from agentrealm.core.plugins import (
+from bearpit.core import plugins
+from bearpit.core.plugins import (
     DEFAULT_HOOKS,
     ProviderHooks,
     hooks_for,
     load_command_plugins,
     plugin_profiles,
 )
-from agentrealm.core.providers import AZURE, default_providers, is_provider
-from agentrealm.core.schema import ModelRef
+from bearpit.core.providers import AZURE, default_providers, is_provider
+from bearpit.core.schema import ModelRef
 
 
 class _FakeEntryPoint:

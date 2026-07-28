@@ -5,16 +5,16 @@ import importlib
 import pytest
 
 MODULES = [
-    "agentrealm",
-    "agentrealm.core",
-    "agentrealm.gatekeeper",
-    "agentrealm.forge",
-    "agentrealm.forge.adapters.hermes",
-    "agentrealm.herald",
-    "agentrealm.warden",
-    "agentrealm.ledger",
-    "agentrealm.realmtools",
-    "agentrealm.cli",
+    "bearpit",
+    "bearpit.core",
+    "bearpit.gatekeeper",
+    "bearpit.forge",
+    "bearpit.forge.adapters.hermes",
+    "bearpit.herald",
+    "bearpit.warden",
+    "bearpit.ledger",
+    "bearpit.realmtools",
+    "bearpit.cli",
 ]
 
 

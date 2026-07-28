@@ -1,17 +1,17 @@
 """Scenario + skill file I/O for the authoring UI: write/validate, delete, zip round-trip, and the
-custom-skill library. Uses tmp dirs (via env) so nothing touches the real ~/.agentrealm."""
+custom-skill library. Uses tmp dirs (via env) so nothing touches the real ~/.bearpit."""
 import io
 import json
 import zipfile
 
 import pytest
 
-from agentrealm.gatekeeper import scenarios as sc
+from bearpit.gatekeeper import scenarios as sc
 
 
 @pytest.fixture
 def dirs(tmp_path, monkeypatch):
-    monkeypatch.setenv("AGENTREALM_SKILLS_DIR", str(tmp_path / "skills"))
+    monkeypatch.setenv("BEARPIT_SKILLS_DIR", str(tmp_path / "skills"))
     return tmp_path
 
 

@@ -1,4 +1,4 @@
-# AgentRealm platform (M8, architecture §5/§15). One `docker compose up` brings up the
+# Bearpit platform (M8, architecture §5/§15). One `docker compose up` brings up the
 # control plane and its backing services. Agent containers are provisioned dynamically by
 # Forge onto per-realm networks — they are NOT defined here.
 #
@@ -12,23 +12,23 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: arealm-postgres
+    container_name: pit-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: arealm
+      POSTGRES_USER: pit
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
-      POSTGRES_DB: agentrealm
+      POSTGRES_DB: bearpit
     ports: ["127.0.0.1:5432:5432"]
     volumes: ["pgdata:/var/lib/postgresql/data"]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U arealm -d agentrealm"]
+      test: ["CMD-SHELL", "pg_isready -U pit -d bearpit"]
       interval: 5s
       timeout: 3s
       retries: 10
 
   conduit:
     image: matrixconduit/matrix-conduit:v0.10.9
-    container_name: arealm-conduit
+    container_name: pit-conduit
     restart: unless-stopped
     ports: ["127.0.0.1:6167:6167"]
     environment:
@@ -47,7 +47,7 @@ services:
 
   litellm-db:
     image: postgres:16-alpine
-    container_name: arealm-litellm-db
+    container_name: pit-litellm-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: llm
@@ -57,7 +57,7 @@ services:
 
   litellm:
     image: ghcr.io/berriai/litellm:main-stable
-    container_name: arealm-litellm
+    container_name: pit-litellm
     restart: unless-stopped
     depends_on: [litellm-db]
     ports: ["127.0.0.1:4000:4000"]
@@ -74,14 +74,14 @@ services:
 
   # Realmtools MCP server (#39) — serves the sealed-submit mechanic to agents. Forge attaches
   # it to each realm network that declares a mechanic; agents reach it at
-  # http://arealm-realmtools:9100/mcp. Its REALMTOOLS_SECRET must match the control plane's
+  # http://pit-realmtools:9100/mcp. Its REALMTOOLS_SECRET must match the control plane's
   # (used to mint per-agent tokens).
   realmtools:
     build:
       context: ..
       dockerfile: deploy/realmtools.Dockerfile
-    image: arealm-realmtools:latest
-    container_name: arealm-realmtools
+    image: pit-realmtools:latest
+    container_name: pit-realmtools
     restart: unless-stopped
     ports:
       # loopback-only: a host-side process may need to reach the realm's tools on an agent's
@@ -92,7 +92,7 @@ services:
     depends_on:
       postgres: {condition: service_healthy}
     environment:
-      AGENTREALM_DATABASE_URL: postgresql+asyncpg://arealm:${POSTGRES_PASSWORD}@postgres:5432/agentrealm
+      BEARPIT_DATABASE_URL: postgresql+asyncpg://pit:${POSTGRES_PASSWORD}@postgres:5432/bearpit
       REALMTOOLS_SECRET: ${REALMTOOLS_SECRET:?set REALMTOOLS_SECRET in .env}
       REALMTOOLS_PORT: "9100"
 
@@ -100,15 +100,15 @@ services:
   # Commented until the app has an entrypoint (built out across M2–M7); infra above is usable now.
   # app:
   #   build: ..
-  #   container_name: arealm-app
+  #   container_name: pit-app
   #   depends_on:
   #     postgres: {condition: service_healthy}
   #     conduit: {condition: service_started}
   #     litellm: {condition: service_started}
   #   environment:
-  #     AGENTREALM_DATABASE_URL: postgresql+asyncpg://arealm:${POSTGRES_PASSWORD}@postgres:5432/agentrealm
-  #     AGENTREALM_MATRIX_HOMESERVER: http://conduit:6167
-  #     AGENTREALM_LITELLM_URL: http://litellm:4000
+  #     BEARPIT_DATABASE_URL: postgresql+asyncpg://pit:${POSTGRES_PASSWORD}@postgres:5432/bearpit
+  #     BEARPIT_MATRIX_HOMESERVER: http://conduit:6167
+  #     BEARPIT_LITELLM_URL: http://litellm:4000
   #   volumes: ["/var/run/docker.sock:/var/run/docker.sock"]  # Forge provisions agent containers
 
 volumes:

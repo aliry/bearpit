@@ -3,7 +3,7 @@
 import pytest
 import yaml
 
-from agentrealm.core.schema import (
+from bearpit.core.schema import (
     AgentSpec,
     Budget,
     Environment,
@@ -13,8 +13,8 @@ from agentrealm.core.schema import (
     ProjectSpec,
     SharedFolder,
 )
-from agentrealm.forge import Forge, MatrixCreds
-from agentrealm.ledger import KeyStore, Ledger
+from bearpit.forge import Forge, MatrixCreds
+from bearpit.ledger import KeyStore, Ledger
 
 
 class FakeRuntime:
@@ -183,25 +183,25 @@ async def test_bus_and_proxy_attached_to_realm_network():
     project = _project()
     creds = _matrix([a.id for a in project.agents])
     await forge.provision_realm(
-        "r3", project, creds, bus_homeserver="http://arealm-conduit:6167",
-        proxy_url="http://arealm-litellm:4000", commons_room="!c",
-        attach_containers=("arealm-conduit", "arealm-litellm"),
+        "r3", project, creds, bus_homeserver="http://pit-conduit:6167",
+        proxy_url="http://pit-litellm:4000", commons_room="!c",
+        attach_containers=("pit-conduit", "pit-litellm"),
     )
     # both service containers were joined to the realm network so agents can resolve them
-    assert ("realm-r3", "arealm-conduit") in runtime.connected
-    assert ("realm-r3", "arealm-litellm") in runtime.connected
+    assert ("realm-r3", "pit-conduit") in runtime.connected
+    assert ("realm-r3", "pit-litellm") in runtime.connected
 
 
 async def test_realmtools_wired_for_mechanic_project():
     import yaml as _yaml
 
-    from agentrealm.core.schema import Mechanic
-    from agentrealm.forge import RealmtoolsConfig
-    from agentrealm.realmtools.tokens import verify_token
+    from bearpit.core.schema import Mechanic
+    from bearpit.forge import RealmtoolsConfig
+    from bearpit.realmtools.tokens import verify_token
 
     runtime = FakeRuntime()
     rt = RealmtoolsConfig(
-        url="http://arealm-realmtools:9100/mcp", secret="s3cr3t", container="arealm-realmtools"
+        url="http://pit-realmtools:9100/mcp", secret="s3cr3t", container="pit-realmtools"
     )
     forge = Forge(runtime, Ledger(_ks(), FakeLiteLLM(), "http://p"), realmtools=rt)
     project = _project()
@@ -210,10 +210,10 @@ async def test_realmtools_wired_for_mechanic_project():
 
     await forge.provision_realm(
         "duelm", project, creds, bus_homeserver="h", proxy_url="p", commons_room="!c",
-        attach_containers=("arealm-conduit",),
+        attach_containers=("pit-conduit",),
     )
     # the realmtools container is attached to the realm network alongside the bus
-    assert ("realm-duelm", "arealm-realmtools") in runtime.connected
+    assert ("realm-duelm", "pit-realmtools") in runtime.connected
 
     # each agent got the MCP server in its config + a token whose identity+role verify
     vela_cfg = _yaml.safe_load(runtime.volumes["realm-duelm--vela"]["config.yaml"])
@@ -228,7 +228,7 @@ async def test_realmtools_wired_for_mechanic_project():
         "reftest", proj2, _matrix([a.id for a in proj2.agents]),
         bus_homeserver="h", proxy_url="p", commons_room="!c",
     )
-    assert ("realm-reftest", "arealm-realmtools") in runtime2.connected
+    assert ("realm-reftest", "pit-realmtools") in runtime2.connected
     themis_cfg = _yaml.safe_load(runtime2.volumes["realm-reftest--themis"]["config.yaml"])
     assert "realmtools" in themis_cfg["mcp_servers"]
     vela_token = _token_from_env(runtime.volumes["realm-duelm--vela"][".env"])
@@ -245,7 +245,7 @@ async def test_realmtools_wired_for_mechanic_project():
         "notools", proj3, _matrix([a.id for a in proj3.agents]),
         bus_homeserver="h", proxy_url="p", commons_room="!c",
     )
-    assert ("realm-notools", "arealm-realmtools") not in getattr(runtime3, "connected", [])
+    assert ("realm-notools", "pit-realmtools") not in getattr(runtime3, "connected", [])
     themis3 = _yaml.safe_load(runtime3.volumes["realm-notools--themis"]["config.yaml"])
     assert "mcp_servers" not in themis3  # no tools wired at all
     themis_token = _token_from_env(runtime.volumes["realm-duelm--themis"][".env"])
@@ -257,12 +257,12 @@ async def test_realmtools_wired_for_mechanic_project():
 async def test_realmtools_wired_for_private_messaging_only_project():
     # a purely collaborative project (no referee, no mechanic) still needs realmtools if any agent
     # can DM — that's how they get the send_private tool.
-    from agentrealm.core.schema import PrivateMessaging
-    from agentrealm.forge import RealmtoolsConfig
+    from bearpit.core.schema import PrivateMessaging
+    from bearpit.forge import RealmtoolsConfig
 
     runtime = FakeRuntime()
     rt = RealmtoolsConfig(
-        url="http://arealm-realmtools:9100/mcp", secret="s3cr3t", container="arealm-realmtools"
+        url="http://pit-realmtools:9100/mcp", secret="s3cr3t", container="pit-realmtools"
     )
     forge = Forge(runtime, Ledger(_ks(), FakeLiteLLM(), "http://p"), realmtools=rt)
     proj = Project(
@@ -281,7 +281,7 @@ async def test_realmtools_wired_for_private_messaging_only_project():
         "dmrealm", proj, _matrix([a.id for a in proj.agents]),
         bus_homeserver="h", proxy_url="p", commons_room="!c",
     )
-    assert ("realm-dmrealm", "arealm-realmtools") in runtime.connected
+    assert ("realm-dmrealm", "pit-realmtools") in runtime.connected
     alice_cfg = yaml.safe_load(runtime.volumes["realm-dmrealm--alice"]["config.yaml"])
     assert "realmtools" in alice_cfg["mcp_servers"]  # send_private reachable
 
@@ -388,7 +388,7 @@ async def test_provisioning_failure_tears_down_what_it_built():
     already RUNNING, each holding a live capped key, with no Warden watching them. On a live server
     the reaper only runs at startup, so they would run unsupervised until the next restart. Any
     failure must tear down what it built."""
-    import agentrealm.forge.forge as forge_mod
+    import bearpit.forge.forge as forge_mod
 
     runtime = FakeRuntime()
     real = forge_mod.HermesAdapter
@@ -423,9 +423,9 @@ async def test_forge_reports_the_realmtools_tokens_it_minted():
     Forge mints each agent's realmtools bearer and injects it into the container env; nothing
     downstream saw it, so `run_code` output containing it went into the append-only chronicle
     verbatim. RealmHandles now carries them — held only so they can be redacted."""
-    from agentrealm.core.schema import AgentSpec, ModelRef, Project, ProjectMeta, ProjectSpec
-    from agentrealm.forge import RealmtoolsConfig
-    from agentrealm.herald.types import MatrixCreds
+    from bearpit.core.schema import AgentSpec, ModelRef, Project, ProjectMeta, ProjectSpec
+    from bearpit.forge import RealmtoolsConfig
+    from bearpit.herald.types import MatrixCreds
 
     def _model():
         return ModelRef(provider="azure", model="m", api_key_ref="azure-main",
@@ -447,7 +447,7 @@ async def test_forge_reports_the_realmtools_tokens_it_minted():
     ks.put("azure-main", "REALKEY")
     forge = Forge(runtime, Ledger(ks, FakeLiteLLM(), "http://p"),
                   realmtools=RealmtoolsConfig(url="http://rt:9100/mcp", secret="s" * 40,
-                                              container="arealm-realmtools"))
+                                              container="pit-realmtools"))
     handles = await forge.provision_realm(
         "r1", project, creds, bus_homeserver="http://hs", proxy_url="http://p",
         commons_room="!c",

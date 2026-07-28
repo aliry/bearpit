@@ -33,7 +33,7 @@ FORBIDDEN = (
     r"\bshim\b",
     r"\bshims\b",
     r"subscription",
-    r"agentrealm[-_]shim",
+    r"bearpit[-_]shim",
     # The owner's personal name as a bare word — it was the Herald operator default and is exactly
     # the kind of thing that gets re-added by accident. NOT `aliry`: that is the GitHub account this
     # repository lives under, so it appears legitimately in every project URL.
@@ -144,7 +144,7 @@ def test_the_guard_is_not_vacuous() -> None:
     for sample in ("we run copilot here", "the claude-cli path", "start the shim", "user ali"):
         assert any(rx.search(sample) for rx in compiled), sample
     # …and does not fire on ordinary words that merely contain a forbidden substring
-    for benign in ("alias", "shimmering", "validate", "aliry/agentrealm"):
+    for benign in ("alias", "shimmering", "validate", "aliry/bearpit"):
         assert not any(rx.search(benign) for rx in compiled), benign
 
 

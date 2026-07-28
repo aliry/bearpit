@@ -2,9 +2,9 @@
 
 from datetime import timedelta
 
-from agentrealm.chronicle import Chronicle, EventKind
-from agentrealm.core.schema import TerminationCondition, TerminationKind
-from agentrealm.warden import RealmSnapshot, Warden, evaluate_termination
+from bearpit.chronicle import Chronicle, EventKind
+from bearpit.core.schema import TerminationCondition, TerminationKind
+from bearpit.warden import RealmSnapshot, Warden, evaluate_termination
 
 
 def _cond(type_, **kw):
@@ -110,7 +110,7 @@ async def test_conclude_runs_the_sequence():
     forge, herald, chron = FakeForge(), FakeHerald(), await _chron()
     await chron.append_event("r", EventKind.VERDICT, {"outcome": "orin wins"})
     warden = Warden(forge, herald, chron)  # type: ignore[arg-type]
-    from agentrealm.warden import TerminationFired
+    from bearpit.warden import TerminationFired
     result = await warden.conclude(
         "r", handles=object(), commons_room="!c",  # type: ignore[arg-type]
         fired=TerminationFired(TerminationKind.MESSAGE, "MATCH OVER"),

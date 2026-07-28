@@ -4,10 +4,10 @@ serialized package view the UI reads."""
 import pytest
 from pydantic import ValidationError
 
-from agentrealm.core import load_package
-from agentrealm.core.colors import AGENT_COLOR_PALETTE, resolve_agent_colors
-from agentrealm.core.schema import AgentSpec
-from agentrealm.gatekeeper.api import serialize_project
+from bearpit.core import load_package
+from bearpit.core.colors import AGENT_COLOR_PALETTE, resolve_agent_colors
+from bearpit.core.schema import AgentSpec
+from bearpit.gatekeeper.api import serialize_project
 
 
 class _A:

@@ -12,7 +12,7 @@ uv sync                  # install
 uv run pytest            # tests
 uv run ruff check .      # lint (line length 100)
 uv run mypy              # type check (strict)
-uv run arealm --help     # the CLI
+uv run pit --help     # the CLI
 ```
 
 All four must pass before a PR is ready. `mypy` runs in strict mode; new code is expected to be

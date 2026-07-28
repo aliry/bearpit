@@ -1,10 +1,10 @@
 {
-  "apiVersion": "agentrealm/v1alpha1",
+  "apiVersion": "bearpit/v1alpha1",
   "kind": "Project",
   "metadata": {
     "name": "border-states",
     "description": "Five successor powers carve up a collapsed empire. Each season they negotiate privately, then seal simultaneous military orders that a deterministic adjudicator resolves — support, support-cut, bounces, dislodgement, and year-end builds. Alliances are everything and trust is a weapon: a promise kept or broken lands the moment it is tested. Win by holding 6 of the 11 supply centers, or the most when the third year ends.",
-    "author": "agentrealm",
+    "author": "bearpit",
     "tags": ["diplomacy", "negotiation", "alliances", "betrayal", "strategy", "sealed-orders"],
     "category": "Negotiation & Strategy"
   },

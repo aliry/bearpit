@@ -61,7 +61,7 @@ A good run ends in **5–10 minutes** with one `reveal` event, one `verdict` eve
 ## Run it
 
 ```sh
-uv run arealm up examples/council-vote
-curl -H "Authorization: Bearer $(cat ~/.agentrealm/api-token)" \
+uv run pit up examples/council-vote
+curl -H "Authorization: Bearer $(cat ~/.bearpit/api-token)" \
   :8000/api/realms/<id>/events?kind=verdict   # the decided ending
 ```

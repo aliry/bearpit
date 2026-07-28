@@ -40,8 +40,8 @@ what it does with a lead. They are written to disagree.
 ## Running it
 
 ```bash
-arealm validate examples/border-states
-arealm up examples/border-states
+pit validate examples/border-states
+pit up examples/border-states
 ```
 
 Expect roughly three in-game years of several seasons each. A five-way draw is a legitimate result:

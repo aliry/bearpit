@@ -10,7 +10,7 @@ from fakes import FLAT
 from fakes import FLAT_RATE_PROFILE as _FLAT_PROFILE
 from fakes import flat_rate_table as _table
 
-from agentrealm.core.providers import (
+from bearpit.core.providers import (
     AZURE,
     default_providers,
     is_provider,
@@ -19,7 +19,7 @@ from agentrealm.core.providers import (
     resolve_category_model,
     resolve_project,
 )
-from agentrealm.core.schema import (
+from bearpit.core.schema import (
     AgentSpec,
     Budget,
     ModelCategory,
