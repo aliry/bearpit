@@ -135,3 +135,67 @@ async def test_only_the_referee_may_eliminate(arb):
     with pytest.raises(PermissionError):
         await a.eliminate(PLAYER, "themis")
     assert await chron.events("duel", kind=EventKind.ELIMINATION) == []
+
+
+async def test_concurrent_first_scores_do_not_lose_an_increment(arb):
+    """The referee's board must not silently drop a point — issue #17.
+
+    `_board()` fills a per-realm cache, and its only yield point is the chronicle read that sits
+    between "is it cached?" and "store it". Two scores landing inside that window each built their
+    own dict, and the later store discarded the earlier one's increment — while both still appended
+    their SCORE event. The chronicle then held one more point than the board the referee ruled on.
+
+    That is the rps-rv1 signature exactly: 3 SCORE events for orin against `scoreboard {orin: 2}` in
+    the verdict — a 3-2 ledger under a 2-2 ruling, with nothing failing loudly.
+
+    Both reads must yield before either stores, which is what a real async driver does under load.
+    Delaying only ONE read does not reproduce it: the other call finishes first, and the stalled
+    rebuild then picks that event up and self-corrects.
+
+    Asserted against the number of score() calls rather than against the chronicle: sqlite's
+    in-memory StaticPool shares a single connection across sessions, so concurrent commits
+    interleaved with a read can lose rows there. Verified against live Postgres, which keeps all
+    ten of ten — so no test here may assert an exact event count under concurrency."""
+    import asyncio
+
+    a, chron = arb
+    real_events = chron.events
+
+    async def slow_read(*args, **kwargs):
+        await asyncio.sleep(0.05)          # every read yields, so both fills are in flight together
+        return await real_events(*args, **kwargs)
+
+    chron.events = slow_read  # type: ignore[method-assign]
+    await asyncio.gather(
+        a.score(REF, "orin", 1, "round R1"),
+        a.score(REF, "orin", 1, "round R1"),   # the second delivery
+    )
+    chron.events = real_events  # type: ignore[method-assign]
+
+    board = await a.scoreboard(REF)
+    assert board["orin"] == 2.0, (
+        f"board is {board['orin']} after two scores — a concurrent cache fill dropped an increment"
+    )
+
+
+async def test_many_concurrent_scores_all_land(arb):
+    """Stronger form of the same guard: nothing is lost at any concurrency.
+
+    The two-call case can pass by luck if the interleaving happens to serialise. Ten concurrent
+    first-scores cannot: every one enters `_board()` before any fill completes, so a lock that
+    hands late callers a fresh dict — rather than the one already stored — loses nine of them."""
+    import asyncio
+
+    a, chron = arb
+    real_events = chron.events
+
+    async def slow_read(*args, **kwargs):
+        await asyncio.sleep(0.02)
+        return await real_events(*args, **kwargs)
+
+    chron.events = slow_read  # type: ignore[method-assign]
+    await asyncio.gather(*(a.score(REF, "orin", 1, f"round R{i}") for i in range(10)))
+    chron.events = real_events  # type: ignore[method-assign]
+
+    board = await a.scoreboard(REF)
+    assert board["orin"] == 10.0, f"board lost increments: {board['orin']} of 10"

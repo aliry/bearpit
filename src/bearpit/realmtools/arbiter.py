@@ -14,6 +14,7 @@ platform (influence by message, control by kill).
 
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import Any
 
@@ -25,6 +26,7 @@ class ArbiterService:
     def __init__(self, chronicle: Chronicle | None = None) -> None:
         self._chron = chronicle
         self._scores: dict[str, dict[str, float]] = {}  # realm -> {agent: cumulative}
+        self._fills: dict[str, asyncio.Lock] = {}  # realm -> guards its one-time cache fill
 
     def set_chronicle(self, chronicle: Chronicle) -> None:
         self._chron = chronicle
@@ -40,14 +42,33 @@ class ArbiterService:
         realmtools runs as a container the operator restarts (deploys), and this board was held in
         process memory ONLY — a restart mid-realm silently reset every score to zero, so the referee
         would rule on a blank scoreboard. The SCORE events are the durable record; sum them once,
-        then keep serving from memory."""
-        if realm_id not in self._scores:
+        then keep serving from memory.
+
+        The fill is locked per realm because its chronicle read is an await, and callers mutate the
+        dict this returns. Two scores landing inside that window each built their own dict and the
+        later store discarded the earlier one's increment — while both still appended their SCORE
+        event, so the chronicle ended up one point ahead of the board the referee ruled on (#17,
+        realm rps-rv1: a 3-2 ledger under a 2-2 ruling, silently).
+
+        Per realm, not one global lock: the read is held across a database round-trip, and in the
+        wild that stalled for 97 seconds. A shared lock would have blocked every other realm's
+        first score behind it."""
+        cached = self._scores.get(realm_id)
+        if cached is not None:
+            return cached
+        # setdefault is atomic here — no await between the lookup and the store
+        async with self._fills.setdefault(realm_id, asyncio.Lock()):
+            # re-check: whoever held the lock before us has already filled it, and we must return
+            # THAT dict, not a second one, or their increments are lost exactly as before
+            cached = self._scores.get(realm_id)
+            if cached is not None:
+                return cached
             board: dict[str, float] = {}
             for e in await self._c().events(realm_id, kind=EventKind.SCORE):
                 a = str(e.payload.get("agent", ""))
                 board[a] = round(board.get(a, 0.0) + float(e.payload.get("delta", 0.0)), 6)
             self._scores[realm_id] = board
-        return self._scores[realm_id]
+            return board
 
     @staticmethod
     def _require_referee(who: Identity, action: str) -> None:
