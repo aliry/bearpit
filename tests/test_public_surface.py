@@ -148,6 +148,49 @@ def test_the_guard_is_not_vacuous() -> None:
         assert not any(rx.search(benign) for rx in compiled), benign
 
 
+# The project was renamed from the former name to Bearpit. Assembled from fragments so this file
+# does not itself contain the strings it forbids, which would need a self-exemption.
+_FORMER = ("agent" + "realm", "a" + "realm")
+
+
+def test_the_former_name_is_gone() -> None:
+    """No stale references to the pre-Bearpit name survive anywhere in the tree.
+
+    A rename is exactly the change a test suite is worst at policing. When this one was done, a
+    single file was silently reverted mid-verification; `mypy` caught its two imports, but the same
+    file also carried three user-facing `setup_hint` strings telling operators to run a command
+    that no longer exists. Nothing in the suite would ever have failed on those — they are strings,
+    not code. Hence a guard that reads the text."""
+    rx = re.compile("|".join(rf"(?<![a-z]){re.escape(t)}(?![a-z])" for t in _FORMER), re.IGNORECASE)
+    stale: list[str] = []
+    for rel in _tracked_files():
+        if rel == "tests/test_public_surface.py" or rel.startswith(("docs/adr/", "CHANGELOG")):
+            continue  # this file names what it forbids; ADRs and changelogs record history
+        try:
+            text = (REPO / rel).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        for i, line in enumerate(text.splitlines(), 1):
+            if rx.search(line):
+                stale.append(f"{rel}:{i}: {line.strip()[:80]}")
+    assert not stale, (
+        "the former project name still appears in tracked files:\n  "
+        + "\n  ".join(stale)
+        + "\n\nRename them. Imports fail loudly; strings, docs and env-var names do not."
+    )
+
+
+def test_the_former_name_guard_is_not_vacuous() -> None:
+    """It must catch the real regression that motivated it, and not fire on ordinary words."""
+    rx = re.compile("|".join(rf"(?<![a-z]){re.escape(t)}(?![a-z])" for t in _FORMER), re.IGNORECASE)
+    for sample in ("from " + "agentrealm" + ".core.plugins import x",
+                   "run `" + "arealm" + " keys add openai-main`",
+                   "AGENT" + "REALM_API_TOKEN"):
+        assert rx.search(sample), sample
+    for benign in ("bearpit.core.plugins", "BEARPIT_API_TOKEN", "the realm concluded", "realms"):
+        assert not rx.search(benign), benign
+
+
 @pytest.mark.parametrize("path,frag", TRANSITIONAL)
 def test_transitional_entries_are_still_needed(path: str, frag: str) -> None:
     """Each exemption must still be EARNING its place.
