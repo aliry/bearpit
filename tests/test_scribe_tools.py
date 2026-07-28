@@ -10,7 +10,7 @@ import json
 
 from fakes import FakeMemory, FakePackageStore, FakeVersions
 
-from agentrealm.core.schema import (
+from bearpit.core.schema import (
     AgentSpec,
     Project,
     ProjectMeta,
@@ -18,8 +18,8 @@ from agentrealm.core.schema import (
     TerminationCondition,
     TerminationKind,
 )
-from agentrealm.scribe.tools import TOOL_SPECS, AuthoringTools
-from agentrealm.scribe.types import ToolCall
+from bearpit.scribe.tools import TOOL_SPECS, AuthoringTools
+from bearpit.scribe.types import ToolCall
 
 
 def _tools(store: FakePackageStore) -> tuple[AuthoringTools, FakeVersions]:

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from agentrealm.core import load_package
+from bearpit.core import load_package
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 PACKAGES = sorted(p.name for p in EXAMPLES.iterdir() if (p / "project.json").exists())
@@ -65,7 +65,7 @@ def test_cygnus_crew_ends_on_referee_verdict_tool_not_message_parsing():
     # message-only ending that let a decided game drag on for rounds (run among-us-0b8cc0).
     import re
 
-    from agentrealm.core.schema import TerminationKind
+    from bearpit.core.schema import TerminationKind
 
     project = load_package(EXAMPLES / "cygnus-crew")
     ref = project.referee
@@ -84,7 +84,7 @@ def test_cygnus_crew_ends_on_referee_verdict_tool_not_message_parsing():
 def test_toolcheck_is_a_complete_platform_diagnostic():
     # the diagnostic realm must exercise every mechanism the games depend on: driving referee
     # (opener + round pause), verdict-tool termination, turns, and a tools-required flow.
-    from agentrealm.core.schema import TerminationKind
+    from bearpit.core.schema import TerminationKind
 
     project = load_package(EXAMPLES / "toolcheck")
     ref = project.referee

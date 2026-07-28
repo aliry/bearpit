@@ -3,10 +3,10 @@ turns those PRIVATE events into real DM-room messages posted AS the sender."""
 
 import pytest
 
-from agentrealm.chronicle import Chronicle, EventKind
-from agentrealm.herald import Herald
-from agentrealm.herald.types import MatrixCreds
-from agentrealm.realmtools import Identity, PrivateMessageService
+from bearpit.chronicle import Chronicle, EventKind
+from bearpit.herald import Herald
+from bearpit.herald.types import MatrixCreds
+from bearpit.realmtools import Identity, PrivateMessageService
 
 A = Identity("g1", "alice", False)
 B = Identity("g1", "bob", False)
@@ -85,7 +85,7 @@ async def _herald(mx):
 
 
 def _live(chron, herald, side_channels, creds):
-    from agentrealm.gatekeeper.runner import LiveSnapshot
+    from bearpit.gatekeeper.runner import LiveSnapshot
 
     class _Ledger:
         async def poll_spend(self, realm, chron):
@@ -188,7 +188,7 @@ async def test_eliminated_agent_is_stopped_and_its_dm_channel_goes_dead_both_way
         def stop_container(self, container_id, *, timeout):
             stopped.append(container_id)
 
-    from agentrealm.gatekeeper.runner import LiveSnapshot
+    from bearpit.gatekeeper.runner import LiveSnapshot
     live = LiveSnapshot(
         herald=herald, ledger=_Ledger(), chronicle=chron, runtime=_Runtime(),
         realm_id="g1", commons_room="!commons:realm.local", shared_volume=None,

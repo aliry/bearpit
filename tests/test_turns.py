@@ -5,8 +5,8 @@ Bus + clock are injected, so the whole thing is deterministic — no Matrix, no 
 
 import pytest
 
-from agentrealm.chronicle import Chronicle, EventKind
-from agentrealm.warden.turns import TurnManager, _short_name, _speech_text
+from bearpit.chronicle import Chronicle, EventKind
+from bearpit.warden.turns import TurnManager, _short_name, _speech_text
 
 
 class FakeTurnBus:

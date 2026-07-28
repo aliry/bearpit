@@ -3,9 +3,9 @@
 import pytest
 from starlette.testclient import TestClient
 
-from agentrealm.chronicle import Chronicle, EventKind
-from agentrealm.core.schema import AgentSpec, ModelCategory, Project, ProjectMeta
-from agentrealm.gatekeeper.api import create_app
+from bearpit.chronicle import Chronicle, EventKind
+from bearpit.core.schema import AgentSpec, ModelCategory, Project, ProjectMeta
+from bearpit.gatekeeper.api import create_app
 
 
 def _project():
@@ -18,29 +18,29 @@ def _project():
 # --- persisted state --------------------------------------------------------
 def test_active_provider_defaults_to_azure(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
-    from agentrealm.gatekeeper import appstate
+    from bearpit.gatekeeper import appstate
     assert appstate.active_provider() == "azure"
 
 
 def test_set_and_read_active_provider(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
-    from agentrealm.gatekeeper import appstate
+    from bearpit.gatekeeper import appstate
     appstate.set_active_provider("anthropic")
     assert appstate.active_provider() == "anthropic"
 
 
 def test_set_unknown_provider_rejected(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
-    from agentrealm.gatekeeper import appstate
+    from bearpit.gatekeeper import appstate
     with pytest.raises(ValueError, match="unknown model provider"):
         appstate.set_active_provider("gemini")
 
 
 def test_corrupt_state_falls_back_to_default(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
-    (tmp_path / ".agentrealm").mkdir()
-    (tmp_path / ".agentrealm" / "platform.json").write_text("{not json")
-    from agentrealm.gatekeeper import appstate
+    (tmp_path / ".bearpit").mkdir()
+    (tmp_path / ".bearpit" / "platform.json").write_text("{not json")
+    from bearpit.gatekeeper import appstate
     assert appstate.active_provider() == "azure"
 
 
@@ -55,8 +55,8 @@ class FakeManager:
 @pytest.fixture
 async def app_client(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("AGENTREALM_SCENARIOS_DIR", str(tmp_path / "scen"))
-    monkeypatch.setenv("AGENTREALM_EXAMPLES_DIR", str(tmp_path / "examples"))
+    monkeypatch.setenv("BEARPIT_SCENARIOS_DIR", str(tmp_path / "scen"))
+    monkeypatch.setenv("BEARPIT_EXAMPLES_DIR", str(tmp_path / "examples"))
     chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
     await chron.append_event("r", EventKind.LIFECYCLE, {"event": "running"})
     app = create_app(chron=chron, manager=FakeManager())
@@ -125,8 +125,8 @@ class _FakeRunner:
 
 async def test_platform_run_applies_active_provider(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
-    from agentrealm.gatekeeper import appstate
-    from agentrealm.gatekeeper.service import Platform
+    from bearpit.gatekeeper import appstate
+    from bearpit.gatekeeper.service import Platform
 
     appstate.set_active_provider("anthropic")
     runner = _FakeRunner()
@@ -152,9 +152,9 @@ async def test_the_snapshot_factory_hands_realmtools_tokens_to_the_runner(
     the Forge test still passed, the Runner test still passed, and agents' live credentials would
     quietly have gone back into the append-only chronicle. Hence this test."""
     monkeypatch.setenv("HOME", str(tmp_path))
-    from agentrealm.forge import RealmHandles
-    from agentrealm.gatekeeper.service import Platform
-    from agentrealm.herald import BusProvision
+    from bearpit.forge import RealmHandles
+    from bearpit.gatekeeper.service import Platform
+    from bearpit.herald import BusProvision
 
     captured = {}
 

@@ -1,5 +1,5 @@
 # Realmtools MCP server — serves the deterministic mechanics (sealed submissions, scoring,
-# verdicts) to agents. Built from the agentrealm package; Forge attaches it to each realm network.
+# verdicts) to agents. Built from the bearpit package; Forge attaches it to each realm network.
 #
 # Built with `context: ..` (the repo root), so the root .dockerignore decides what reaches the
 # daemon. Keep that allowlist tight: this build needs only the package and its lockfile.
@@ -23,4 +23,4 @@ USER realmtools
 
 ENV PATH="/app/.venv/bin:$PATH"
 EXPOSE 9100
-CMD ["python", "-m", "agentrealm.realmtools.server"]
+CMD ["python", "-m", "bearpit.realmtools.server"]

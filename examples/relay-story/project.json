@@ -1,10 +1,10 @@
 {
-  "apiVersion": "agentrealm/v1alpha1",
+  "apiVersion": "bearpit/v1alpha1",
   "kind": "Project",
   "metadata": {
     "name": "relay-story",
     "description": "Three storytellers co-write a 6-paragraph story, one paragraph at a time, in a fixed rotation, while an editor keeps the count and declares the story finished.",
-    "author": "agentrealm",
+    "author": "bearpit",
     "tags": [
       "cooperative",
       "creative",

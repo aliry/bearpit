@@ -17,10 +17,10 @@ round with tools and ends the realm with a verdict. Runs in ~5–10 minutes on s
 ## Reading the results
 
 ```sh
-uv run arealm trace ~/.agentrealm/llm-trace.jsonl --realm <realm-id>       # raw LLM I/O per agent
-curl -H "Authorization: Bearer $(cat ~/.agentrealm/api-token)" \
+uv run pit trace ~/.bearpit/llm-trace.jsonl --realm <realm-id>       # raw LLM I/O per agent
+curl -H "Authorization: Bearer $(cat ~/.bearpit/api-token)" \
   :8000/api/realms/<id>/events?kind=elimination        # tool-based ejection
-ls ~/.agentrealm/realms/<id>/logs/                                         # agent flight-recorder logs
+ls ~/.bearpit/realms/<id>/logs/                                         # agent flight-recorder logs
 ```
 
 A clean run ends with: score events for clean relays, one `eliminate('none')`, one real

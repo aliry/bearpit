@@ -14,14 +14,14 @@ from pathlib import Path
 import pytest
 from fakes import FakeLLMBackend, FakePackageStore
 
-from agentrealm.scribe.history import (
+from bearpit.scribe.history import (
     SUMMARY_PREFIX,
     HistoryStore,
     compact,
     estimate_chars,
 )
-from agentrealm.scribe.service import ScribeSession, build_scribe, visible_history
-from agentrealm.scribe.types import Completion, Message, ToolCall, Usage
+from bearpit.scribe.service import ScribeSession, build_scribe, visible_history
+from bearpit.scribe.types import Completion, Message, ToolCall, Usage
 
 
 def _final(text: str) -> Completion:

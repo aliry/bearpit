@@ -2,8 +2,8 @@
 
 import pytest
 
-from agentrealm.chronicle import Chronicle
-from agentrealm.realmtools import SealedError, SealedEscrow, TallyError, tally
+from bearpit.chronicle import Chronicle
+from bearpit.realmtools import SealedError, SealedEscrow, TallyError, tally
 
 # --- tally rulesets ---------------------------------------------------------
 # RPS's rules live in the caller's config, never in the platform (Principle 10 / ADR-002).
@@ -53,14 +53,14 @@ def test_unknown_ruleset():
 
 
 def test_register_ruleset_extension():
-    from agentrealm.realmtools.tally import TallyResult, register_ruleset
+    from bearpit.realmtools.tally import TallyResult, register_ruleset
     register_ruleset("custom:pv", lambda sub, config: TallyResult("custom:pv", "vela", "agent"))
     assert tally("custom:pv", {"vela": "x", "orin": "y"}).result == "vela"
 
 
 def test_schema_ruleset_parity_with_tally():
-    from agentrealm.core.schema import BUILTIN_RULESETS as schema_set
-    from agentrealm.realmtools.tally import BUILTIN_RULESETS as tally_set
+    from bearpit.core.schema import BUILTIN_RULESETS as schema_set
+    from bearpit.realmtools.tally import BUILTIN_RULESETS as tally_set
     assert schema_set == tally_set  # the two lists must never drift
 
 

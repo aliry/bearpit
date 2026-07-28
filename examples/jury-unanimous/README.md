@@ -87,8 +87,8 @@ Both were found by reading the runtime, and both will silently ruin a "cleaner-l
 ## Run it
 
 ```sh
-arealm validate examples/jury-unanimous
-arealm up examples/jury-unanimous
+pit validate examples/jury-unanimous
+pit up examples/jury-unanimous
 ```
 
 Watch for: all three jurors sealing on their own turn (`sealed_submit` markers), the Foreperson's

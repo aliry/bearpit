@@ -2,8 +2,8 @@
 
 import pytest
 
-from agentrealm.chronicle import Chronicle
-from agentrealm.core.schema import (
+from bearpit.chronicle import Chronicle
+from bearpit.core.schema import (
     AgentRole,
     AgentSpec,
     ModelRef,
@@ -11,7 +11,7 @@ from agentrealm.core.schema import (
     Project,
     ProjectMeta,
 )
-from agentrealm.herald import Herald, RateLimiter, TokenBucket
+from bearpit.herald import Herald, RateLimiter, TokenBucket
 
 
 # --- rate limiter -----------------------------------------------------------
@@ -186,7 +186,7 @@ async def test_kickoff_addresses_every_agent():
 
 
 async def test_referee_opens_prompts_only_the_referee():
-    from agentrealm.core.schema import AgentRole, ProjectSpec
+    from bearpit.core.schema import AgentRole, ProjectSpec
     mx = FakeMatrix()
     herald = Herald(mx, server_name="realm.local", homeserver="h")
     await herald.ensure_system("pw")
@@ -284,7 +284,7 @@ async def test_wait_for_agents_gates_on_membership():
 
 # --- turns physics ----------------------------------------------------------
 def _project_with_turns():
-    from agentrealm.core.schema import AgentRole, Turns
+    from bearpit.core.schema import AgentRole, Turns
 
     def agent(aid, role=AgentRole.PARTICIPANT):
         model = ModelRef(provider="azure", model="m", api_key_ref="azure-main")
@@ -339,7 +339,7 @@ async def test_kickoff_broadcast_false_omits_broad_mention():
 def _faction_project():
     """Two impostors who may DM only each other; two crew with no private messaging; a referee who
     may whisper every player."""
-    from agentrealm.core.schema import AgentRole
+    from bearpit.core.schema import AgentRole
 
     def agent(aid, pm=None, role=AgentRole.PARTICIPANT):
         model = ModelRef(provider="azure", model="m", api_key_ref="azure-main")
@@ -395,7 +395,7 @@ async def test_the_referee_always_receives_the_commons_even_when_mention_gated()
     exists to score — and it either invents a verdict or never rules. A turns realm hides this
     (the TurnManager hands the referee the round transcript in its cue); a free-for-all realm
     does not."""
-    from agentrealm.core.schema import AgentRole
+    from bearpit.core.schema import AgentRole
 
     def agent(aid, role=AgentRole.PARTICIPANT):
         model = ModelRef(provider="azure", model="m", api_key_ref="azure-main")
@@ -422,7 +422,7 @@ async def test_a_referee_in_a_TURNS_realm_stays_mention_gated():
     the referee then wakes on EVERY message, replies to each, and hammers the model proxy until it
     rate-limits (rps-1: Themis posted "⚡ Interrupting current task" and duplicate round resolutions
     until the provider began refusing calls)."""
-    from agentrealm.core.schema import AgentRole, Turns
+    from bearpit.core.schema import AgentRole, Turns
 
     def agent(aid, role=AgentRole.PARTICIPANT):
         model = ModelRef(provider="azure", model="m", api_key_ref="azure-main")

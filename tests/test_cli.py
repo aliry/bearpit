@@ -6,9 +6,9 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from agentrealm.chronicle import Chronicle, EventKind
-from agentrealm.cli.main import app
-from agentrealm.core.jsonschema import agent_schema, project_schema
+from bearpit.chronicle import Chronicle, EventKind
+from bearpit.cli.main import app
+from bearpit.core.jsonschema import agent_schema, project_schema
 
 runner = CliRunner()
 
@@ -30,7 +30,7 @@ def _flat_manifest(p: Path) -> Path:
 
 def test_version():
     r = runner.invoke(app, ["version"])
-    assert r.exit_code == 0 and "agentrealm" in r.output
+    assert r.exit_code == 0 and "bearpit" in r.output
 
 
 def test_validate_ok(tmp_path: Path):
@@ -74,7 +74,7 @@ def test_schema_functions_shape():
 @pytest.fixture
 def db(tmp_path: Path, monkeypatch):
     url = f"sqlite+aiosqlite:///{tmp_path / 'chron.db'}"
-    monkeypatch.setenv("AGENTREALM_DATABASE_URL", url)
+    monkeypatch.setenv("BEARPIT_DATABASE_URL", url)
     return url
 
 
@@ -123,4 +123,4 @@ def test_stop_sets_flag(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("HOME", str(tmp_path))
     r = runner.invoke(app, ["stop", "myrealm"])
     assert r.exit_code == 0
-    assert (tmp_path / ".agentrealm" / "realms" / "myrealm.stop").exists()
+    assert (tmp_path / ".bearpit" / "realms" / "myrealm.stop").exists()

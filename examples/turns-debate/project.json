@@ -1,10 +1,10 @@
 {
-  "apiVersion": "agentrealm/v1alpha1",
+  "apiVersion": "bearpit/v1alpha1",
   "kind": "Project",
   "metadata": {
     "name": "turns-debate",
     "description": "Three advocates argue for a startup HQ city, one at a time; a chair watches the floor, scores every argument, and records the winner with a verdict.",
-    "author": "agentrealm",
+    "author": "bearpit",
     "tags": [
       "debate",
       "turns",

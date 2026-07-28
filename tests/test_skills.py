@@ -1,7 +1,7 @@
 """Built-in role/capability skills (#37) — seeded by role, with declared additions."""
 
-from agentrealm.core.schema import AgentRole, AgentSpec, ModelRef, SkillRef
-from agentrealm.forge.skills import BUILTIN_SKILLS, skill_files
+from bearpit.core.schema import AgentRole, AgentSpec, ModelRef, SkillRef
+from bearpit.forge.skills import BUILTIN_SKILLS, skill_files
 
 
 def _agent(aid, role=AgentRole.PARTICIPANT, skills=()):
@@ -110,7 +110,7 @@ def test_only_a_family_named_skill_may_speak_a_scenarios_language():
     auction clerks and debate chairs. Renamed to `referee-social-deduction`, it may speak freely."""
     import re
 
-    from agentrealm.forge.skills import BUILTIN_SKILLS
+    from bearpit.forge.skills import BUILTIN_SKILLS
 
     banned = re.compile(
         r"(?i)\b(saboteur|crewmate|impostor|cygnus|among.?us|mafia|cass|vega|juno|rhea)\b"
@@ -125,7 +125,7 @@ def test_only_a_family_named_skill_may_speak_a_scenarios_language():
 def test_every_family_skill_is_named_after_its_family():
     # the name IS the contract that lets the skill speak freely. A family skill whose name does not
     # announce the family would be indistinguishable from generic guidance.
-    from agentrealm.forge.skills import BUILTIN_SKILLS
+    from bearpit.forge.skills import BUILTIN_SKILLS
 
     for name in _FAMILY_SKILLS:
         assert name in BUILTIN_SKILLS
@@ -135,7 +135,7 @@ def test_every_family_skill_is_named_after_its_family():
 
 
 def test_the_family_referee_skill_teaches_the_CURRENT_mechanics():
-    from agentrealm.forge.skills import BUILTIN_SKILLS
+    from bearpit.forge.skills import BUILTIN_SKILLS
 
     gm = BUILTIN_SKILLS["referee-social-deduction"]
     # state changes are tool calls, never prose

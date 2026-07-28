@@ -2,7 +2,7 @@
 
 import pytest
 
-from agentrealm.chronicle import Chronicle, EventKind
+from bearpit.chronicle import Chronicle, EventKind
 
 
 @pytest.fixture

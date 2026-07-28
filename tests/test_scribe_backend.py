@@ -14,8 +14,8 @@ import httpx
 import pytest
 from fakes import FakeLLMBackend
 
-from agentrealm.scribe.backend import OpenAIBackend
-from agentrealm.scribe.types import Message, ToolCall, ToolSpec
+from bearpit.scribe.backend import OpenAIBackend
+from bearpit.scribe.types import Message, ToolCall, ToolSpec
 
 
 def _spec() -> ToolSpec:
@@ -145,7 +145,7 @@ async def test_complete_tolerates_dict_arguments_and_maps_tool_history() -> None
 
 
 async def test_fake_backend_scripts_completions() -> None:
-    from agentrealm.scribe.types import Completion, Usage
+    from bearpit.scribe.types import Completion, Usage
 
     fake = FakeLLMBackend([Completion(text="hi", tool_calls=[], usage=Usage())])
     comp = await fake.complete([Message(role="user", content="yo")], [], model="m")

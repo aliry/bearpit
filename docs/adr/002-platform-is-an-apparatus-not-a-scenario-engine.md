@@ -7,7 +7,7 @@ Principle 9 and adds Principle 10; clarifies FR-13 and §9.5.
 
 ## Context
 
-AgentRealm exists to **observe whether autonomous agents can accomplish assigned tasks** in a
+Bearpit exists to **observe whether autonomous agents can accomplish assigned tasks** in a
 shared world. While generalizing the neutral game-master pattern (#34), two proposed directions
 would have had the **platform** (or a platform-run non-agent process) read scenario submissions,
 run a scenario's adjudication logic, and compute its result — to route around LLM-referee

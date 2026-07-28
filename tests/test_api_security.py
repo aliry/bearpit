@@ -17,8 +17,8 @@ import pytest
 from starlette.testclient import TestClient
 from test_api import FakeManager
 
-from agentrealm.chronicle import Chronicle, EventKind
-from agentrealm.gatekeeper.api import create_app
+from bearpit.chronicle import Chronicle, EventKind
+from bearpit.gatekeeper.api import create_app
 
 
 @pytest.fixture
@@ -69,11 +69,11 @@ async def test_loopback_hosts_are_accepted(chron: Chronicle) -> None:
 
 
 def test_the_allowlist_is_configurable(monkeypatch: pytest.MonkeyPatch) -> None:
-    from agentrealm.gatekeeper.api import _allowed_hosts
+    from bearpit.gatekeeper.api import _allowed_hosts
 
-    monkeypatch.delenv("AGENTREALM_ALLOWED_HOSTS", raising=False)
+    monkeypatch.delenv("BEARPIT_ALLOWED_HOSTS", raising=False)
     assert "127.0.0.1" in _allowed_hosts()
-    monkeypatch.setenv("AGENTREALM_ALLOWED_HOSTS", "realms.internal, 10.0.0.4")
+    monkeypatch.setenv("BEARPIT_ALLOWED_HOSTS", "realms.internal, 10.0.0.4")
     assert _allowed_hosts() == ["realms.internal", "10.0.0.4"]
 
 

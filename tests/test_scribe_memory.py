@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agentrealm.scribe.memory import Memory
+from bearpit.scribe.memory import Memory
 
 
 async def test_remember_writes_a_file_and_an_index_line(tmp_path: Path) -> None:

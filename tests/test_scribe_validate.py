@@ -10,8 +10,8 @@ from __future__ import annotations
 import warnings
 from pathlib import Path
 
-from agentrealm.core.package import load_package
-from agentrealm.core.schema import (
+from bearpit.core.package import load_package
+from bearpit.core.schema import (
     AgentRole,
     AgentSpec,
     Project,
@@ -21,8 +21,8 @@ from agentrealm.core.schema import (
     TerminationCondition,
     TerminationKind,
 )
-from agentrealm.scribe.store import ApiPackageStore
-from agentrealm.scribe.validate import validate_scenario
+from bearpit.scribe.store import ApiPackageStore
+from bearpit.scribe.validate import validate_scenario
 
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 PACKAGES = sorted(p.name for p in EXAMPLES.iterdir() if (p / "project.json").exists())

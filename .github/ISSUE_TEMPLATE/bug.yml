@@ -37,7 +37,7 @@ body:
     attributes:
       label: Evidence
       description: >
-        Relevant output. `arealm status <realm>` and the realm's report are usually the fastest
+        Relevant output. `pit status <realm>` and the realm's report are usually the fastest
         way to show what actually ran — the manifest is not what runs.
       render: shell
 
@@ -45,5 +45,5 @@ body:
     id: version
     attributes:
       label: Version
-      description: "`arealm version`, or the commit."
+      description: "`pit version`, or the commit."
     validations: { required: true }

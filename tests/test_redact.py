@@ -7,7 +7,7 @@ replayable credentials into an append-only log that is served over the API and i
 
 from __future__ import annotations
 
-from agentrealm.core.redact import MASK, Redactor, redact
+from bearpit.core.redact import MASK, Redactor, redact
 
 TOKEN = "syt_dmVsYQ_QWERTYuiopASDFGHjkl_2xY9Zq"
 VKEY = "sk-litellm-3f9a2c7e51b04d8ea6c1f0d2b7e4a913"

@@ -1,10 +1,10 @@
 {
-  "apiVersion": "agentrealm/v1alpha1",
+  "apiVersion": "bearpit/v1alpha1",
   "kind": "Project",
   "metadata": {
     "name": "debate-arena",
     "description": "Two debaters argue a motion over two turn-taken rounds \u2014 opening cases, then rebuttals \u2014 in front of a judge who scores every exchange with the platform's scoring tools and ends the realm by calling its verdict.",
-    "author": "agentrealm",
+    "author": "bearpit",
     "tags": [
       "debate",
       "judgment",

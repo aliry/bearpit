@@ -10,7 +10,7 @@ from pathlib import Path
 
 from fakes import FakeMemory, FakePackageStore
 
-from agentrealm.core.schema import (
+from bearpit.core.schema import (
     AgentSpec,
     Project,
     ProjectMeta,
@@ -18,9 +18,9 @@ from agentrealm.core.schema import (
     TerminationCondition,
     TerminationKind,
 )
-from agentrealm.scribe.tools import AuthoringTools
-from agentrealm.scribe.types import ToolCall
-from agentrealm.scribe.versions import Versions, diff_projects
+from bearpit.scribe.tools import AuthoringTools
+from bearpit.scribe.types import ToolCall
+from bearpit.scribe.versions import Versions, diff_projects
 
 
 def _dur() -> TerminationCondition:

@@ -2,15 +2,15 @@
 
 import pytest
 
-from agentrealm.chronicle import Chronicle, EventKind
-from agentrealm.realmtools.notes import NoteService
-from agentrealm.realmtools.service import (
+from bearpit.chronicle import Chronicle, EventKind
+from bearpit.realmtools.notes import NoteService
+from bearpit.realmtools.service import (
     EscrowService,
     Identity,
     SealedError,
     read_turn_status,
 )
-from agentrealm.realmtools.tokens import mint_token, verify_token
+from bearpit.realmtools.tokens import mint_token, verify_token
 
 SECRET = "platform-secret"
 
@@ -121,8 +121,8 @@ async def test_builtin_skills_are_served_as_mcp_prompts():
     # Agents ask the MCP server for skills by name (get_prompt("referee-basics") observed live);
     # an unknown prompt made FastMCP raise server-side. Every builtin skill must be registered
     # on the REAL server and answer with the canonical skill text.
-    from agentrealm.forge.skills import BUILTIN_SKILLS
-    from agentrealm.realmtools.server import build_app
+    from bearpit.forge.skills import BUILTIN_SKILLS
+    from bearpit.realmtools.server import build_app
 
     app = build_app("secret", db_url="sqlite+aiosqlite:///:memory:")
     mcp = app.state.mcp
@@ -138,7 +138,7 @@ def test_audit_never_logs_sealed_payloads():
     # a move stays hidden until the referee reveals it — dumping it into the audit log would leak
     # every player's secret move to anyone tailing `docker logs`, in a competitive realm possibly
     # before the round resolves. The audit may say HOW MANY and WHOSE, never WHAT.
-    from agentrealm.realmtools.server import _result_shape
+    from bearpit.realmtools.server import _result_shape
 
     revealed = {"ping": "mango", "pong": "papaya"}
     shape = _result_shape(revealed)
@@ -168,15 +168,15 @@ async def test_an_agent_can_only_recall_its_OWN_notes():
 async def test_the_audit_log_never_records_the_note_text():
     # A note is an agent's private reasoning — the impostor's kill plan lives here. The audit
     # records that a note was TAKEN, never what it said (same rule as sealed payloads).
-    from agentrealm.realmtools.server import _result_shape
+    from bearpit.realmtools.server import _result_shape
     assert "Bus Vega" not in _result_shape({"ok": "Bus Vega next round"})
 
 
 async def test_run_code_waits_for_the_hosts_result_and_returns_it():
     # The agent-side half of the broker: record the request, wait for the host's EXEC_RESULT,
     # hand back stdout. realmtools never touches Docker.
-    from agentrealm.chronicle import EventKind
-    from agentrealm.realmtools.code import CodeService
+    from bearpit.chronicle import EventKind
+    from bearpit.realmtools.code import CodeService
 
     chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
     coder = CodeService(chron)
@@ -198,7 +198,7 @@ async def test_run_code_waits_for_the_hosts_result_and_returns_it():
 
 
 async def test_run_code_gives_up_rather_than_hanging_forever():
-    from agentrealm.realmtools.code import CodeService
+    from bearpit.realmtools.code import CodeService
 
     chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
     coder = CodeService(chron)
@@ -218,7 +218,7 @@ async def test_turn_status_separates_the_open_round_from_the_round_to_resolve():
     already says N+1. A referee keying its reveal off `round` would call reveal('R2') for moves the
     players sealed as 'R1' and get an empty round back — the sealed mechanic silently doing nothing,
     which is exactly the class of failure that is hardest to see."""
-    from agentrealm.realmtools.service import read_turn_status
+    from bearpit.realmtools.service import read_turn_status
 
     chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
     await chron.append_event("r1", EventKind.TURN, {
@@ -242,7 +242,7 @@ async def test_sealed_state_and_scores_survive_a_realmtools_restart():
     mid-realm silently lost every sealed move and reset every score to zero — the referee would
     reveal an empty round and rule on a blank board. A fresh service rebuilds both from the
     chronicle."""
-    from agentrealm.realmtools.arbiter import ArbiterService
+    from bearpit.realmtools.arbiter import ArbiterService
 
     chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
     secret = "realm-secret"

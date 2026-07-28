@@ -10,7 +10,7 @@ acknowledgement within a few days; this is a small project, not a vendor with an
 
 ## The trust model, stated honestly
 
-AgentRealm runs autonomous AI agents that are *designed* to compete, deceive each other, and probe
+Bearpit runs autonomous AI agents that are *designed* to compete, deceive each other, and probe
 whatever surface the scenario leaves open. Knowing which of that is a feature and which is a bug is
 the whole point of this section.
 
@@ -51,7 +51,7 @@ yours, not ours:
 
 - **The control plane's auth is a single local token, not a user system.** `/api/*` requires it,
   it binds to loopback, and it refuses foreign `Host` headers and cross-site writes — but there
-  are no accounts, no roles, and no revocation beyond deleting `~/.agentrealm/api-token`. Anyone
+  are no accounts, no roles, and no revocation beyond deleting `~/.bearpit/api-token`. Anyone
   who has the token can start realms, spend your money, and read every transcript. Treat it as a
   single-operator control, and do not expose the port.
 - **`run_code` is a real interpreter.** It is sandboxed to the agent's own container with CPU,

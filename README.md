@@ -1,11 +1,11 @@
-# AgentRealm
+# Bearpit
 
 Run **realms** of autonomous AI agents — each with its own goals, tools, skills, model, and
 budget — that collaborate or compete on user-defined projects. You define a realm declaratively as
 a portable package; the platform provisions the agents, runs them in isolated containers on a
 private message bus, meters their spend, watches for the ending condition, and archives everything.
 
-**What it is for.** AgentRealm exists to observe whether autonomous agents can actually accomplish
+**What it is for.** Bearpit exists to observe whether autonomous agents can actually accomplish
 an assigned task in a shared world — not to demo that they can chat. Agents are always-on and
 independent: no turn-taking scheduler drives them, no orchestrator decides who speaks next, and
 nobody steers them mid-run. You configure them at birth, start the realm, and find out. **A
@@ -23,7 +23,7 @@ to real verdicts. It is single-operator, self-hosted software, not a service.
 ## How it works
 
 A realm is defined by a **project package** (`project.json` + one folder per agent). You run
-it with the `arealm` CLI. Under the hood the control plane is a handful of focused components:
+it with the `pit` CLI. Under the hood the control plane is a handful of focused components:
 
 | Component | Role |
 | --- | --- |
@@ -48,7 +48,7 @@ below. Budget 20–30 minutes the first time, most of it waiting for images.
 
 ```sh
 uv sync
-uv run arealm validate examples/toolcheck
+uv run pit validate examples/toolcheck
 ```
 
 **2. Build the agent runtime image.** Agents run as [Hermes Agent](https://github.com/nousresearch/hermes-agent)
@@ -82,16 +82,16 @@ It prints a URL with an access token in it. Open that once and the **web console
 **5. Add a credential and run a realm.**
 
 ```sh
-arealm keys add openrouter-main --provider openrouter \
+pit keys add openrouter-main --provider openrouter \
   --api-base https://openrouter.ai/api/v1 --api-key sk-or-...
 ```
 
 Pick the matching pipeline on the console's Settings page, then launch `toolcheck` — the cheapest
-scenario, which exists to prove an install works. `arealm up` blocks until the realm concludes and
+scenario, which exists to prove an install works. `pit up` blocks until the realm concludes and
 prints its final report:
 
 ```sh
-uv run arealm up examples/toolcheck
+uv run pit up examples/toolcheck
 ```
 
 Then try [`rps-duel`](examples/rps-duel), and read [`examples/`](examples/) for the other fifteen.
@@ -101,12 +101,12 @@ Then try [`rps-duel`](examples/rps-duel), and read [`examples/`](examples/) for 
 
 ## The web console
 
-`scripts/serve.sh` (or `uv run arealm serve`) starts an HTTP API and a web console at
+`scripts/serve.sh` (or `uv run pit serve`) starts an HTTP API and a web console at
 `http://127.0.0.1:8000/`. It has: live realms with transcripts and spend, a scenario browser and
 **editor** that validates as you type, the skills library, run history with final reports, and the
 Settings page where you choose the model pipeline.
 
-Access is a single local token, generated on first run into `~/.agentrealm/api-token`. `arealm
+Access is a single local token, generated on first run into `~/.bearpit/api-token`. `pit
 serve` prints the URL containing it; opening that once stores a cookie. Scripts send
 `Authorization: Bearer <token>`. This is a single-operator control, not multi-user auth — see
 [SECURITY.md](SECURITY.md).
@@ -122,7 +122,7 @@ Use it from the console ("New scenario → with the assistant", or "Edit with as
 scenario), or from a terminal:
 
 ```sh
-uv run arealm assist --api-base https://openrouter.ai/api/v1 --api-key sk-or-...
+uv run pit assist --api-base https://openrouter.ai/api/v1 --api-key sk-or-...
 ```
 
 ## Model pipelines
@@ -138,13 +138,13 @@ Every field is editable in Settings, and the prices are only used to meter your 
 check them against your provider's current pricing before you rely on a cap.
 
 ```sh
-arealm keys add openrouter-main --provider openrouter \
+pit keys add openrouter-main --provider openrouter \
   --api-base https://openrouter.ai/api/v1 --api-key sk-or-...
 # then pick "OpenRouter" on the Settings page
 ```
 
-A package can also contribute a provider of its own by declaring an `agentrealm.providers` entry
-point — see `src/agentrealm/core/plugins.py`. A profile carries generic policy fields the platform
+A package can also contribute a provider of its own by declaring an `bearpit.providers` entry
+point — see `src/bearpit/core/plugins.py`. A profile carries generic policy fields the platform
 honours (`flat_rate`, `min_budget_usd`, `min_turn_seconds`, `setup_hint`), and a plugin may supply
 transport hooks for a runtime with unusual expectations.
 

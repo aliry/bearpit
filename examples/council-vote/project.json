@@ -1,10 +1,10 @@
 {
-  "apiVersion": "agentrealm/v1alpha1",
+  "apiVersion": "bearpit/v1alpha1",
   "kind": "Project",
   "metadata": {
     "name": "council-vote",
     "description": "Four city councillors debate where to put the new HQ \u2014 austin, denver or miami \u2014 each taking the floor once. Ballots are SEALED, so nobody can bandwagon; the Chair reveals them together, counts them with code, and ends the council with a verdict. A tie is broken by the Chair's casting vote.",
-    "author": "agentrealm",
+    "author": "bearpit",
     "tags": [
       "vote",
       "governance",

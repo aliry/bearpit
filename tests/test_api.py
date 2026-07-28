@@ -6,9 +6,9 @@ from fakes import FLAT
 from fakes import flat_rate_table as _flat_rate_table
 from starlette.testclient import TestClient
 
-from agentrealm.chronicle import Chronicle, EventKind
-from agentrealm.gatekeeper.api import create_app, realm_status
-from agentrealm.gatekeeper.manager import CapacityError
+from bearpit.chronicle import Chronicle, EventKind
+from bearpit.gatekeeper.api import create_app, realm_status
+from bearpit.gatekeeper.manager import CapacityError
 
 
 class FakeManager:
@@ -81,7 +81,7 @@ def test_read_endpoints(seeded):
     app = create_app(chron=seeded, manager=FakeManager())
     with TestClient(app) as c:
         assert c.get("/health").json() == {"status": "ok"}
-        assert "AgentRealm" in c.get("/").text  # dashboard
+        assert "Bearpit" in c.get("/").text  # dashboard
         realms = c.get("/api/realms").json()["realms"]
         assert any(r["realm_id"] == "duel" for r in realms)
         st = c.get("/api/realms/duel").json()
@@ -112,7 +112,7 @@ def test_orphaned_running_realm_reads_interrupted(seeded):
 
 
 async def test_reconcile_orphans_marks_interrupted(seeded):
-    from agentrealm.gatekeeper.api import reconcile_orphans
+    from bearpit.gatekeeper.api import reconcile_orphans
 
     await seeded.append_event("live", EventKind.LIFECYCLE, {"event": "running"})
     n = await reconcile_orphans(seeded)
@@ -142,7 +142,7 @@ def test_packages_endpoint_lists_examples(seeded):
 
 
 def test_import_scenario_folder(seeded, tmp_path, monkeypatch):
-    monkeypatch.setenv("AGENTREALM_SCENARIOS_DIR", str(tmp_path / "imports"))
+    monkeypatch.setenv("BEARPIT_SCENARIOS_DIR", str(tmp_path / "imports"))
     proj = json.dumps({"metadata": {"name": "My Duel"},
                        "spec": {"termination": [{"type": "manual"}]}})
     agent = json.dumps({"id": "vela",
@@ -232,8 +232,8 @@ def _editor_payload(name="ui-game"):
 
 
 def test_scenario_crud_via_api(seeded, tmp_path, monkeypatch):
-    monkeypatch.setenv("AGENTREALM_SCENARIOS_DIR", str(tmp_path / "scen"))
-    monkeypatch.setenv("AGENTREALM_EXAMPLES_DIR", str(tmp_path / "examples"))  # isolate from repo
+    monkeypatch.setenv("BEARPIT_SCENARIOS_DIR", str(tmp_path / "scen"))
+    monkeypatch.setenv("BEARPIT_EXAMPLES_DIR", str(tmp_path / "examples"))  # isolate from repo
     app = create_app(chron=seeded, manager=FakeManager())
     with TestClient(app) as c:
         # create
@@ -264,7 +264,7 @@ def test_zip_import_via_api(seeded, tmp_path, monkeypatch):
     import io
     import zipfile
 
-    monkeypatch.setenv("AGENTREALM_SCENARIOS_DIR", str(tmp_path / "scen"))
+    monkeypatch.setenv("BEARPIT_SCENARIOS_DIR", str(tmp_path / "scen"))
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr("zebra/project.json", json.dumps({"metadata": {"name": "Zebra"},
@@ -281,7 +281,7 @@ def test_zip_import_via_api(seeded, tmp_path, monkeypatch):
 
 
 def test_skills_api(seeded, tmp_path, monkeypatch):
-    monkeypatch.setenv("AGENTREALM_SKILLS_DIR", str(tmp_path / "skills"))
+    monkeypatch.setenv("BEARPIT_SKILLS_DIR", str(tmp_path / "skills"))
     app = create_app(chron=seeded, manager=FakeManager())
     with TestClient(app) as c:
         skills = c.get("/api/skills").json()["skills"]
@@ -299,8 +299,8 @@ def test_skills_api(seeded, tmp_path, monkeypatch):
 
 
 def test_runs_and_settings_endpoints(seeded, tmp_path, monkeypatch):
-    monkeypatch.setenv("AGENTREALM_SCENARIOS_DIR", str(tmp_path / "scen"))
-    monkeypatch.setenv("AGENTREALM_SKILLS_DIR", str(tmp_path / "skills"))
+    monkeypatch.setenv("BEARPIT_SCENARIOS_DIR", str(tmp_path / "scen"))
+    monkeypatch.setenv("BEARPIT_SKILLS_DIR", str(tmp_path / "skills"))
     app = create_app(chron=seeded, manager=FakeManager())
     with TestClient(app) as c:
         runs = c.get("/api/runs").json()["runs"]
@@ -312,8 +312,8 @@ def test_runs_and_settings_endpoints(seeded, tmp_path, monkeypatch):
 
 
 def test_serialize_project_puts_referee_first():
-    from agentrealm.core.schema import AgentRole, AgentSpec, ModelRef, Project, ProjectMeta
-    from agentrealm.gatekeeper.api import serialize_project
+    from bearpit.core.schema import AgentRole, AgentSpec, ModelRef, Project, ProjectMeta
+    from bearpit.gatekeeper.api import serialize_project
 
     def agent(aid, role=AgentRole.PARTICIPANT):
         return AgentSpec(id=aid, role=role,
@@ -328,8 +328,8 @@ def test_serialize_project_puts_referee_first():
 
 
 def test_serialize_project_includes_skill_contents():
-    from agentrealm.core.schema import AgentSpec, ModelRef, Project, ProjectMeta, SkillRef
-    from agentrealm.gatekeeper.api import serialize_project
+    from bearpit.core.schema import AgentSpec, ModelRef, Project, ProjectMeta, SkillRef
+    from bearpit.gatekeeper.api import serialize_project
 
     agent = AgentSpec(id="p1", model=ModelRef(provider="azure", model="m", api_key_ref="k"),
                       skills=[SkillRef(source="builtin", ref="social-deduction")])
@@ -347,16 +347,16 @@ def test_run_config_snapshots_what_actually_ran_not_what_the_manifest_asked_for(
     raise_budgets_for_flat_rate_provider lifts a too-tight cap on a fixed-price one. A scenario
     asking for `large / 120s / $2` may well run as `fake-l::high / 240s / $25`. Rendering the
     manifest on the realm page would show a configuration that never existed."""
-    from agentrealm.core.providers import (
+    from bearpit.core.providers import (
         pace_turns_for_provider,
         raise_budgets_for_flat_rate_provider,
         resolve_project,
     )
-    from agentrealm.core.runconfig import run_config
-    from agentrealm.core.schema import Project
+    from bearpit.core.runconfig import run_config
+    from bearpit.core.schema import Project
 
     project = Project.model_validate({
-        "apiVersion": "agentrealm/v1alpha1", "kind": "Project",
+        "apiVersion": "bearpit/v1alpha1", "kind": "Project",
         "metadata": {"name": "p"},
         "spec": {
             "goals": ["g"],
@@ -403,12 +403,12 @@ def test_run_config_snapshots_what_actually_ran_not_what_the_manifest_asked_for(
 
 
 def test_free_for_all_realm_reports_no_turns_and_a_seeing_referee():
-    from agentrealm.core.providers import AZURE
-    from agentrealm.core.runconfig import run_config
-    from agentrealm.core.schema import Project
+    from bearpit.core.providers import AZURE
+    from bearpit.core.runconfig import run_config
+    from bearpit.core.schema import Project
 
     project = Project.model_validate({
-        "apiVersion": "agentrealm/v1alpha1", "kind": "Project",
+        "apiVersion": "bearpit/v1alpha1", "kind": "Project",
         "metadata": {"name": "p"},
         "spec": {"goals": ["g"]},   # no turns block at all
         "agents": [{"id": "judge", "role": "referee", "rubric": "score", "model_category": "large"},
@@ -424,12 +424,12 @@ def test_rerun_snapshot_replays_the_run_and_ignores_later_edits(seeded):
     against code that no longer has it. `snapshot` restores the RESOLVED project captured at launch
     — same models, budgets, personas — even if the scenario file has been edited since or the active
     provider has been switched."""
-    from agentrealm.core.providers import resolve_project
-    from agentrealm.core.schema import Project
-    from agentrealm.gatekeeper.runner import _project_snapshot, project_from_snapshot
+    from bearpit.core.providers import resolve_project
+    from bearpit.core.schema import Project
+    from bearpit.gatekeeper.runner import _project_snapshot, project_from_snapshot
 
     project = Project.model_validate({
-        "apiVersion": "agentrealm/v1alpha1", "kind": "Project",
+        "apiVersion": "bearpit/v1alpha1", "kind": "Project",
         "metadata": {"name": "duel"},
         "spec": {"goals": ["g"]},
         "agents": [{"id": "vela", "model_category": "small", "persona": "# Vela\nThe ORIGINAL."}],

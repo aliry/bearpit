@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from agentrealm.core import AgentRole, PackageError, load_package
+from bearpit.core import AgentRole, PackageError, load_package
 
 
 def _write(p: Path, obj) -> None:
@@ -15,7 +15,7 @@ def _write(p: Path, obj) -> None:
 
 def _pkg(root: Path) -> None:
     _write(root / "project.json", {
-        "apiVersion": "agentrealm/v1alpha1",
+        "apiVersion": "bearpit/v1alpha1",
         "kind": "Project",
         "metadata": {"name": "rps-duel", "author": "example-author"},
         "spec": {
@@ -88,7 +88,7 @@ def test_resources_and_local_skills_are_actually_LOADED_not_just_listed(tmp_path
     container. `SkillSource.LOCAL` was validated (the folder had to exist) and then never delivered
     — skill_files() only handled BUILTIN. So an author could ship a rulebook and a hand-written
     SKILL.md, have both accepted, and their agents would never see a byte of either."""
-    from agentrealm.core.package import load_package
+    from bearpit.core.package import load_package
 
     root = tmp_path / "pkg"
     (root / "agents" / "vela" / "resources").mkdir(parents=True)
@@ -96,7 +96,7 @@ def test_resources_and_local_skills_are_actually_LOADED_not_just_listed(tmp_path
     (root / "resources").mkdir()
 
     (root / "project.json").write_text(json.dumps({
-        "apiVersion": "agentrealm/v1alpha1", "kind": "Project",
+        "apiVersion": "bearpit/v1alpha1", "kind": "Project",
         "metadata": {"name": "p"},
         "spec": {"goals": ["g"]},
     }))
@@ -127,12 +127,12 @@ def test_a_manifest_using_a_removed_field_still_loads_with_a_warning(tmp_path):
     dropped with a warning: the manifest loads, and the author is told the knob does nothing."""
     import warnings
 
-    from agentrealm.core.package import load_package
+    from bearpit.core.package import load_package
 
     root = tmp_path / "pkg"
     root.mkdir()
     (root / "project.json").write_text(json.dumps({
-        "apiVersion": "agentrealm/v1alpha1", "kind": "Project",
+        "apiVersion": "bearpit/v1alpha1", "kind": "Project",
         "metadata": {"name": "p"},
         "spec": {
             "goals": ["g"],
@@ -157,14 +157,14 @@ def test_a_symlinked_resource_pointing_outside_the_package_is_refused(tmp_path):
     host secret out. Merely loading a package must never read a file outside it."""
     import os
 
-    from agentrealm.core.package import load_package
+    from bearpit.core.package import load_package
 
     root = tmp_path / "pkg"
     (root / "agents" / "spy" / "resources").mkdir(parents=True)
     secret = tmp_path / "host-secret.txt"
     secret.write_text("SUPER SECRET HOST FILE")
     (root / "project.json").write_text(json.dumps({
-        "apiVersion": "agentrealm/v1alpha1", "kind": "Project",
+        "apiVersion": "bearpit/v1alpha1", "kind": "Project",
         "metadata": {"name": "p"}, "spec": {"goals": ["g"]},
     }))
     (root / "agents" / "spy" / "agent.json").write_text(json.dumps(
@@ -177,12 +177,12 @@ def test_a_symlinked_resource_pointing_outside_the_package_is_refused(tmp_path):
 
 
 def test_a_local_skill_ref_that_escapes_the_skills_dir_is_rejected(tmp_path):
-    from agentrealm.core.package import PackageError, load_package
+    from bearpit.core.package import PackageError, load_package
 
     root = tmp_path / "pkg"
     (root / "agents" / "x").mkdir(parents=True)
     (root / "project.json").write_text(json.dumps({
-        "apiVersion": "agentrealm/v1alpha1", "kind": "Project",
+        "apiVersion": "bearpit/v1alpha1", "kind": "Project",
         "metadata": {"name": "p"}, "spec": {"goals": ["g"]},
     }))
     (root / "agents" / "x" / "agent.json").write_text(json.dumps({

@@ -1,6 +1,6 @@
 """Container ownership — which agent containers a sweep may destroy.
 
-`arealm reap` and `Forge.reap_orphans` had drifted: the CLI destroyed every container matching
+`pit reap` and `Forge.reap_orphans` had drifted: the CLI destroyed every container matching
 `realm-` while its own docstring promised it only ever destroyed containers belonging to no running
 realm. Running it during a live realm killed the run mid-flight, and because the flight log only
 writes on CONCLUDE, the chronicle never got its ending. Both now share one rule.
@@ -8,7 +8,7 @@ writes on CONCLUDE, the chronicle never got its ending. Both now share one rule.
 
 from __future__ import annotations
 
-from agentrealm.forge import orphan_containers
+from bearpit.forge import orphan_containers
 
 FOUND = {
     "realm-duel-1-vela": "c1",

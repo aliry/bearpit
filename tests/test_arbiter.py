@@ -2,8 +2,8 @@
 
 import pytest
 
-from agentrealm.chronicle import Chronicle, EventKind
-from agentrealm.realmtools import ArbiterService, Identity
+from bearpit.chronicle import Chronicle, EventKind
+from bearpit.realmtools import ArbiterService, Identity
 
 REF = Identity("duel", "themis", True)
 PLAYER = Identity("duel", "vela", False)

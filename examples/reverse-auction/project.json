@@ -1,10 +1,10 @@
 {
-  "apiVersion": "agentrealm/v1alpha1",
+  "apiVersion": "bearpit/v1alpha1",
   "kind": "Project",
   "metadata": {
     "name": "reverse-auction",
     "description": "Three suppliers each seal ONE integer price bid for a single supply contract; the buyer reveals them together and awards the contract to the LOWEST bid. Every supplier has a different private cost floor, so nobody knows how far a rival can go.",
-    "author": "agentrealm",
+    "author": "bearpit",
     "tags": [
       "competitive",
       "auction",
