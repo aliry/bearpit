@@ -9,7 +9,7 @@ WORKDIR /app
 RUN pip install --no-cache-dir uv
 
 # Dependencies first so the layer caches, then the package itself.
-COPY pyproject.toml uv.lock README.md ./
+COPY pyproject.toml uv.lock README.md LICENSE NOTICE ./
 COPY src ./src
 # --frozen installs exactly what uv.lock pins and fails if the lock is stale. The previous
 # `uv pip install .` ignored the lockfile entirely and resolved fresh versions at build time,

@@ -9,6 +9,8 @@
 !pyproject.toml
 !uv.lock
 !README.md
+!LICENSE
+!NOTICE
 !src/
 
 # …minus anything that regenerates inside the allowed paths
