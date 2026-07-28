@@ -151,6 +151,7 @@ def test_the_guard_is_not_vacuous() -> None:
 # The project was renamed from the former name to Bearpit. Assembled from fragments so this file
 # does not itself contain the strings it forbids, which would need a self-exemption.
 _FORMER = ("agent" + "realm", "a" + "realm")
+_TAG = re.compile(r"<[^>]*>")
 
 
 def test_the_former_name_is_gone() -> None:
@@ -171,7 +172,10 @@ def test_the_former_name_is_gone() -> None:
         except (OSError, UnicodeDecodeError):
             continue
         for i, line in enumerate(text.splitlines(), 1):
-            if rx.search(line):
+            # Markup can split the name so no contiguous string exists: the console wordmark was
+            # `AGENT<b>REALM</b>`, which survived both a global rename and the first version of
+            # this guard, and shipped a stale brand into the UI. Match the rendered text too.
+            if rx.search(line) or rx.search(_TAG.sub("", line)):
                 stale.append(f"{rel}:{i}: {line.strip()[:80]}")
     assert not stale, (
         "the former project name still appears in tracked files:\n  "
@@ -187,8 +191,13 @@ def test_the_former_name_guard_is_not_vacuous() -> None:
                    "run `" + "arealm" + " keys add openai-main`",
                    "AGENT" + "REALM_API_TOKEN"):
         assert rx.search(sample), sample
+    # …including the tag-split form that actually shipped a stale wordmark to the console
+    split = '<span class="brand-word">' + "AGENT" + "<b>" + "REALM" + "</b></span>"
+    assert not rx.search(split), "precondition: the raw line must NOT match"
+    assert rx.search(_TAG.sub("", split)), "tag-stripped line must match"
     for benign in ("bearpit.core.plugins", "BEARPIT_API_TOKEN", "the realm concluded", "realms"):
         assert not rx.search(benign), benign
+        assert not rx.search(_TAG.sub("", benign)), benign
 
 
 @pytest.mark.parametrize("path,frag", TRANSITIONAL)
