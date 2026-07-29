@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
@@ -269,6 +269,7 @@ class LiveSnapshot:
         containers: dict[str, str] | None = None,
         agent_tokens: dict[str, str] | None = None,
         budget_policy: dict[str, tuple[str, float]] | None = None,
+        participants: Sequence[str] | None = None,
     ) -> None:
         self._herald = herald
         self._ledger = ledger
@@ -306,6 +307,10 @@ class LiveSnapshot:
         self._killed_broke: set[str] = set()
         self._applied_eliminations: set[int] = set()  # ELIMINATION event ids already enforced
         self._eliminated: set[str] = set()  # agent ids removed from the realm (containers stopped)
+        # The non-referee roster, for the `no_active_participants` termination. Empty means "not
+        # tracked", which can never trip the rule — an older caller that omits it keeps today's
+        # behaviour rather than silently gaining a new way for its realms to end.
+        self._participants: list[str] = list(participants or ())
         self._dm_dead_notified: set[tuple[str, str]] = set()  # (from,to) told the peer is gone
         # route a (from,to) pair to its DM room by the label's bare ids ("a · b")
         self._dm_route: dict[frozenset[str], str] = {}
@@ -379,6 +384,11 @@ class LiveSnapshot:
         contents = self._runtime.read_volume(self._shared) if self._shared else {}
         verdicts = await self._chron.events(self._realm, kind=EventKind.VERDICT)
         verdict = str(verdicts[-1].payload.get("outcome")) if verdicts else None
+        # Who could still act? A participant whose container has been stopped — killed for budget or
+        # eliminated by the referee — cannot. The referee is excluded by construction: it is alive
+        # and funded in exactly the case this exists to catch, calling rounds into an empty room.
+        gone = self._killed_broke | self._eliminated
+        alive = [a for a in self._participants if a not in gone]
         return RealmSnapshot(
             elapsed_s=now - self._start,
             messages=messages,
@@ -388,6 +398,8 @@ class LiveSnapshot:
             verdict=verdict,
             idle_s=now - self._last_activity,
             manual_stop=self._stop(),
+            participants=len(self._participants),
+            participants_alive=len(alive),
         )
 
     async def _enforce_budgets(self, spend: dict[str, tuple[float, float | None]]) -> None:

@@ -10,12 +10,13 @@ from bearpit.core.schema import (
     ProjectMeta,
     ProjectSpec,
     TerminationCondition,
+    TerminationKind,
 )
 from bearpit.forge import Forge
 from bearpit.gatekeeper.runner import Runner
 from bearpit.herald import Herald
 from bearpit.ledger import KeyStore, Ledger
-from bearpit.warden import RealmSnapshot, Warden
+from bearpit.warden import RealmSnapshot, Warden, evaluate_termination
 
 
 class FakeMatrix:
@@ -795,4 +796,65 @@ async def test_all_three_of_an_agents_credentials_are_scrubbed():
         assert secret not in out
     assert out.count(MASK) == 3
     assert "HOME=/home/agent" in out
+    await chron.close()
+
+
+async def test_the_snapshot_reports_participants_and_who_can_still_act():
+    """The counters behind `no_active_participants` (#30) must reflect reality, tick by tick.
+
+    The pure rule is only as good as the liveness the runner feeds it. Both ways a container is
+    stopped have to count: killed for budget, and eliminated by the referee. The referee itself is
+    excluded from the roster on purpose — in the reported case it was alive and funded, calling
+    rounds into an empty room, which is exactly why nothing else caught this."""
+    from bearpit.chronicle import EventKind
+    from bearpit.gatekeeper.runner import LiveSnapshot
+
+    chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+
+    class _Herald:
+        async def mirror(self, realm_id, room_id, chronicle):
+            return 0
+
+    class _Ledger:
+        def __init__(self):
+            self.spend = {"orin": (0.5, 2.0), "vela": (0.5, 2.0)}
+
+        async def poll_spend(self, realm_id, chronicle):
+            return self.spend
+
+    class _Runtime:
+        def read_volume(self, name):
+            return {}
+
+        def stop_container(self, cid, *, timeout=5):
+            pass
+
+    now = [0.0]
+    ledger = _Ledger()
+    snap = LiveSnapshot(
+        herald=_Herald(), ledger=ledger, chronicle=chron, runtime=_Runtime(),
+        realm_id="r", commons_room="!c", shared_volume=None, stop_flag=lambda: False,
+        clock=lambda: now[0],
+        containers={"orin": "cid-orin", "vela": "cid-vela", "themis": "cid-themis"},
+        budget_policy={"orin": ("starve_then_kill", 0.0), "vela": ("starve_then_kill", 0.0)},
+        participants=["orin", "vela"],          # themis referees; it is NOT a participant
+    )
+
+    s = await snap()
+    assert (s.participants, s.participants_alive) == (2, 2)
+
+    # orin burns its cap and is killed
+    ledger.spend = {"orin": (2.0, 2.0), "vela": (0.5, 2.0)}
+    now[0] = 10.0
+    s = await snap()
+    assert (s.participants, s.participants_alive) == (2, 1), "a killed agent cannot act"
+    assert evaluate_termination([], s) is None, "one player left — the realm goes on"
+
+    # the referee eliminates vela: the OTHER way a container stops
+    await chron.append_event("r", EventKind.ELIMINATION, {"agent": "vela", "reason": "ejected"})
+    now[0] = 20.0
+    s = await snap()
+    assert (s.participants, s.participants_alive) == (2, 0)
+    fired = evaluate_termination([], s)
+    assert fired is not None and fired.kind == TerminationKind.NO_ACTIVE_PARTICIPANTS
     await chron.close()
