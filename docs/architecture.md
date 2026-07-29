@@ -563,12 +563,6 @@ exports spans over OTLP to a collector (Jaeger / Tempo / Grafana). Callers (`emi
 
 ### Enabling capture
 
-> **Status:** the span contract, the writer, and `pit trace` all exist and are tested. What does
-> not exist yet is a capture call site on the API pipelines: agent traffic goes straight through the
-> LiteLLM proxy, so capturing raw I/O there means hooking LiteLLM's logging callbacks. Until that
-> lands (#90), the only spans you will see are ones emitted by a provider integration that captures
-> its own calls.
-
 Off by default (zero overhead, no content written). Turn it on by pointing a sink env var at a
 writable file — any of these work (checked in order):
 
@@ -577,8 +571,25 @@ BEARPIT_TELEMETRY   # preferred
 BEARPIT_LLM_TRACE   # alias
 ```
 
-Set it on whatever component sits at the LLM chokepoint, then launch a realm as usual. Each model
-call — success **or** error — appends one span.
+Set it on the control plane and launch a realm as usual. Each model call — success **or** error —
+appends one span.
+
+**Where the capture happens.** Agent traffic goes through the LiteLLM proxy, which already records
+every request in its own spend logs. The Ledger polls those rows (the same endpoint it reads token
+counts from) and converts each new one into a `gen_ai.chat` span, keyed by the proxy's `request_id`
+so a call is never emitted twice. Nothing is injected into the proxy image: it stays exactly the
+pinned artifact, and the poll loop already knows which virtual key belongs to which realm and agent
+— the association a logging callback would have to rediscover.
+
+Two consequences worth knowing:
+
+- **Spans are eventually-consistent.** Spend-log rows flush a few seconds after the call, so the
+  last calls of a realm may land shortly after it concludes.
+- **Content needs a second switch.** LiteLLM redacts prompts and responses from its spend logs
+  unless the proxy runs with `STORE_PROMPTS_IN_SPEND_LOGS=True` (see `deploy/.env.example`).
+  Without it you still get model, tokens, timing and tool names — but `system:` and `output:` come
+  back empty. It is off by default because turning it on means every prompt and completion is
+  retained in the proxy's database, which is the operator's decision to make.
 
 
 ### Inspecting

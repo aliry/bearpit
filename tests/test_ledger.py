@@ -65,6 +65,9 @@ class FakeLiteLLM:
     async def key_tokens(self, virtual_key):
         return getattr(self, "tok", {}).get(virtual_key, (0, 0))
 
+    async def key_calls(self, virtual_key):
+        return getattr(self, "calls", {}).get(virtual_key, [])
+
     async def delete_key(self, virtual_key):
         self.deleted.append(virtual_key)
 
@@ -219,3 +222,64 @@ async def test_teardown_deletes_the_model_registration_not_just_the_key():
     await ledger.provision_agent("r1", _agent("vela", cap=5.0))
     await ledger.teardown("r1")
     assert "r1--vela" in _Client.deleted_models
+
+
+async def test_llm_calls_become_spans_once_each(tmp_path, monkeypatch):
+    """`pit trace` must work on the API pipeline (#26), and must not double-count.
+
+    Spend logs are CUMULATIVE per key: every poll returns the key's whole history, not a delta. A
+    loop that emitted whatever it read would re-emit every earlier call on every tick, so a realm's
+    trace would grow quadratically and every span after the first would be a duplicate."""
+    import json
+
+    sink = tmp_path / "telemetry.jsonl"
+    monkeypatch.setenv("BEARPIT_TELEMETRY", str(sink))
+
+    ks = KeyStore(KeyStore.generate_key())
+    ks.put("azure-main", "REALKEY", api_base="https://x/openai/v1")
+    fake = FakeLiteLLM()
+    ledger = Ledger(ks, fake, proxy_url="http://litellm:4000")
+    cred = await ledger.provision_agent("duel", _agent("orin", cap=1.0))
+    vkey = cred.virtual_key
+
+    def _row(rid: str) -> dict:
+        return {"request_id": rid, "call_type": "acompletion", "model": "gpt-5.4",
+                "prompt_tokens": 10, "completion_tokens": 2, "status": "success",
+                "messages": [{"role": "system", "content": "be orin"}],
+                "response": {"choices": [{"message": {"content": f"said {rid}"}}]}}
+
+    fake.calls = {vkey: [_row("a"), _row("b")]}
+    assert await ledger.emit_call_spans("duel") == 2
+
+    # the same two rows come back next tick, plus one new call
+    fake.calls = {vkey: [_row("a"), _row("b"), _row("c")]}
+    assert await ledger.emit_call_spans("duel") == 1, "already-seen rows must not re-emit"
+
+    spans = [json.loads(line) for line in sink.read_text().splitlines() if line.strip()]
+    assert [s["name"] for s in spans] == ["gen_ai.chat"] * 3
+    assert [s["attributes"]["bearpit.response.completion"] for s in spans] == [
+        "said a", "said b", "said c"]
+    # every span is attributable — those are the two filters `pit trace` offers
+    assert {s["attributes"]["bearpit.realm.id"] for s in spans} == {"duel"}
+    assert {s["attributes"]["bearpit.agent.id"] for s in spans} == {"orin"}
+
+
+async def test_no_telemetry_sink_means_the_proxy_is_never_even_asked(tmp_path, monkeypatch):
+    """Off by default, and cheap when off: with no sink configured this must not cost an extra
+    `/spend/logs` round-trip on every tick of every realm."""
+    monkeypatch.delenv("BEARPIT_TELEMETRY", raising=False)
+    monkeypatch.delenv("BEARPIT_LLM_TRACE", raising=False)
+
+    asked: list[str] = []
+
+    class _Client(FakeLiteLLM):
+        async def key_calls(self, virtual_key):
+            asked.append(virtual_key)
+            return [{"request_id": "a", "call_type": "acompletion"}]
+
+    ks = KeyStore(KeyStore.generate_key())
+    ks.put("azure-main", "REALKEY", api_base="https://x/openai/v1")
+    ledger = Ledger(ks, _Client(), proxy_url="http://litellm:4000")
+    await ledger.provision_agent("duel", _agent("orin", cap=1.0))
+    assert await ledger.emit_call_spans("duel") == 0
+    assert asked == [], "telemetry is off — the proxy should not have been polled at all"

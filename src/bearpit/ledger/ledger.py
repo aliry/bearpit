@@ -13,11 +13,13 @@ from __future__ import annotations
 import contextlib
 from dataclasses import dataclass
 
+from bearpit import telemetry
 from bearpit.chronicle import Chronicle, EventKind
 from bearpit.core.plugins import hooks_for
 from bearpit.core.schema import AgentSpec
 from bearpit.ledger.keystore import KeyStore
 from bearpit.ledger.litellm import LiteLLMClient
+from bearpit.ledger.spans import request_id, span_from_spend_log
 
 
 @dataclass(frozen=True)
@@ -52,6 +54,9 @@ class Ledger:
         self._keys: dict[tuple[str, str], str] = {}  # (realm, agent) -> virtual key
         self._last: dict[tuple[str, str], float] = {}  # (realm, agent) -> last cumulative spend
         self._last_tok: dict[tuple[str, str], tuple[int, int]] = {}  # -> last (prompt, completion)
+        # proxy request_ids already turned into spans. Spend logs are cumulative per key, so
+        # every poll returns the whole history and this is what keeps it from re-emitting.
+        self._traced: set[str] = set()
 
     @property
     def proxy_url(self) -> str:
@@ -94,6 +99,39 @@ class Ledger:
         (see `core.redact`). An agent's container holds its own key in plaintext, and `run_code`
         output goes straight into the append-only Chronicle."""
         return [key for (realm, _), key in self._keys.items() if realm == realm_id]
+
+    async def emit_call_spans(self, realm_id: str) -> int:
+        """Emit one `gen_ai.chat` span per new LLM call on this realm's keys (#26). Returns how
+        many were emitted.
+
+        Realms run on an API provider had no capture point at all, so `pit trace` came back empty
+        for anything on Azure, OpenAI, Anthropic or OpenRouter. LiteLLM's spend logs already
+        record every request; this reads them through the same endpoint the token poll uses and
+        converts them to the span shape `pit trace` already renders.
+
+        No-op unless a telemetry sink is configured, so the extra `/spend/logs` read costs nothing
+        on a normal run. Deduped by the proxy's `request_id`, because rows are cumulative per key:
+        every poll returns the whole history, not just what is new."""
+        if not telemetry.enabled():
+            return 0
+        emitted = 0
+        for (realm, aid), vkey in list(self._keys.items()):
+            if realm != realm_id:
+                continue
+            for row in await self._c.key_calls(vkey):
+                rid = request_id(row)
+                if rid is None or rid in self._traced:
+                    continue
+                self._traced.add(rid)
+                built = span_from_spend_log(row, realm_id=realm_id, agent_id=aid)
+                if built is None:
+                    continue  # not a chat call
+                attrs, start_s, duration_ms = built
+                telemetry.emit_span(
+                    "gen_ai.chat", attrs, start_s=start_s, duration_ms=duration_ms
+                )
+                emitted += 1
+        return emitted
 
     async def poll_spend(
         self, realm_id: str, chronicle: Chronicle

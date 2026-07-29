@@ -65,6 +65,12 @@ services:
       DATABASE_URL: postgresql://llm:${LITELLM_DB_PASSWORD}@litellm-db:5432/litellm
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?set LITELLM_MASTER_KEY in .env}
       STORE_MODEL_IN_DB: "True"          # Ledger mints virtual keys + registers models at run time
+      # LiteLLM redacts prompts and responses from its spend logs unless this is on. The Ledger
+      # reads those rows to build `pit trace` spans for the API pipeline, so with it off the trace
+      # shows model and token counts but no content. OFF by default: it means every prompt and
+      # completion is retained in the proxy's own database, which is the operator's call, not ours.
+      # Turn it on together with BEARPIT_TELEMETRY (see docs/telemetry.md).
+      STORE_PROMPTS_IN_SPEND_LOGS: "${STORE_PROMPTS_IN_SPEND_LOGS:-False}"
     # so LiteLLM can reach a model endpoint running on the HOST at host.docker.internal — the
     # api_base of any locally-hosted provider. Harmless otherwise. host-gateway works on
     # Docker Desktop, colima, and Linux.

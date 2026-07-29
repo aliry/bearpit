@@ -381,6 +381,11 @@ class LiveSnapshot:
             self._last_activity = now
         spend = await self._ledger.poll_spend(self._realm, self._chron)
         await self._enforce_budgets(spend)
+        # Raw LLM-I/O spans for the API pipeline (#26). A no-op unless a telemetry sink is set, and
+        # best-effort regardless: `pit trace` going dark must never take budget enforcement or the
+        # termination tick with it.
+        with contextlib.suppress(Exception):
+            await self._ledger.emit_call_spans(self._realm)
         contents = self._runtime.read_volume(self._shared) if self._shared else {}
         verdicts = await self._chron.events(self._realm, kind=EventKind.VERDICT)
         verdict = str(verdicts[-1].payload.get("outcome")) if verdicts else None
