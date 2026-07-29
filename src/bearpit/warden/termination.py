@@ -26,6 +26,10 @@ class RealmSnapshot:
     verdict: str | None = None  # referee verdict outcome, if issued
     idle_s: float = 0.0  # seconds since the last agent message (for the `stall` condition)
     manual_stop: bool = False
+    # Non-referee roster size, and how many of those can still act. Both default to 0 so a snapshot
+    # that does not track participants can never trip the rule (0 > 0 is false).
+    participants: int = 0
+    participants_alive: int = 0
 
 
 @dataclass(frozen=True)
@@ -85,6 +89,19 @@ def _budget_fired(cond: TerminationCondition, snap: RealmSnapshot) -> bool:
     return any(s >= c for s, c in capped)  # any_agent (default)
 
 
+def _emptied(snap: RealmSnapshot) -> bool:
+    """Every non-referee participant is gone — nobody left who could act.
+
+    Guarded on `participants > 0` so it never fires before the roster is known, and never on a
+    realm that legitimately has no participants at all.
+
+    Deliberately keyed on liveness (container stopped: killed or eliminated) rather than on
+    silence. A merely quiet agent is still able to act, and ending its realm would be wrong; that
+    case is the `stall` condition's job. Elimination scenarios that run down to a single survivor
+    are unaffected — this needs ZERO able participants, not "fewer than expected"."""
+    return snap.participants > 0 and snap.participants_alive == 0
+
+
 def evaluate_termination(
     conditions: list[TerminationCondition], snap: RealmSnapshot
 ) -> TerminationFired | None:
@@ -92,6 +109,8 @@ def evaluate_termination(
         k = cond.type
         if k == TerminationKind.MANUAL and snap.manual_stop:
             return TerminationFired(k, "operator stop")
+        if k == TerminationKind.NO_ACTIVE_PARTICIPANTS and _emptied(snap):
+            return TerminationFired(k, "no participants left who could act")
         if k == TerminationKind.DURATION and _duration_fired(cond, snap):
             return TerminationFired(k, f"reached {cond.limit}")
         if k == TerminationKind.FILE and _file_matches(cond, snap) >= (cond.count or 1):
@@ -108,4 +127,14 @@ def evaluate_termination(
     # the kill switch is always available, even if `manual` was never declared
     if snap.manual_stop:
         return TerminationFired(TerminationKind.MANUAL, "operator stop")
+    # …and so is "the realm is empty". A realm whose every participant has been killed or
+    # eliminated cannot make progress, so this is physics, not a rule an author must remember to
+    # declare. Left to the `duration` backstop it burns real money: rps-duel on OpenRouter ran 25
+    # further minutes after both players hit their cap, the referee calling rounds into an empty
+    # room (#30). Checked last so any declared condition — a verdict above all — still wins the
+    # tick and gets to name the outcome.
+    if _emptied(snap):
+        return TerminationFired(
+            TerminationKind.NO_ACTIVE_PARTICIPANTS, "no participants left who could act"
+        )
     return None

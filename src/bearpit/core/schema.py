@@ -136,6 +136,10 @@ class TerminationKind(StrEnum):
     REFEREE_VERDICT = "referee_verdict"  # the referee issues a concluding verdict
     STALL = "stall"  # no agent has spoken for `limit` — the realm is stuck; end deterministically
     MANUAL = "manual"  # operator kill switch (always implicitly available)
+    # every non-referee participant's container has been stopped (killed or eliminated) — nobody is
+    # left who could act. Always implicitly available, like `manual`: an empty realm cannot make
+    # progress, so this is physics, not a rule an author has to remember to declare.
+    NO_ACTIVE_PARTICIPANTS = "no_active_participants"
 
 
 class MechanicKind(StrEnum):

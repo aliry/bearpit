@@ -238,3 +238,41 @@ def test_bad_regex_rejected_at_parse():
 
 async def _noop(_seconds: float) -> None:
     return None
+
+
+def test_a_realm_whose_participants_are_all_gone_ends() -> None:
+    """A realm nobody is left to play cannot make progress — issue #30.
+
+    `stall` cannot catch this: it measures message quiet, and the referee is still alive and
+    funded, calling rounds into an empty room. Every tick resets the clock, so the realm survived
+    to its `duration` backstop. On rps-duel that was 25 further minutes and a chunk of real spend
+    after both players hit their $2 cap and were killed exactly as designed."""
+    # nothing declared: this must hold even for a project that never asked for it
+    fired = evaluate_termination([], RealmSnapshot(participants=2, participants_alive=0))
+    assert fired is not None
+    assert fired.kind == TerminationKind.NO_ACTIVE_PARTICIPANTS
+    assert "could act" in fired.detail
+
+
+def test_one_survivor_keeps_the_realm_alive() -> None:
+    """Elimination scenarios run down to a single survivor on purpose (cygnus-crew, among-us).
+
+    The rule must key on ZERO able participants, never on "fewer than we started with"."""
+    assert evaluate_termination([], RealmSnapshot(participants=5, participants_alive=1)) is None
+
+
+def test_a_realm_that_does_not_track_participants_is_never_ended_by_this() -> None:
+    """Both counters default to 0, so a snapshot from a caller that does not track a roster keeps
+    exactly today's behaviour rather than silently gaining a new way to end."""
+    assert evaluate_termination([], RealmSnapshot()) is None
+    assert evaluate_termination([], RealmSnapshot(participants=0, participants_alive=0)) is None
+
+
+def test_a_declared_verdict_still_wins_the_tick() -> None:
+    """Checked last on purpose: if the referee rules in the same tick that the last player dies,
+    the verdict is the more informative outcome and must name the ending."""
+    fired = evaluate_termination(
+        [TerminationCondition(type=TerminationKind.REFEREE_VERDICT)],
+        RealmSnapshot(participants=2, participants_alive=0, verdict="orin wins"),
+    )
+    assert fired is not None and fired.kind == TerminationKind.REFEREE_VERDICT

@@ -92,6 +92,11 @@ class Platform:
                 containers={aid: h.container_id for aid, h in handles.agents.items()
                             if h.container_id},
                 agent_tokens=handles.agent_tokens,
+                # non-referee roster, for the `no_active_participants` termination (#30). The
+                # referee is excluded on purpose: it is alive and funded in exactly the case this
+                # catches, calling rounds into a room whose players are all dead.
+                participants=[a.id for a in project.agents
+                              if project.referee is None or a.id != project.referee.id],
                 budget_policy={
                     a.id: (str(a.budget.on_exhausted),
                            parse_duration(a.budget.grace_period)
