@@ -29,6 +29,7 @@ class LiteLLMClient(Protocol):
     async def mint_key(self, alias: str, models: list[str], max_budget: float | None) -> str: ...
     async def key_spend(self, virtual_key: str) -> tuple[float, float | None]: ...
     async def key_tokens(self, virtual_key: str) -> tuple[int, int]: ...
+    async def key_calls(self, virtual_key: str) -> list[dict[str, Any]]: ...
     async def delete_key(self, virtual_key: str) -> None: ...
     async def delete_model(self, model_name: str) -> None: ...
 
@@ -111,6 +112,28 @@ class HttpLiteLLMClient:
         pin = sum(int(x.get("prompt_tokens") or 0) for x in rows if isinstance(x, dict))
         pout = sum(int(x.get("completion_tokens") or 0) for x in rows if isinstance(x, dict))
         return pin, pout
+
+    async def key_calls(self, virtual_key: str) -> list[dict[str, Any]]:
+        """Every logged request for a key — the raw spend-log rows, for telemetry spans (#26).
+
+        Same endpoint `key_tokens` sums, returned whole instead of reduced: the rows carry the
+        prompt, the response, the offered tool schemas and the timings that `pit trace` renders.
+        `messages`/`response` come back empty unless the proxy runs with
+        STORE_PROMPTS_IN_SPEND_LOGS — LiteLLM redacts content from spend logs by default.
+
+        Returns [] rather than raising: telemetry must never break a poll tick that also carries
+        budget enforcement."""
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as c:
+                r = await c.get(
+                    f"{self._base}/spend/logs", headers=self._headers,
+                    params={"api_key": virtual_key},
+                )
+                r.raise_for_status()
+                rows = r.json()
+        except Exception:  # noqa: BLE001 - best-effort
+            return []
+        return [x for x in rows if isinstance(x, dict)] if isinstance(rows, list) else []
 
     async def delete_key(self, virtual_key: str) -> None:
         async with httpx.AsyncClient(timeout=self._timeout) as c:
