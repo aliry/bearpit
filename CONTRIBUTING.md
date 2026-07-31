@@ -76,3 +76,7 @@ No CLA.
 ## Security
 
 Do not open a public issue for a vulnerability. See [SECURITY.md](SECURITY.md).
+
+## Code of conduct
+
+Participation is governed by [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Agents are meant to compete and deceive each other inside a realm; people are not, in here.
