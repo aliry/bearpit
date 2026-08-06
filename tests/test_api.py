@@ -572,3 +572,43 @@ def test_a_bad_value_is_rejected_before_anything_starts(seeded, tmp_path, monkey
         assert r.status_code == 400
         assert "must be one of" in r.json()["detail"]
     assert manager.started == [], "nothing may be provisioned after a rejected value"
+
+
+def test_editing_a_scenario_preserves_its_parameter_metadata(seeded, tmp_path, monkeypatch):
+    """The editor rebuilds `spec` from its own state, so anything the detail payload does not
+    expose is silently DELETED on save. `choices`, `type` and a manifest default have no UI — they
+    are JSON-level — so they have to survive the round trip untouched.
+
+    Without this the first person to fix a typo in a parameterised scenario through the web editor
+    would quietly strip every picker and override from it, and nothing would say so."""
+    monkeypatch.setenv("BEARPIT_SCENARIOS_DIR", str(tmp_path))
+    _param_scenario(tmp_path, parameters={
+        "category": {"choices": ["fruit", "colour"], "description": "kind of word"},
+        "target": {"default": "99", "type": "int", "min": 1, "max": 100},
+    })
+    app = create_app(chron=seeded, manager=FakeManager())
+    with TestClient(app) as c:
+        detail = c.get("/api/packages/param-demo").json()
+        assert detail["parameters"]["category"]["choices"] == ["fruit", "colour"]
+        assert detail["parameters"]["target"]["default"] == "99"
+
+        # save it back exactly as the editor would, having changed only prose
+        body = {
+            "metadata": {"name": "param-demo", "description": detail["description"]},
+            "spec": {
+                "goals": detail["goals"], "guidelines": "edited",
+                "termination": [{"type": "manual"}],
+                "parameters": detail["parameters"],
+            },
+            "agents": [{"id": "orin", "model_category": "medium",
+                        "persona": "You play for ${team_name}"}],
+        }
+        assert c.put("/api/packages/param-demo", json=body).status_code == 200
+
+        after = c.get("/api/packages/param-demo").json()
+        assert after["guidelines"] == "edited", "the edit landed"
+        assert after["parameters"]["category"]["choices"] == ["fruit", "colour"], (
+            "a picker must survive an unrelated edit"
+        )
+        assert after["parameters"]["target"]["default"] == "99"
+        assert after["parameters"]["target"]["max"] == 100

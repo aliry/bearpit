@@ -172,6 +172,11 @@ def serialize_project(project: Any, name: str, path: str) -> dict[str, Any]:
         "tags": list(md.tags or []), "author": md.author or "", "category": md.category or "",
         "goals": list(spec.goals or []), "guidelines": spec.guidelines or "",
         "restrictions": spec.restrictions or "",
+        # Round-trips through the editor. Without this the editor rebuilds `spec` from its own
+        # state and a save silently DELETES every parameter's choices, type and manifest default.
+        "parameters": {
+            k: v.model_dump(exclude_none=True) for k, v in (spec.parameters or {}).items()
+        },
         "environment": {
             "network_egress": str(env.network_egress),
             "shared_folder": bool(env.shared_folder.enabled),
