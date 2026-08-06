@@ -584,3 +584,93 @@ select { appearance: none; background-image:
   font-family: var(--mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
   color: var(--amber); margin-left: 8px;
 }
+
+/* ================= SCENARIO EDITOR: fixed header + tabs + scrolling section ================= */
+/* The editor owns the viewport instead of growing a page-length scrollbar. Save stays reachable,
+   and losing your place in Agents no longer means scrolling back past Termination. */
+#view:has(.editor-shell) { padding: 0; max-width: none; height: 100vh; animation: none; }
+.editor-shell { height: 100%; display: flex; flex-direction: column; min-height: 0; position: relative; }
+
+.editor-head {
+  flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 20px;
+  padding: 16px 32px; border-bottom: 1px solid var(--line); background: var(--panel);
+}
+.editor-head-main { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.editor-back {
+  display: grid; place-items: center; width: 30px; height: 30px; flex: 0 0 auto;
+  border: 1px solid var(--line); border-radius: 9px; color: var(--dim);
+  font-size: 18px; line-height: 1; text-decoration: none;
+}
+.editor-back:hover { color: var(--text); border-color: var(--iris); }
+/* The name is the page title AND the field — one thing, not a heading with a duplicate input. */
+.editor-name {
+  background: transparent; border: 1px solid transparent; border-radius: 8px;
+  font-family: var(--sans); font-size: 22px; font-weight: 640; letter-spacing: -.02em;
+  color: var(--text); padding: 3px 8px; margin: -3px -8px; min-width: 320px; max-width: 46vw;
+}
+.editor-name:hover { border-color: var(--line); }
+.editor-name:focus { outline: none; border-color: var(--iris); background: var(--void); }
+.editor-head-actions { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+.warn-chip { color: var(--amber); border-color: rgba(226,162,74,.35); }
+
+.editor-tabs {
+  flex: 0 0 auto; display: flex; gap: 2px; padding: 0 32px; overflow-x: auto;
+  border-bottom: 1px solid var(--line); background: var(--panel);
+}
+.editor-tab {
+  appearance: none; background: none; border: 0; border-bottom: 2px solid transparent;
+  color: var(--dim); font-family: var(--sans); font-size: 13px; font-weight: 560;
+  padding: 12px 14px; cursor: pointer; white-space: nowrap; display: flex; align-items: center; gap: 7px;
+}
+.editor-tab:hover { color: var(--text); }
+.editor-tab.on { color: var(--text); border-bottom-color: var(--iris); }
+.tab-count {
+  font-family: var(--mono); font-size: 10px; color: var(--faint);
+  background: var(--raise); border-radius: 20px; padding: 1px 6px;
+}
+.editor-tab.on .tab-count { color: var(--iris); }
+
+/* Only this scrolls. */
+.editor-body { flex: 1 1 auto; overflow-y: auto; min-height: 0; padding: 24px 32px 80px; }
+.editor-body > .panel { max-width: 1120px; margin: 0 auto; }
+
+/* ---------- parameter toolbar: over the focused field, gone otherwise ---------- */
+.param-bar {
+  position: fixed; z-index: 40; display: flex; align-items: center; gap: 8px;
+  padding: 5px 8px; border-radius: 9px; background: var(--raise);
+  border: 1px solid var(--line); box-shadow: var(--shadow);
+}
+.param-bar[hidden] { display: none; }
+.param-bar-label {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .14em; color: var(--faint);
+}
+.param-bar-btn {
+  appearance: none; border: 1px solid var(--iris-dim); background: var(--iris-glow);
+  color: var(--text); border-radius: 7px; padding: 3px 9px; cursor: pointer;
+  font-family: var(--sans); font-size: 11.5px; font-weight: 560; white-space: nowrap;
+}
+.param-bar-btn.ghost { border-color: var(--line); background: transparent; color: var(--dim); }
+.param-bar-btn:hover { border-color: var(--iris); color: var(--text); }
+.param-bar-hint {
+  font-family: var(--mono); font-size: 10.5px; color: var(--faint); white-space: nowrap;
+}
+@media (max-width: 900px) { .param-bar-hint { display: none; } }
+
+/* ---------- the parameters report (read-only) ---------- */
+.param-eg {
+  display: block; margin: 8px 0; padding: 8px 10px; border-radius: var(--r);
+  background: var(--panel-2); border: 1px solid var(--line-soft);
+  font-family: var(--mono); font-size: 11.5px; color: var(--iris); overflow-x: auto;
+}
+.param-table-row { padding: 11px 0; border-top: 1px solid var(--line-soft); }
+.param-table-row:first-child { border-top: 0; }
+.ptr-head { display: flex; align-items: baseline; gap: 10px; }
+.param-name { font-family: var(--mono); font-size: 12.5px; color: var(--text); font-weight: 600; }
+.ptr-val { color: var(--dim); font-size: 12.5px; }
+.ptr-uses { margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: var(--faint); }
+/* Amber marks the one the launcher will stop and ask about. */
+.param-table-row .req {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--amber);
+}
+.param-table-row .hint { display: block; margin-top: 3px; }

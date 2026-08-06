@@ -1198,37 +1198,201 @@ async function editorPage(name, clone) {
     }
   } else { S = blankState(); isNew = true; }
 
+  // One long scrolling page put unrelated work in one column and buried the roster below five
+  // panels of config. Sections are tabs; the header and tab bar stay put and only the section
+  // body scrolls, so Save is always reachable and losing your place in Agents no longer means
+  // scrolling past Termination.
+  const TABS = [
+    { id: "overview", label: "Overview", build: () => overviewPanel(S, categories) },
+    { id: "rules", label: "Rules & goals", build: () => rulesPanel(S) },
+    { id: "environment", label: "Environment", build: () => envPanel(S) },
+    { id: "turns", label: "Turns", build: () => turnsPanel(S) },
+    { id: "termination", label: "Termination", build: () => terminationPanel(S) },
+    { id: "agents", label: "Agents", build: () => rosterPanel(S, skills, keyRefs) },
+  ];
+  let active = TABS[0].id;
+
+  const body = el("div", { class: "editor-body" });
+  const tabsBar = el("div", { class: "editor-tabs", role: "tablist" });
+
+  function drawTabs() {
+    clear(tabsBar);
+    for (const tb of TABS) {
+      const count = tabBadge(tb.id, S);
+      tabsBar.append(el("button", {
+        class: "editor-tab" + (tb.id === active ? " on" : ""),
+        role: "tab", "aria-selected": tb.id === active ? "true" : "false",
+        onclick: () => { if (tb.id !== active) { active = tb.id; drawTabs(); drawBody(); } },
+      }, tb.label, count !== null ? el("span", { class: "tab-count", text: String(count) }) : null));
+    }
+  }
+  function drawBody() {
+    clear(body);
+    // Rebuilt from S on every switch. Panels mutate S in place, so nothing is lost — and it keeps
+    // one source of truth rather than six half-live DOM trees.
+    body.append(TABS.find((x) => x.id === active).build());
+    body.scrollTop = 0;
+  }
+
   const heading = isNew ? (name ? "Clone scenario" : "New scenario") : `Edit · ${srcName}`;
-  const sub = shadowsExample
-    ? "Editing a bundled example — saving creates your own copy that shadows the original (the "
-      + "bundled template is never changed; delete your copy to get it back)."
-    : "Everything an agent knows is set here — after launch, agents are black boxes.";
-  const form = el("div");
-  const wrap = el("div", null,
-    el("div", { class: "crumb" }, el("a", { href: "#/scenarios" }, "Scenarios"), "›",
-      el("span", { text: isNew ? (name ? "Clone" : "New") : "Edit" })),
-    pageHead("Authoring", heading, sub,
-      [el("button", { class: "btn ghost", onclick: () => { location.hash = "#/scenarios"; } }, "Cancel"),
-       el("button", { class: "btn primary", onclick: guard("Saving…", save) },
-         el("span", { class: "ic" }, "✔"), "Save scenario")]),
-    form);
-  form.append(overviewPanel(S, categories), rulesPanel(S), parametersPanel(S),
-    envPanel(S), turnsPanel(S),
-    terminationPanel(S), rosterPanel(S, skills, keyRefs));
+  const nameInput = el("input", {
+    class: "editor-name", type: "text", value: S.metadata.name, maxlength: 120,
+    placeholder: "Scenario name", "aria-label": "Scenario name",
+    oninput: (e) => { S.metadata.name = e.target.value; },
+  });
+
+  const shell = el("div", { class: "editor-shell" },
+    el("div", { class: "editor-head" },
+      el("div", { class: "editor-head-main" },
+        el("a", { class: "editor-back", href: "#/scenarios", title: "Back to scenarios" }, "‹"),
+        el("div", null,
+          el("div", { class: "eyebrow" }, heading),
+          nameInput)),
+      el("div", { class: "editor-head-actions" },
+        shadowsExample ? el("span", { class: "chip mini warn-chip" }, "saves a copy") : null,
+        el("button", { class: "btn ghost", onclick: () => { location.hash = "#/scenarios"; } }, "Cancel"),
+        el("button", { class: "btn primary", onclick: guard("Saving…", save) },
+          el("span", { class: "ic" }, "✔"), "Save"))),
+    tabsBar, body);
+
+  drawTabs();
+  drawBody();
+  mountParamToolbar(shell, body, S);
 
   async function save() {
-    if (!S.metadata.name.trim()) return fail("Name required", "Give the scenario a name.");
-    if (!S.agents.length) return fail("Add an agent", "A scenario needs at least one agent.");
+    if (!S.metadata.name.trim()) {
+      active = "overview"; drawTabs(); drawBody();
+      return fail("Name required", "Give the scenario a name.");
+    }
+    if (!S.agents.length) {
+      active = "agents"; drawTabs(); drawBody();
+      return fail("Add an agent", "A scenario needs at least one agent.");
+    }
     // the UI keeps shared_folder as a plain bool; the schema wants a {enabled} object
-    const body = JSON.parse(JSON.stringify(S));
-    body.spec.environment.shared_folder = { enabled: !!body.spec.environment.shared_folder };
+    const body_ = JSON.parse(JSON.stringify(S));
+    body_.spec.environment.shared_folder = { enabled: !!body_.spec.environment.shared_folder };
     try {
-      if (isNew) await api("/api/packages", { method: "POST", body });
-      else await api(`/api/packages/${encodeURIComponent(srcName)}`, { method: "PUT", body });
+      if (isNew) await api("/api/packages", { method: "POST", body: body_ });
+      else await api(`/api/packages/${encodeURIComponent(srcName)}`, { method: "PUT", body: body_ });
       ok("Scenario saved", S.metadata.name); location.hash = "#/scenarios";
     } catch (e) { fail("Save failed", e.message); }
   }
-  return wrap;
+  return shell;
+}
+
+/* A count on a tab only earns its place where the number is something you track while working.
+   Agents and Termination are those; "how many guidelines" is not. */
+function tabBadge(id, S) {
+  if (id === "agents") return (S.agents || []).length;
+  if (id === "termination") return (S.spec.termination || []).length;
+  return null;
+}
+
+/* ---------- parameter toolbar: appears over the focused field, and only then ----------
+   Placeholders are a property of the text you are writing, so the affordance belongs on the text
+   box — not in a panel that every scenario pays for whether or not it uses one. It appears on
+   focus, over the field being edited, and leaves when focus does. */
+function mountParamToolbar(shell, body, S) {
+  const bar = el("div", { class: "param-bar", hidden: true });
+  const addBtn = el("button", {
+    class: "param-bar-btn", type: "button", title: "Insert a placeholder at the cursor",
+    // mousedown, not click: click fires after blur, by which time `current` is gone.
+    onmousedown: (e) => { e.preventDefault(); insertPlaceholder(); },
+  }, "＋ Parameter");
+  const listBtn = el("button", {
+    class: "param-bar-btn ghost", type: "button", title: "All parameters in this scenario",
+    onmousedown: (e) => { e.preventDefault(); openParamList(S); },
+  }, "View all");
+  bar.append(el("span", { class: "param-bar-label" }, "PARAMETERS"), addBtn, listBtn,
+    el("span", { class: "param-bar-hint" }, "${name,default,description} — set per run at launch"));
+  shell.append(bar);
+
+  let current = null;
+  function place() {
+    if (!current || !current.isConnected) return hide();
+    const r = current.getBoundingClientRect();
+    const br = body.getBoundingClientRect();
+    // Keep it inside the scrolling section: a field scrolled under the tab bar must not leave its
+    // toolbar floating over the header.
+    if (r.bottom < br.top + 8 || r.top > br.bottom - 8) return bar.setAttribute("hidden", "");
+    bar.removeAttribute("hidden");
+    bar.style.left = `${Math.round(r.left)}px`;
+    const above = r.top - br.top > 46;
+    bar.style.top = `${Math.round(above ? r.top - 38 : r.bottom + 6)}px`;
+  }
+  function show(el_) { current = el_; bar.removeAttribute("hidden"); place(); }
+  function hide() { current = null; bar.setAttribute("hidden", ""); }
+
+  function insertPlaceholder() {
+    if (!current) return;
+    const start = current.selectionStart ?? current.value.length;
+    const end = current.selectionEnd ?? start;
+    const snippet = "${name,default}";
+    current.value = current.value.slice(0, start) + snippet + current.value.slice(end);
+    // Select just `name` so the next keystroke replaces it — the point is to write the syntax FOR
+    // them, then get out of the way.
+    const nameAt = start + 2;
+    current.focus();
+    current.setSelectionRange(nameAt, nameAt + 4);
+    current.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
+  body.addEventListener("focusin", (e) => {
+    const f = e.target.closest?.("[data-param]");
+    if (f) show(f); else if (!bar.contains(e.target)) hide();
+  });
+  body.addEventListener("focusout", (e) => {
+    // Focus moving into the toolbar is not leaving the field.
+    if (bar.contains(e.relatedTarget)) return;
+    setTimeout(() => { if (!bar.contains(document.activeElement)) hide(); }, 0);
+  });
+  body.addEventListener("scroll", place, { passive: true });
+  window.addEventListener("resize", place);
+}
+
+/* Read-only by design: this is a REPORT of what the prose already says. Editing a parameter here
+   would mean two places to change one fact, and the prose would silently lose. */
+function openParamList(S) {
+  const found = draftParameters(S);
+  const body = el("div");
+  if (!found.length) {
+    body.append(el("p", { class: "sub" },
+      "This scenario has no parameters yet."),
+      el("p", { class: "sub" },
+        "Put a placeholder in any goal, guideline, restriction, description, persona or rubric and "
+        + "it becomes a field on the launch form:"),
+      el("code", { class: "param-eg" }, "Reach ${target,10,Points needed to win} points"),
+      el("p", { class: "sub" },
+        "The name is required. A default pre-fills the launch field; without one you are warned "
+        + "before running. A third part becomes the helper text under it."));
+  } else {
+    const required = found.filter((p) => p.default === null).length;
+    body.append(el("p", { class: "sub" },
+      `${found.length} parameter${found.length > 1 ? "s" : ""} in this scenario`
+      + (required ? ` · ${required} with no default, so the launcher will warn` : "")));
+    const tbl = el("div", { class: "param-table" });
+    for (const p of found) {
+      tbl.append(el("div", { class: "param-table-row" },
+        el("div", { class: "ptr-head" },
+          el("code", { class: "param-name" }, p.name),
+          p.default === null
+            ? el("span", { class: "req" }, "no default")
+            : el("span", { class: "ptr-val" }, `= ${p.default}`),
+          el("span", { class: "ptr-uses" },
+            `${p.used.length} use${p.used.length > 1 ? "s" : ""}`)),
+        p.overrides ? el("div", { class: "hint warn" },
+          `set in spec.parameters, overriding ${JSON.stringify(p.overrides)} written inline`) : null,
+        p.description ? el("div", { class: "hint" }, p.description) : null,
+        p.choices ? el("div", { class: "hint dim" }, `choices: ${p.choices.join(" | ")}`) : null,
+        el("div", { class: "hint dim" }, p.used.join(", "))));
+    }
+    body.append(tbl);
+  }
+  modal({
+    title: "Parameters",
+    body,
+    actions: (close) => [el("button", { class: "btn primary", onclick: close }, "Close")],
+  });
 }
 
 /* ----- info icon: click the ⓘ next to a label to read what a property does ----- */
@@ -1268,7 +1432,11 @@ function textField(label, obj, key, opts = {}) {
   const inp = el(opts.area ? "textarea" : "input",
     { type: opts.type || "text", value: obj[key] ?? "", placeholder: opts.ph || "",
       maxlength: opts.maxlength, min: opts.min, max: opts.max, step: opts.step,
-      class: opts.mono ? "mono" : "", oninput: (e) => {
+      class: opts.mono ? "mono" : "",
+      // Marks a field whose text is substituted at launch (ADR-003). The parameter toolbar
+      // appears only over these, so the affordance is present exactly where it applies.
+      "data-param": opts.param ? "1" : null,
+      oninput: (e) => {
         obj[key] = opts.type === "number" ? Number(e.target.value) : e.target.value;
         if (opts.on) opts.on(obj[key]);  // let callers react (e.g. live-update the agent header)
       } });
@@ -1311,7 +1479,7 @@ function priceField(label, model, key, ph, info) {
       model[key] = v === "" ? null : Number(v) / 1e6; } });
   return el("div", { class: "field" }, fieldLabel(label, { info, hint: "USD" }), inp);
 }
-function listField(label, arr, ph, info, itemMax, maxItems) {
+function listField(label, arr, ph, info, itemMax, maxItems, param = false) {
   const list = el("div", { class: "pill-list", style: "margin-bottom:8px" });
   const draw = () => {
     clear(list);
@@ -1321,6 +1489,7 @@ function listField(label, arr, ph, info, itemMax, maxItems) {
   };
   draw();
   const inp = el("input", { type: "text", placeholder: ph || "Type and press Enter", maxlength: itemMax,
+    "data-param": param ? "1" : null,
     onkeydown: (e) => { if (e.key === "Enter" && e.target.value.trim()) { e.preventDefault();
       if (maxItems && arr.length >= maxItems) { fail("Too many", `Up to ${maxItems} allowed.`); return; }
       arr.push(e.target.value.trim()); e.target.value = ""; draw(); } } });
@@ -1336,78 +1505,29 @@ function overviewPanel(S, categories = []) {
   const catField = el("div", { class: "field" },
     fieldLabel("Category", { hint: "for grouping & filtering", info: INFO.category }),
     catInput, el("datalist", { id: dlId }, ...categories.map((c) => el("option", { value: c }))));
+  // Name lives in the header, where it doubles as the page title. Two inputs bound to one field
+  // would drift apart the moment someone typed in either.
   return el("div", { class: "panel" }, el("h2", null, "Overview"),
-    el("p", { class: "panel-sub" }, "Its name becomes the scenario id."),
+    el("p", { class: "panel-sub" }, "How this scenario is described and found."),
     el("div", { class: "row" },
-      textField("Name", S.metadata, "name", { ph: "sealed-auction", info: INFO.name, maxlength: 120 }),
       catField,
       textField("Author", S.metadata, "author", { ph: "optional", info: INFO.author, maxlength: 120 })),
     textField("Description", S.metadata, "description",
-      { area: true, rows: 2, ph: "One line on what this is.", info: INFO.description, maxlength: 2000 }),
+      { area: true, rows: 2, ph: "One line on what this is.", info: INFO.description,
+        maxlength: 2000, param: true }),
     listField("Tags", S.metadata.tags, "Add a tag", INFO.tags, 40, 30));
 }
 function rulesPanel(S) {
   return el("div", { class: "panel" }, el("h2", null, "Rules & goals"),
     el("p", { class: "panel-sub" }, "Shared context every agent is born with."),
-    listField("Goals", S.spec.goals, "A goal for the realm", INFO.goals, 1000, 50),
+    listField("Goals", S.spec.goals, "A goal for the realm", INFO.goals, 1000, 50, true),
     textField("Guidelines", S.spec, "guidelines", { area: true, rows: 3, info: INFO.guidelines,
+      param: true,
       maxlength: 50000, ph: "How agents should behave. Quoted to everyone at kickoff." }),
     textField("Restrictions", S.spec, "restrictions", { area: true, rows: 2, info: INFO.restrictions,
+      param: true,
       maxlength: 50000, ph: "Rules that are law (forbidden-but-possible, referee-penalized)." }));
 }
-function parametersPanel(S) {
-  // Live, because this IS the documentation: an author discovers the feature by typing `${` and
-  // watching a field appear. A static help box would be read once and never again.
-  const body = el("div");
-  const panel = el("div", { class: "panel" },
-    el("h2", null, "Parameters", infoIcon(INFO.parameters)),
-    el("p", { class: "panel-sub" },
-      "Placeholders in this scenario's prose. Each becomes a field on the launch form, so one "
-      + "scenario can be run many ways without editing it."),
-    body);
-
-  function refresh() {
-    const found = draftParameters(S);
-    body.innerHTML = "";
-    if (!found.length) {
-      body.append(el("div", { class: "param-empty" },
-        el("div", null, "None yet. Write a placeholder into any prose field to make one:"),
-        el("code", { class: "param-eg" }, "Reach ${target,10,Points needed to win} points"),
-        el("div", { class: "hint" },
-          "The name is required; the default and description are optional. "
-          + "Click the i above for the full syntax.")));
-      return;
-    }
-    const required = found.filter((p) => p.default === null).length;
-    body.append(el("div", { class: "hint", style: "margin-bottom:10px" },
-      `${found.length} parameter${found.length > 1 ? "s" : ""}`
-      + (required ? ` · ${required} with no default, so the launcher will warn` : "")));
-    for (const p of found) {
-      body.append(el("div", { class: "param-row" },
-        el("div", null,
-          el("code", { class: "param-name" }, p.name),
-          p.default === null
-            ? el("span", { class: "req" }, " no default")
-            : el("span", { class: "hint" }, ` = ${p.default}`)),
-        p.overrides && el("div", { class: "hint warn" },
-          `set in spec.parameters, overriding ${JSON.stringify(p.overrides)} written inline`),
-        p.description && el("div", { class: "hint" }, p.description),
-        p.choices && el("div", { class: "hint dim" }, `choices: ${p.choices.join(" | ")}`),
-        el("div", { class: "hint dim" }, `used in: ${p.used.join(", ")}`)));
-    }
-  }
-  refresh();
-  // The form mutates state in place rather than re-rendering (which would steal focus mid-word),
-  // so recompute on input, debounced.
-  let timer = null;
-  panel.addEventListener("bearpit:draft-changed", refresh);
-  document.addEventListener("input", () => {
-    clearTimeout(timer);
-    timer = setTimeout(() => { if (panel.isConnected) refresh(); }, 250);
-  });
-  return panel;
-}
-
 function envPanel(S) {
   const e = S.spec.environment;
   return el("div", { class: "panel" }, el("h2", null, "Environment"),
