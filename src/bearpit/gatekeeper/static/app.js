@@ -821,16 +821,14 @@ async function injectModal(id) {
 }
 
 /* ================= LAUNCH RUN ================= */
-/* Render `${name,default,description}` for DISPLAY (ADR-003).
-   A scenario's stored prose keeps its placeholders — that is the source, and the editor shows it
-   raw. Everywhere a reader is just browsing, showing the raw syntax is noise: the card for
-   param-relay read "A ONE-round ${category,fruit,What kind of word the players relay} relay for
-   ${team_name,,A label...}". Substitute the default where there is one, and mark the rest with
-   its own name so a reader can still see something varies here. */
-function paramPreview(text) {
-  if (typeof text !== "string" || !text.includes("${")) return text;
-  return text.replace(/\$\$\{|\$\{((?:\\.|[^\\}])*)\}/g, (m, body) => {
-    if (body === undefined) return "${";                       // $${ escape
+/* ---------- scenario parameters (ADR-003), client side ----------
+   One parser, two readers: the browse-surface preview and the editor's live panel. Keeping them
+   on the same function is what stops the two from disagreeing about the notation. */
+function parsePlaceholders(text) {
+  const out = [];
+  if (typeof text !== "string" || !text.includes("${")) return out;
+  text.replace(/\$\$\{|\$\{((?:\\.|[^\\}])*)\}/g, (m, body) => {
+    if (body === undefined) return m;                       // $${ escape
     const parts = [];
     let buf = "";
     for (let i = 0; i < body.length; i++) {
@@ -841,10 +839,71 @@ function paramPreview(text) {
     }
     parts.push(buf);
     const name = parts[0].trim();
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return m;      // not a placeholder
-    const dflt = parts.length > 1 ? parts[1] : "";
-    return dflt !== "" ? dflt : `\u00ab${name}\u00bb`;
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return m;
+    const dflt = parts.length > 1 && parts[1] !== "" ? parts[1] : null;
+    const desc = parts.length > 2 && parts[2].trim() !== "" ? parts[2].trim() : null;
+    out.push({ name, default: dflt, description: desc });
+    return m;
   });
+  return out;
+}
+
+/* Substitute for DISPLAY. A scenario's stored prose keeps its placeholders — that is the source,
+   and the editor shows it raw. Everywhere a reader is just browsing, raw syntax is noise: the card
+   for param-relay read "A ONE-round ${category,fruit,What kind of word the players relay} relay
+   for ${team_name,,A label...}". Use the default where there is one, and mark the rest with its
+   own name so a reader can still see that something varies here. */
+function paramPreview(text) {
+  if (typeof text !== "string" || !text.includes("${")) return text;
+  return text.replace(/\$\$\{|\$\{((?:\\.|[^\\}])*)\}/g, (m, body) => {
+    if (body === undefined) return "${";
+    const found = parsePlaceholders(m);
+    if (!found.length) return m;
+    return found[0].default !== null ? found[0].default : `\u00ab${found[0].name}\u00bb`;
+  });
+}
+
+/* Every parameter in the draft being edited, in first-appearance order, with where each is used.
+   Mirrors the server's scan (core/params.py) over the same prose fields — never ids, model refs,
+   budgets or termination patterns. */
+function draftParameters(S) {
+  const seen = new Map();
+  const add = (path, text) => {
+    for (const ph of parsePlaceholders(text || "")) {
+      let p = seen.get(ph.name);
+      if (!p) { p = { name: ph.name, default: null, description: null, used: [] }; seen.set(ph.name, p); }
+      if (ph.default !== null && p.default === null) p.default = ph.default;
+      if (ph.description && !p.description) p.description = ph.description;
+      if (!p.used.includes(path)) p.used.push(path);
+    }
+  };
+  add("description", S.metadata.description);
+  (S.spec.goals || []).forEach((g, i) => add(`goal ${i + 1}`, g));
+  add("guidelines", S.spec.guidelines);
+  add("restrictions", S.spec.restrictions);
+  for (const a of S.agents || []) {
+    const who = a.id || "agent";
+    add(`${who}: description`, a.description);
+    (a.goals || []).forEach((g, i) => add(`${who}: goal ${i + 1}`, g));
+    (a.responsibilities || []).forEach((r, i) => add(`${who}: responsibility ${i + 1}`, r));
+    add(`${who}: persona`, a.persona);
+    add(`${who}: rubric`, a.rubric);
+  }
+  // spec.parameters overrides the inline default and description, so the panel must show the
+  // EFFECTIVE value — otherwise the editor says one thing and the run does another. param-relay
+  // reads ${seed_word,APPLE} in its prose while the manifest sets MANGO, and MANGO is what runs.
+  const declared = (S.spec && S.spec.parameters) || {};
+  for (const p of seen.values()) {
+    const d = declared[p.name];
+    if (!d) continue;
+    if (d.default !== undefined && d.default !== null) {
+      if (p.default !== null && String(d.default) !== p.default) p.overrides = p.default;
+      p.default = String(d.default);
+    }
+    if (d.description) p.description = d.description;
+    if (d.choices) p.choices = d.choices;
+  }
+  return [...seen.values()];
 }
 
 function launchModal(packages, preselect) {
@@ -990,6 +1049,7 @@ const TERM_TYPES = ["manual", "message", "duration", "referee_verdict", "stall",
 
 // Plain-language explanations shown by the ⓘ next to each property.
 const INFO = {
+  parameters: "Any prose in this scenario can carry a placeholder, and each one becomes a field on the launch form so it can be set per run without editing the scenario.\n\n${name}  -  asked for at launch; no default, so you are warned before running with it empty\n${name,default}  -  pre-filled with default\n${name,default,description}  -  the description is shown under the field\n${name,,description}  -  a description with no default\n$${name}  -  a literal ${name}, not a placeholder\n\nWorks in: this description, goals, guidelines, restrictions, and every agent's description, goals, responsibilities, persona and rubric. NOT in ids, model names, budgets, or termination patterns - a termination pattern is a regular expression, where ${x} already means something else.\n\nAdd spec.parameters in the JSON to give one a picker (choices), a number range, or a textarea. A default set there overrides the one written inline.",
   name: "The scenario's display name. Lowercased and dashed to form its id (the folder name and "
     + "the prefix on every realm launched from it).",
   category: "A high-level grouping used to organize and filter scenarios (e.g. Games, Debate). "
@@ -1065,7 +1125,7 @@ function blankState() {
   return {
     metadata: { name: "", description: "", author: "", category: "", tags: [] },
     spec: {
-      goals: [], guidelines: "", restrictions: "",
+      goals: [], guidelines: "", restrictions: "", parameters: {},
       environment: { network_egress: "model_only",
         shared_folder: false, require_mention: true, allow_side_channels: false },
       referee_opens: false, provide_tools: true, stall_nudge: false, turns: null,
@@ -1081,6 +1141,9 @@ function detailToState(d) {
       category: d.category || "", tags: d.tags || [] },
     spec: {
       goals: d.goals || [], guidelines: d.guidelines || "", restrictions: d.restrictions || "",
+      // Carried verbatim: the editor has no UI for these (choices, types, manifest defaults are
+      // JSON-level), so it must hand back exactly what it was given rather than dropping them.
+      parameters: d.parameters || {},
       environment: { network_egress: e.network_egress || "model_only",
         shared_folder: !!e.shared_folder,
         require_mention: e.require_mention !== false, allow_side_channels: !!e.allow_side_channels },
@@ -1149,7 +1212,8 @@ async function editorPage(name, clone) {
        el("button", { class: "btn primary", onclick: guard("Saving…", save) },
          el("span", { class: "ic" }, "✔"), "Save scenario")]),
     form);
-  form.append(overviewPanel(S, categories), rulesPanel(S), envPanel(S), turnsPanel(S),
+  form.append(overviewPanel(S, categories), rulesPanel(S), parametersPanel(S),
+    envPanel(S), turnsPanel(S),
     terminationPanel(S), rosterPanel(S, skills, keyRefs));
 
   async function save() {
@@ -1291,6 +1355,59 @@ function rulesPanel(S) {
     textField("Restrictions", S.spec, "restrictions", { area: true, rows: 2, info: INFO.restrictions,
       maxlength: 50000, ph: "Rules that are law (forbidden-but-possible, referee-penalized)." }));
 }
+function parametersPanel(S) {
+  // Live, because this IS the documentation: an author discovers the feature by typing `${` and
+  // watching a field appear. A static help box would be read once and never again.
+  const body = el("div");
+  const panel = el("div", { class: "panel" },
+    el("h2", null, "Parameters", infoIcon(INFO.parameters)),
+    el("p", { class: "panel-sub" },
+      "Placeholders in this scenario's prose. Each becomes a field on the launch form, so one "
+      + "scenario can be run many ways without editing it."),
+    body);
+
+  function refresh() {
+    const found = draftParameters(S);
+    body.innerHTML = "";
+    if (!found.length) {
+      body.append(el("div", { class: "param-empty" },
+        el("div", null, "None yet. Write a placeholder into any prose field to make one:"),
+        el("code", { class: "param-eg" }, "Reach ${target,10,Points needed to win} points"),
+        el("div", { class: "hint" },
+          "The name is required; the default and description are optional. "
+          + "Click the i above for the full syntax.")));
+      return;
+    }
+    const required = found.filter((p) => p.default === null).length;
+    body.append(el("div", { class: "hint", style: "margin-bottom:10px" },
+      `${found.length} parameter${found.length > 1 ? "s" : ""}`
+      + (required ? ` · ${required} with no default, so the launcher will warn` : "")));
+    for (const p of found) {
+      body.append(el("div", { class: "param-row" },
+        el("div", null,
+          el("code", { class: "param-name" }, p.name),
+          p.default === null
+            ? el("span", { class: "req" }, " no default")
+            : el("span", { class: "hint" }, ` = ${p.default}`)),
+        p.overrides && el("div", { class: "hint warn" },
+          `set in spec.parameters, overriding ${JSON.stringify(p.overrides)} written inline`),
+        p.description && el("div", { class: "hint" }, p.description),
+        p.choices && el("div", { class: "hint dim" }, `choices: ${p.choices.join(" | ")}`),
+        el("div", { class: "hint dim" }, `used in: ${p.used.join(", ")}`)));
+    }
+  }
+  refresh();
+  // The form mutates state in place rather than re-rendering (which would steal focus mid-word),
+  // so recompute on input, debounced.
+  let timer = null;
+  panel.addEventListener("bearpit:draft-changed", refresh);
+  document.addEventListener("input", () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => { if (panel.isConnected) refresh(); }, 250);
+  });
+  return panel;
+}
+
 function envPanel(S) {
   const e = S.spec.environment;
   return el("div", { class: "panel" }, el("h2", null, "Environment"),
