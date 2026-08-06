@@ -809,6 +809,32 @@ async function injectModal(id) {
 }
 
 /* ================= LAUNCH RUN ================= */
+/* Render `${name,default,description}` for DISPLAY (ADR-003).
+   A scenario's stored prose keeps its placeholders — that is the source, and the editor shows it
+   raw. Everywhere a reader is just browsing, showing the raw syntax is noise: the card for
+   param-relay read "A ONE-round ${category,fruit,What kind of word the players relay} relay for
+   ${team_name,,A label...}". Substitute the default where there is one, and mark the rest with
+   its own name so a reader can still see something varies here. */
+function paramPreview(text) {
+  if (typeof text !== "string" || !text.includes("${")) return text;
+  return text.replace(/\$\$\{|\$\{((?:\\.|[^\\}])*)\}/g, (m, body) => {
+    if (body === undefined) return "${";                       // $${ escape
+    const parts = [];
+    let buf = "";
+    for (let i = 0; i < body.length; i++) {
+      const c = body[i];
+      if (c === "\\" && i + 1 < body.length) { buf += body[++i]; continue; }
+      if (c === "," && parts.length < 2) { parts.push(buf); buf = ""; continue; }
+      buf += c;
+    }
+    parts.push(buf);
+    const name = parts[0].trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return m;      // not a placeholder
+    const dflt = parts.length > 1 ? parts[1] : "";
+    return dflt !== "" ? dflt : `\u00ab${name}\u00bb`;
+  });
+}
+
 function launchModal(packages, preselect) {
   if (!packages.length) { fail("No scenarios", "Create a scenario first."); return; }
   const sel = el("select", null, ...packages.map((p) =>
@@ -922,7 +948,10 @@ function launchModal(packages, preselect) {
               el("strong", null, `${empty.length} parameter${empty.length > 1 ? "s" : ""} will be empty: `),
               empty.map((p) => p.name).join(", "),
               el("div", { class: "hint" }, "Press Launch anyway to continue.")));
-            btn.textContent = "Launch anyway";
+            // guard() snapshots the button's children up front and restores them in its
+            // `finally`, so relabelling inline is silently undone — the banner said "press
+            // Launch anyway" while the button still read "Launch". Apply after that restore.
+            setTimeout(() => btn.replaceChildren("Launch anyway"), 0);
             return;
           }
           if (empty.length) body.allow_missing_parameters = true;
@@ -1526,7 +1555,7 @@ function scenarioCard(p) {
       el("div", null, el("h3", { text: p.title || p.name }),
         el("div", { class: "mono-micro", style: "margin-top:2px", text: p.name })),
       badge),
-    el("p", { class: "desc", text: p.description || "No description." }),
+    el("p", { class: "desc", text: paramPreview(p.description) || "No description." }),
     el("div", { class: "card-foot", style: "margin-top:10px" },
       el("span", { class: "mono-micro", text: `${p.agents} agents` }),
       p.category && el("span", { class: "chip mini", style: "color:var(--iris)", text: p.category }),
@@ -2056,7 +2085,7 @@ function skillCard(s) {
     el("div", { class: "card-top" },
       el("h3", { text: s.ref }),
       s.category && el("span", { class: "chip mini", style: "color:var(--iris)", text: s.category })),
-    el("p", { class: "desc", text: s.description || "No description." }), foot);
+    el("p", { class: "desc", text: paramPreview(s.description) || "No description." }), foot);
 }
 
 function confirmDeleteSkill(s) {
