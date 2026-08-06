@@ -65,8 +65,19 @@ def _agent_row(project: Project, agent: Any) -> dict[str, Any]:
     }
 
 
-def run_config(project: Project, provider: str, *, require_mention: bool) -> dict[str, Any]:
-    """The resolved, effective configuration of one run — JSON-safe, for the chronicle + UI."""
+def run_config(
+    project: Project,
+    provider: str,
+    *,
+    require_mention: bool,
+    parameters: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """The resolved, effective configuration of one run — JSON-safe, for the chronicle + UI.
+
+    `parameters` are the values this run was launched with (ADR-003). They are recorded even
+    though the bound project already contains the substituted prose: reading a value back out of
+    finished prose is guesswork, and comparing two runs of one scenario is the whole point of
+    having parameters."""
     spec = project.spec
     env = spec.environment
     turns = spec.turns
@@ -74,6 +85,7 @@ def run_config(project: Project, provider: str, *, require_mention: bool) -> dic
 
     return {
         "provider": provider,
+        "parameters": dict(parameters or {}),
         "package": project.source,   # None for a project that was not loaded from a package
         # TURN CONTROL — the single most consequential switch, and the one people ask about first
         "turns": None if turns is None else {

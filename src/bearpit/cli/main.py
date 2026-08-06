@@ -181,7 +181,7 @@ def schema(
 
 def _apply_params(
     project: Project, pairs: list[str], *, assume_yes: bool
-) -> Project:
+) -> tuple[Project, dict[str, str]]:
     """Bind `--param` values into the project, warning about any left empty (ADR-003).
 
     A parameter with no default and no value does not silently vanish and does not hard-fail:
@@ -214,7 +214,7 @@ def _apply_params(
         raise typer.Exit(2) from exc
 
     if not params and not supplied:
-        return project
+        return project, {}
 
     problems = validate_values(params, supplied)
     if problems:
@@ -243,7 +243,7 @@ def _apply_params(
             origin = f"  (manifest default, overrides inline {p.inline_default!r})"
         typer.secho(f"  {p.name} = {values[p.name]!r}{origin}", fg=typer.colors.BRIGHT_BLACK)
     try:
-        return bind(project, values)
+        return bind(project, values), values
     except Exception as exc:  # noqa: BLE001 - surface the field, not a traceback
         typer.secho(f"binding parameters failed: {exc}", fg=typer.colors.RED, err=True)
         raise typer.Exit(2) from exc
@@ -324,12 +324,14 @@ def up(
     Requires the platform stack up (deploy/docker-compose.yaml) and the pinned Hermes image.
     """
     project = _load_or_exit(path)
-    project = _apply_params(project, list(param), assume_yes=assume_yes)
+    project, param_values = _apply_params(project, list(param), assume_yes=assume_yes)
     # a fresh id per run by default — realm-scoped Matrix users can't be re-created, so reusing
     # an id collides. Pass --realm to pin one deliberately.
     rid = realm_id or f"{_slug(project.metadata.name)}-{secrets.token_hex(3)}"
     typer.secho(f"↑ running realm {rid!r} from {project.metadata.name!r}…", fg=typer.colors.CYAN)
-    report = asyncio.run(_run_realm(rid, project, require_mention=not free_response))
+    report = asyncio.run(
+        _run_realm(rid, project, require_mention=not free_response, parameters=param_values)
+    )
     typer.echo("\n" + report)
 
 
@@ -728,7 +730,12 @@ async def _assist_repl(session: Any) -> None:  # pragma: no cover - interactive 
             typer.secho(f"! {exc}", fg=typer.colors.RED, err=True)
 
 
-async def _run_realm(realm_id: str, project: Project, require_mention: bool) -> str:
+async def _run_realm(
+    realm_id: str,
+    project: Project,
+    require_mention: bool,
+    parameters: dict[str, str] | None = None,
+) -> str:
     """Wire the shared Platform and run the realm to conclusion."""
     from bearpit.gatekeeper.service import ConfigError, build_platform
 
@@ -737,7 +744,9 @@ async def _run_realm(realm_id: str, project: Project, require_mention: bool) -> 
     except ConfigError as exc:
         _die(str(exc))
     try:
-        result = await platform.run(realm_id, project, require_mention=require_mention)
+        result = await platform.run(
+            realm_id, project, require_mention=require_mention, parameters=parameters
+        )
     finally:
         await platform.close()
     return result.report

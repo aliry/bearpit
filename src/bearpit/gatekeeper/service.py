@@ -63,7 +63,12 @@ class Platform:
     system_password: str
 
     async def run(
-        self, realm_id: str, project: Project, *, require_mention: bool = True
+        self,
+        realm_id: str,
+        project: Project,
+        *,
+        require_mention: bool = True,
+        parameters: dict[str, str] | None = None,
     ) -> ConcludeResult:
         # Apply the active model-provider pipeline: resolve each agent's model_category to a real
         # model via the active provider's table, and pace turn windows for the slower pipeline.
@@ -110,7 +115,10 @@ class Platform:
             system_password=self.system_password, require_mention=require_mention,
             # snapshot what ACTUALLY runs — after model resolution, the turn floor, and the
             # flat-rate budget lift. The manifest is not what runs.
-            run_config=run_config(project, provider, require_mention=require_mention),
+            run_config=run_config(
+                project, provider, require_mention=require_mention,
+                parameters=parameters,
+            ),
         )
 
     async def close(self) -> None:

@@ -35,7 +35,14 @@ class RealmManager:
     max_active: int = 6  # host capacity guard — more than this starves the machine
     runs: dict[str, RealmRun] = field(default_factory=dict)
 
-    def start(self, realm_id: str, project: Project, *, require_mention: bool = True) -> None:
+    def start(
+        self,
+        realm_id: str,
+        project: Project,
+        *,
+        require_mention: bool = True,
+        parameters: dict[str, str] | None = None,
+    ) -> None:
         """Launch a realm as a background task. Non-blocking; poll status via the Chronicle.
         Raises CapacityError if `max_active` realms are already running."""
         if realm_id in self.runs and not self.runs[realm_id].task.done():
@@ -47,7 +54,9 @@ class RealmManager:
 
         async def _run() -> None:
             try:
-                result = await self.platform.run(realm_id, project, require_mention=require_mention)
+                result = await self.platform.run(
+                    realm_id, project, require_mention=require_mention, parameters=parameters
+                )
                 self.runs[realm_id].report = result.report
             except Exception as exc:  # keep the failure on the run record + mark the realm failed
                 self.runs[realm_id].error = f"{type(exc).__name__}: {exc}"
