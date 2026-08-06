@@ -1074,7 +1074,9 @@ def create_app(
         # force it on. Either source wins.
         require_mention = project.spec.environment.require_mention and not req.free_response
         try:
-            get_manager().start(realm_id, project, require_mention=require_mention)
+            get_manager().start(
+                realm_id, project, require_mention=require_mention, parameters=values
+            )
         except CapacityError as exc:
             raise HTTPException(status_code=429, detail=str(exc)) from exc
         except ValueError as exc:

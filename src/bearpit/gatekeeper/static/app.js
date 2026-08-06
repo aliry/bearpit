@@ -813,14 +813,87 @@ function launchModal(packages, preselect) {
   if (!packages.length) { fail("No scenarios", "Create a scenario first."); return; }
   const sel = el("select", null, ...packages.map((p) =>
     el("option", { value: p.path, selected: p.name === preselect }, `${p.title || p.name} (${p.agents ?? "?"} agents)`)));
+  const nameByPath = Object.fromEntries(packages.map((p) => [p.path, p.name]));
   const rid = el("input", { type: "text", placeholder: "auto (scenario-name-xxxxxx)" });
   const turnsOn = el("input", { type: "checkbox" });
   const timeout = el("input", { type: "number", value: "90", min: "10", style: "max-width:110px" });
   const freeResp = el("input", { type: "checkbox" });
+
+  // ---- scenario parameters (ADR-003). Built from the scenario, refreshed when it changes.
+  const paramBox = el("div", { class: "param-box" });
+  let inputs = {};            // name -> element
+  let params = [];            // as returned by the API
+  let consented = false;      // "Launch anyway" was pressed once
+
+  function renderParams() {
+    paramBox.innerHTML = "";
+    inputs = {};
+    consented = false;
+    if (!params.length) return;
+    const required = params.filter((p) => p.required).length;
+    paramBox.append(el("div", { class: "param-head" },
+      el("span", { class: "eyebrow" }, "Parameters"),
+      el("span", { class: "hint" },
+        `${params.length} for this scenario${required ? ` · ${required} with no default` : ""}`)));
+    for (const p of params) {
+      let input;
+      if (p.choices && p.choices.length) {
+        input = el("select", null, ...p.choices.map((c) =>
+          el("option", { value: c, selected: c === p.default }, c)));
+      } else if (p.multiline) {
+        input = el("textarea", { rows: "3" });
+        input.value = p.default || "";
+      } else {
+        const attrs = { type: p.type === "int" || p.type === "number" ? "number" : "text" };
+        if (p.min !== null && p.min !== undefined) attrs.min = String(p.min);
+        if (p.max !== null && p.max !== undefined) attrs.max = String(p.max);
+        if (p.type === "int") attrs.step = "1";
+        if (p.required) attrs.placeholder = "required — leave empty to run without it";
+        input = el("input", attrs);
+        input.value = p.default || "";
+      }
+      inputs[p.name] = input;
+      const label = el("label", null, p.name,
+        p.required ? el("span", { class: "req" }, " required") : null);
+      const bits = [];
+      if (p.description) bits.push(el("div", { class: "hint" }, p.description));
+      // The known cost of letting the manifest win is an override the author cannot see in the
+      // prose. Say it out loud, right where the value is chosen.
+      if (p.overridden) {
+        bits.push(el("div", { class: "hint warn" },
+          `default ${JSON.stringify(p.default)} set in the manifest, overriding `
+          + `${JSON.stringify(p.inline_default)} written inline`));
+      }
+      if (p.used_in && p.used_in.length) {
+        const shown = p.used_in.slice(0, 3).join(", ");
+        bits.push(el("div", { class: "hint dim" },
+          `used in: ${shown}${p.used_in.length > 3 ? ` +${p.used_in.length - 3} more` : ""}`));
+      }
+      paramBox.append(el("div", { class: "field param" }, label, input, ...bits));
+    }
+  }
+
+  async function loadParams() {
+    const name = nameByPath[sel.value];
+    params = [];
+    paramBox.innerHTML = "";
+    if (!name) { return; }
+    try {
+      const r = await api(`/api/packages/${encodeURIComponent(name)}/parameters`);
+      params = r.parameters || [];
+    } catch (e) {
+      paramBox.append(el("div", { class: "hint warn" }, `parameters: ${e.message}`));
+      return;
+    }
+    renderParams();
+  }
+  sel.onchange = loadParams;
+
   modal({
     title: "Launch a run",
     body: el("div", null,
       el("div", { class: "field" }, el("label", null, "Scenario"), sel),
+      paramBox,
       el("div", { class: "field" }, el("label", null, "Realm id ",
         el("span", { class: "hint" }, "optional")), rid),
       el("div", { class: "field" },
@@ -829,21 +902,41 @@ function launchModal(packages, preselect) {
         el("label", { class: "hint" }, "Silence timeout (s)"), timeout),
       el("div", { class: "field" },
         el("label", { class: "check" }, freeResp, "Free-response (don't force replies to @mentions)"))),
-    actions: (close) => [
-      el("button", { class: "btn ghost", onclick: close }, "Cancel"),
-      el("button", {
+    actions: (close) => {
+      const btn = el("button", {
         class: "btn primary", onclick: guard("Launching…", async () => {
           const body = { package: sel.value, free_response: freeResp.checked };
           if (rid.value.trim()) body.realm_id = rid.value.trim();
           if (turnsOn.checked) body.turns = { enabled: true, silence_timeout_s: Number(timeout.value) || 90 };
+          const values = {};
+          for (const [name, input] of Object.entries(inputs)) {
+            const v = (input.value ?? "").trim();
+            if (v !== "") values[name] = v;
+          }
+          if (Object.keys(values).length) body.parameters = values;
+          // Warn once, in place, before spending money on prose with holes in it.
+          const empty = params.filter((p) => p.required && !values[p.name]);
+          if (empty.length && !consented) {
+            consented = true;
+            paramBox.prepend(el("div", { class: "param-warn" },
+              el("strong", null, `${empty.length} parameter${empty.length > 1 ? "s" : ""} will be empty: `),
+              empty.map((p) => p.name).join(", "),
+              el("div", { class: "hint" }, "Press Launch anyway to continue.")));
+            btn.textContent = "Launch anyway";
+            return;
+          }
+          if (empty.length) body.allow_missing_parameters = true;
           try {
             const r = await api("/api/realms", { method: "POST", body });
             close(); ok("Realm launched", r.realm_id);
             location.hash = `#/realm/${encodeURIComponent(r.realm_id)}`;
           } catch (e) { fail("Launch failed", e.message); }
         })
-      }, el("span", { class: "ic" }, "▶"), "Launch")],
+      }, el("span", { class: "ic" }, "▶"), "Launch");
+      return [el("button", { class: "btn ghost", onclick: close }, "Cancel"), btn];
+    },
   });
+  loadParams();
 }
 
 /* ================= SCENARIO EDITOR ================= */

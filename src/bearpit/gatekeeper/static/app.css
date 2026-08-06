@@ -540,3 +540,30 @@ select { appearance: none; background-image:
   .scribe-split { grid-template-columns: 1fr; }
   .scribe-preview { position: static; max-height: none; }
 }
+
+/* ---------- scenario parameters (launch form, ADR-003) ---------- */
+/* Grouped in a panel so the run's inputs read as one block, distinct from the launch options
+   below them: these change what the agents READ, the others change how the realm is run. */
+.param-box:not(:empty) {
+  margin: 0 0 18px; padding: 14px; border: 1px solid var(--line);
+  border-radius: var(--r); background: var(--panel-2);
+}
+.param-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+.field.param { margin-bottom: 14px; }
+.field.param:last-child { margin-bottom: 0; }
+.field.param > .hint { display: block; margin: 4px 0 0; }
+/* A parameter with no default is the one the author has to decide about, so it is the only
+   thing in this panel that carries the referee's amber. */
+.field.param .req {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--amber); margin-left: 8px; font-weight: 600;
+}
+.hint.warn { color: var(--amber); }
+.hint.dim { color: var(--faint); font-family: var(--mono); font-size: 10.5px; }
+/* Shown once, in place, when Launch is pressed with a required parameter left empty — the realm
+   still starts on a second press, but never on the first. */
+.param-warn {
+  margin: 0 0 14px; padding: 10px 12px; border-radius: var(--r);
+  border: 1px solid var(--amber); background: rgba(226,162,74,.10);
+  color: var(--text); font-size: 12.5px;
+}

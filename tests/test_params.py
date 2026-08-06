@@ -316,3 +316,17 @@ def test_bind_preserves_loader_populated_files() -> None:
     assert bound.agents[0].resource_files == {
         "brief.md": "budget 250", "map.txt": "no placeholders"}
     assert bound.agents[0].local_skills == {"play.md": "open with paper"}
+
+
+def test_the_run_records_which_values_it_used() -> None:
+    """The bound project already holds the substituted prose, but reading a value back OUT of
+    finished prose is guesswork. Comparing two runs of one scenario is the whole point of having
+    parameters, so the values are recorded as data (ADR-003)."""
+    from bearpit.core.runconfig import run_config
+
+    project = _project(spec=ProjectSpec(goals=["reach ${target,10}"]))
+    cfg = run_config(project, "azure", require_mention=True, parameters={"target": "25"})
+    assert cfg["parameters"] == {"target": "25"}
+    # and a scenario with none records an empty map rather than omitting the key, so a reader
+    # never has to distinguish "no parameters" from "an older run that did not record them"
+    assert run_config(project, "azure", require_mention=True)["parameters"] == {}
