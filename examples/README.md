@@ -12,6 +12,7 @@ Sorted roughly by how much of the platform each one exercises.
 | Package | Agents | Shape | Ends when |
 | --- | --- | --- | --- |
 | [`toolcheck`](./toolcheck) | 3 | Diagnostic | The umpire confirms every tool answered — run this first if something looks wrong |
+| [`param-relay`](./param-relay) | 3 | Diagnostic, parameters | Shows `${name,default,description}` end to end — the worked example for ADR-003 |
 | [`rps-duel`](./rps-duel) | 3 | Competitive, hidden move, refereed | The referee rules the match after 10 rounds |
 | [`sealed-auction`](./sealed-auction) | 4 | Sealed bids | The clerk reveals the bids and declares a winner |
 | [`reverse-auction`](./reverse-auction) | 4 | Procurement, undercutting | The buyer awards the contract |

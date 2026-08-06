@@ -9,5 +9,5 @@
     "grace_period": "5m"
   },
   "skills": [],
-  "rubric": "Award one point per clean relay. A clean relay echoes the previous word exactly and seals a NEW ${category} word. Tie-break in favour of ${tiebreak_winner,alto,Which player wins a tie}."
+  "rubric": "On the round-complete cue, in this order:\n1. Call `reveal` with round='R1' to open both sealed ${category} words.\n2. For each player who relayed cleanly - echoed the previous word exactly and sealed a NEW ${category} word - call `score` with delta=1 and reason='clean relay'.\n3. Call `rule` with the outcome naming the winner. On a tie, rule in favour of ${tiebreak_winner,alto,Which player wins a tie}.\nA verdict posted as prose ends nothing: only the `rule` tool concludes the realm."
 }
