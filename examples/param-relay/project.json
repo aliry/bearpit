@@ -1,0 +1,73 @@
+{
+  "apiVersion": "bearpit/v1alpha1",
+  "kind": "Project",
+  "metadata": {
+    "name": "param-relay",
+    "description": "A ONE-round ${category,fruit,What kind of word the players relay} relay for ${team_name,,A label for this pairing - shown to both players and the umpire}. Demonstrates scenario parameters end to end.",
+    "author": "bearpit",
+    "tags": [
+      "diagnostic",
+      "parameters",
+      "relay"
+    ],
+    "category": "Diagnostics"
+  },
+  "spec": {
+    "goals": [
+      "Relay one ${category} word cleanly: echo the previous word, seal your own with the tool, and survive the cut. The umpire verifies every step with its tools."
+    ],
+    "guidelines": "A ONE-ROUND ${category} relay used to verify scenario parameters end to end. The umpire seeds the word ${seed_word,APPLE,The first word - the umpire posts this to open}. On your turn do BOTH steps in order:\n(1) CALL the submit_sealed tool with EXACTLY round='R1' (that literal string - never a number) and payload=<a NEW ${category} word nobody has used>.\n(2) THEN post exactly one one-line message: '<last word> -> <your word>', where <last word> is the newest word in the conversation before your turn (the umpire's seed word, or the previous player's word) and <your word> is the exact word you just sealed.\nThe echo proves you can see the conversation; the seal proves your tools work. A tool call is free and never ends your turn - only your posted message does.",
+    "restrictions": "Keep every message to ONE line. Tone for this run: ${tone,brisk}.",
+    "parameters": {
+      "seed_word": {
+        "description": "The opening word the umpire posts. Overridden here to prove the manifest wins over the inline default.",
+        "default": "MANGO"
+      },
+      "tone": {
+        "description": "How the players write",
+        "choices": [
+          "brisk",
+          "formal",
+          "playful"
+        ]
+      },
+      "category": {
+        "description": "Word category for the relay"
+      }
+    },
+    "environment": {
+      "network_egress": "model_only",
+      "allow_side_channels": false,
+      "shared_folder": {
+        "enabled": false
+      },
+      "require_mention": true
+    },
+    "termination": [
+      {
+        "type": "referee_verdict"
+      },
+      {
+        "type": "duration",
+        "limit": "60m"
+      },
+      {
+        "type": "stall",
+        "limit": "20m"
+      }
+    ],
+    "mechanics": [],
+    "referee_opens": true,
+    "provide_tools": true,
+    "turns": {
+      "policy": "one-at-a-time",
+      "advance": "one-message",
+      "enforcement": "physics",
+      "order": "roster",
+      "referee_cue": "round",
+      "silence_timeout_s": 240,
+      "min_rounds_before_verdict": 1,
+      "retire_after_misses": 2
+    }
+  }
+}
