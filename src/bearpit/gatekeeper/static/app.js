@@ -598,6 +598,18 @@ function realmStats(s, realmId) {
     statRow("Total tokens", el("span", { class: "v big", text: fmtTokens(s.total_tokens || 0) })));
   if (s.outcome) gen.append(statRow("Outcome", el("span", { class: "v", text: s.outcome })));
   box.append(gen);
+  // What this run was launched with (ADR-003). The bound prose is already in the transcript, but
+  // reading a value back out of finished prose is guesswork — and comparing two runs of one
+  // scenario is the whole point of parameters. An empty string is shown as "(empty)" rather than
+  // omitted, because "ran with it blank" and "not a parameter here" are different facts.
+  const runParams = s.config && s.config.parameters;
+  if (runParams && Object.keys(runParams).length) {
+    const pb = el("div", { class: "side-stat" }, el("h4", null, "Parameters"));
+    for (const [k, v] of Object.entries(runParams)) {
+      pb.append(statRow(k, el("span", { class: v === "" ? "v dim" : "v", text: v === "" ? "(empty)" : v })));
+    }
+    box.append(pb);
+  }
   const spend = Object.entries(s.spend || {});
   if (spend.length) {
     const sb = el("div", { class: "side-stat" }, el("h4", null, "Spend by agent"));
