@@ -460,3 +460,113 @@ def test_rerun_rejects_a_realm_with_no_captured_configuration(seeded):
         assert r.status_code == 409
         assert "launch the scenario" in r.json()["detail"]
         assert c.post("/api/realms/duel-001/rerun?mode=sideways").status_code == 400
+
+
+# ------------------------------------------------------------------ parameters (ADR-003, #41)
+
+def _param_scenario(root, name="param-demo", parameters=None):
+    """A package on disk whose prose carries placeholders."""
+    d = root / name
+    (d / "agents" / "orin").mkdir(parents=True)
+    (d / "project.json").write_text(json.dumps({
+        "metadata": {"name": name, "description": "a ${category,fruit} relay"},
+        "spec": {
+            "goals": ["reach ${target,10,Points to win}", "for ${team_name,,Who is playing}"],
+            "termination": [{"type": "manual"}],
+            **({"parameters": parameters} if parameters else {}),
+        },
+    }))
+    (d / "agents" / "orin" / "agent.json").write_text(json.dumps({
+        "id": "orin", "model": {"provider": "azure", "model": "m", "api_key_ref": "azure-main"}}))
+    (d / "agents" / "orin" / "persona.md").write_text("You play for ${team_name}")
+    return d
+
+
+def test_the_parameters_endpoint_describes_the_launch_form(seeded, tmp_path, monkeypatch):
+    monkeypatch.setenv("BEARPIT_SCENARIOS_DIR", str(tmp_path))
+    _param_scenario(tmp_path)
+    app = create_app(chron=seeded, manager=FakeManager())
+    with TestClient(app) as c:
+        r = c.get("/api/packages/param-demo/parameters")
+        assert r.status_code == 200, r.text
+        by_name = {p["name"]: p for p in r.json()["parameters"]}
+        assert set(by_name) == {"category", "target", "team_name"}
+        assert by_name["target"]["default"] == "10"
+        assert by_name["target"]["description"] == "Points to win"
+        assert by_name["target"]["required"] is False
+        assert by_name["team_name"]["required"] is True
+        assert "agents.orin.persona" in by_name["team_name"]["used_in"], (
+            "the form shows where each parameter is used, which is what makes a typo visible"
+        )
+
+
+def test_the_endpoint_reports_a_manifest_override(seeded, tmp_path, monkeypatch):
+    monkeypatch.setenv("BEARPIT_SCENARIOS_DIR", str(tmp_path))
+    _param_scenario(tmp_path, parameters={"target": {"default": "99"}})
+    app = create_app(chron=seeded, manager=FakeManager())
+    with TestClient(app) as c:
+        p = {x["name"]: x for x in
+             c.get("/api/packages/param-demo/parameters").json()["parameters"]}["target"]
+        assert (p["default"], p["default_origin"], p["inline_default"]) == ("99", "manifest", "10")
+        assert p["overridden"] is True
+
+
+def test_launching_without_a_required_parameter_is_a_400_that_says_which(
+    seeded, tmp_path, monkeypatch
+):
+    """The UI renders this list; a bare 400 would leave the operator guessing."""
+    monkeypatch.setenv("BEARPIT_SCENARIOS_DIR", str(tmp_path))
+    pkg = _param_scenario(tmp_path)
+    app = create_app(chron=seeded, manager=FakeManager())
+    with TestClient(app) as c:
+        r = c.post("/api/realms", json={"package": str(pkg)})
+        assert r.status_code == 400, r.text
+        detail = r.json()["detail"]
+        assert [m["name"] for m in detail["missing"]] == ["team_name"]
+        assert detail["missing"][0]["description"] == "Who is playing"
+        assert "allow_missing_parameters" in detail["hint"]
+
+
+def test_explicit_consent_lets_an_empty_parameter_through(seeded, tmp_path, monkeypatch):
+    monkeypatch.setenv("BEARPIT_SCENARIOS_DIR", str(tmp_path))
+    pkg = _param_scenario(tmp_path)
+    app = create_app(chron=seeded, manager=FakeManager())
+    with TestClient(app) as c:
+        r = c.post("/api/realms",
+                   json={"package": str(pkg), "allow_missing_parameters": True})
+        assert r.status_code == 200, r.text
+
+
+def test_supplied_values_reach_the_started_project(seeded, tmp_path, monkeypatch):
+    """The whole point: the bound project is what runs, and it is what gets snapshotted."""
+    monkeypatch.setenv("BEARPIT_SCENARIOS_DIR", str(tmp_path))
+    pkg = _param_scenario(tmp_path)
+    manager = FakeManager()
+    app = create_app(chron=seeded, manager=manager)
+    with TestClient(app) as c:
+        r = c.post("/api/realms", json={
+            "package": str(pkg),
+            "parameters": {"team_name": "Blue Pair", "target": "25", "category": "colour"},
+        })
+        assert r.status_code == 200, r.text
+    realm_id = manager.started[-1][0]
+    started = manager.projects[realm_id]
+    assert started.spec.goals == ["reach 25", "for Blue Pair"]
+    assert started.metadata.description == "a colour relay"
+    assert started.agents[0].persona == "You play for Blue Pair", (
+        "persona lives in a package FILE, so this also proves the loader-populated text is bound"
+    )
+
+
+def test_a_bad_value_is_rejected_before_anything_starts(seeded, tmp_path, monkeypatch):
+    monkeypatch.setenv("BEARPIT_SCENARIOS_DIR", str(tmp_path))
+    pkg = _param_scenario(tmp_path, parameters={"category": {"choices": ["fruit", "colour"]}})
+    manager = FakeManager()
+    app = create_app(chron=seeded, manager=manager)
+    with TestClient(app) as c:
+        r = c.post("/api/realms", json={
+            "package": str(pkg),
+            "parameters": {"team_name": "X", "category": "furniture"}})
+        assert r.status_code == 400
+        assert "must be one of" in r.json()["detail"]
+    assert manager.started == [], "nothing may be provisioned after a rejected value"

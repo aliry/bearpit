@@ -27,6 +27,12 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from bearpit.chronicle import Chronicle, EventKind
 from bearpit.core import PackageError, Turns, load_package
 from bearpit.core.colors import resolve_agent_colors
+from bearpit.core.params import ParameterError
+from bearpit.core.params import bind as bind_params
+from bearpit.core.params import missing_values as missing_param_values
+from bearpit.core.params import resolve_values as resolve_param_values
+from bearpit.core.params import scan as scan_params
+from bearpit.core.params import validate_values as validate_param_values
 from bearpit.core.schema import Project
 from bearpit.gatekeeper import scenarios as sc
 from bearpit.gatekeeper.auth import (
@@ -87,6 +93,11 @@ class CreateRealm(BaseModel):
     realm_id: str | None = None
     free_response: bool = False
     turns: TurnsConfig | None = None  # override the scenario's turn policy for this run
+    parameters: dict[str, str] = {}  # scenario parameter values for this run (ADR-003)
+    # A caller cannot answer a prompt, so consent to run with empty parameters is explicit. The
+    # UI sets it from "Launch anyway"; without it a scenario with an unfilled required parameter
+    # is a 400 listing exactly which, rather than a realm quietly spending money on holes.
+    allow_missing_parameters: bool = False
 
 
 class ScribeSessionCreate(BaseModel):
@@ -969,11 +980,80 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"model_providers": providers_config()}
 
+    @app.get("/api/packages/{name}/parameters")
+    async def package_parameters(name: str) -> dict[str, Any]:
+        """What this scenario takes, so the launch form can be built before anything is started.
+
+        Each entry carries where its default and description came from. The UI shows that,
+        because a manifest default silently overriding the one written in the prose is the known
+        cost of letting the manifest win (ADR-003)."""
+        if "/" in name or ".." in name:
+            raise HTTPException(status_code=400, detail="invalid scenario name")
+        path = _find_scenario(name)
+        if path is None:
+            raise HTTPException(status_code=404, detail=f"no scenario {name!r}")
+        try:
+            project = load_package(str(path))
+        except (PackageError, FileNotFoundError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
+            found = scan_params(project)
+        except ParameterError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            "scenario": name,
+            "parameters": [
+                {
+                    "name": p.name,
+                    "default": p.default,
+                    "description": p.description,
+                    "type": p.type,
+                    "choices": p.choices,
+                    "multiline": p.multiline,
+                    "min": p.minimum,
+                    "max": p.maximum,
+                    "required": p.required,
+                    "default_origin": p.default_origin,
+                    "description_origin": p.description_origin,
+                    "inline_default": p.inline_default,
+                    "overridden": p.overridden,
+                    "used_in": p.occurrences,
+                }
+                for p in found
+            ],
+        }
+
     @app.post("/api/realms")
     async def create_realm(req: CreateRealm) -> dict[str, Any]:
         try:
             project = load_package(req.package)
         except (PackageError, FileNotFoundError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        # Bind parameters BEFORE anything else: the bound project is what gets snapshotted, so
+        # `rerun?mode=snapshot` replays these exact values with no extra machinery (ADR-003).
+        try:
+            found = scan_params(project)
+            problems = validate_param_values(found, req.parameters)
+            if problems:
+                raise HTTPException(status_code=400, detail="; ".join(problems))
+            missing = missing_param_values(found, req.parameters)
+            if missing and not req.allow_missing_parameters:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error": "parameters have no value and no default",
+                        "missing": [
+                            {"name": p.name, "description": p.description,
+                             "used_in": p.occurrences}
+                            for p in missing
+                        ],
+                        "hint": "supply them, or resend with allow_missing_parameters=true to "
+                                "run with them empty",
+                    },
+                )
+            values = resolve_param_values(found, req.parameters)
+            project = bind_params(project, values)
+        except ParameterError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         if req.turns is not None:  # UI override: enable/disable turns for this run
             turns = (
