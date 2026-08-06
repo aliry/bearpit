@@ -221,3 +221,34 @@ The host enforces it, in every turn mode (not only turns realms):
 Corollary for scenario authors: there is no "eliminated but still watching/whispering" state. If a
 scenario needs a removed player to keep acting (a ghost, a benched advisor), that is a *different*
 mechanic — do not model it with `eliminate`.
+
+## 19. Parameters fill what an agent READS, never what the platform EXECUTES
+
+A scenario's prose may carry `${name,default,description}` placeholders, bound to values at launch
+(ADR-003). Both the default and the description are optional: `${name}`, `${name,default}`,
+`${name,,description}` are all valid, and `$${name}` is a literal `${name}`.
+
+They are substituted into prose only — descriptions, goals, guidelines, restrictions, personas,
+responsibilities, rubrics, resource files, local skills. **Never** into ids, model refs, budgets,
+mechanic config, or `termination.pattern`.
+
+`termination.pattern` is the one worth stating out loud, because it looks like it should work. It
+is a **regular expression**, and `${x}` is already valid regex syntax. Substituting there rewrites
+a termination condition silently, and the failure mode is a realm that never ends — the shape of
+bug that rule 5 exists to prevent.
+
+Three things an author gets wrong and the platform refuses at load:
+
+- a `spec.parameters` entry for a name that appears in no text (an inert setting — see the note on
+  spec-level `duration`)
+- the same name given two different inline defaults
+- a default outside its own `choices`
+
+`spec.parameters` is metadata only. It cannot introduce a parameter, and where it sets a `default`
+or `description` it **overrides** the inline one. That override is invisible in the prose, so
+`pit params` and the launch form both show the effective value *and* where it came from — check
+there before assuming what a scenario will run with.
+
+A parameter with no default is not an error: the launcher warns, names every field that uses it,
+and proceeds only on an explicit yes, substituting the empty string. Write prose that still reads
+sensibly if that happens, or give the parameter a default.
