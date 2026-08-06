@@ -694,6 +694,39 @@ class AgentSpec(_Base):
 # =============================================================================
 # Project
 # =============================================================================
+class ParameterSpec(_Base):
+    """Optional metadata for a scenario parameter (ADR-003).
+
+    It does NOT define the parameter — a parameter exists because `${name}` appears in the
+    scenario's prose. This only layers over what the scan found, and **wins on every field it
+    sets**: a `default` or `description` here overrides the one written inline.
+
+    That override is the known cost of the design, so `pit params`, `pit validate` and the
+    launch form all show the effective value *and* where it came from. An override the author
+    cannot see is the entire risk.
+
+    `type`/`choices`/`multiline`/`min`/`max` shape the input control and validate what is typed.
+    Every value is still interpolated as text, because everything in scope is prose."""
+
+    default: str | None = Field(
+        default=None, max_length=2000,
+        description="Overrides the inline `${name,default}` if both are given.",
+    )
+    description: str | None = Field(
+        default=None, max_length=2000,
+        description="Overrides the inline third field if both are given.",
+    )
+    type: Literal["string", "int", "number", "bool"] = Field(
+        default="string", description="Input control + validation. The value is always text."
+    )
+    choices: list[ShortText] | None = Field(
+        default=None, description="Restrict to a fixed set; rendered as a picker."
+    )
+    multiline: bool = Field(default=False, description="Render as a textarea, not a one-liner.")
+    min: float | None = Field(default=None, description="Lower bound for int/number.")
+    max: float | None = Field(default=None, description="Upper bound for int/number.")
+
+
 class ProjectMeta(_Base):
     """Project identity + provenance (for sharing, listing, and the future marketplace)."""
 
@@ -723,8 +756,11 @@ class ProjectSpec(_Base):
     restrictions: LongText | None = Field(
         default=None, description="Prohibitions for all agents (law unless made physics)."
     )
-    parameters: dict[str, Any] = Field(
-        default_factory=dict, description="Template params filled at instantiation (deferred; #25)."
+    parameters: dict[ShortText, ParameterSpec] = Field(
+        default_factory=dict,
+        description="OPTIONAL metadata for `${name}` placeholders found in the scenario's prose "
+        "(ADR-003). It cannot introduce a parameter — the text is the source of truth — and "
+        "declaring one that appears nowhere is an error.",
     )
     # NB: no spec-level `duration`. It was never read; the DURATION TERMINATION CONDITION is the
     # real wall-clock backstop and is the one that works. Two ways to say the same thing, one of
