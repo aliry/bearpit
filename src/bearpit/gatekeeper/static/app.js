@@ -1337,15 +1337,19 @@ function mountParamToolbar(shell, body, S) {
     current.dispatchEvent(new Event("input", { bubbles: true }));
   }
 
-  body.addEventListener("focusin", (e) => {
-    const f = e.target.closest?.("[data-param]");
-    if (f) show(f); else if (!bar.contains(e.target)) hide();
-  });
-  body.addEventListener("focusout", (e) => {
-    // Focus moving into the toolbar is not leaving the field.
-    if (bar.contains(e.relatedTarget)) return;
-    setTimeout(() => { if (!bar.contains(document.activeElement)) hide(); }, 0);
-  });
+  // One resolver for both events. focusout fires AFTER focusin for the incoming field, so a
+  // handler that just hid on blur tore down a toolbar that had already been shown — and, because
+  // show() had repositioned it first, you saw it jump to the new field and vanish. Deciding from
+  // `document.activeElement` instead of from the event means moving between two parameter fields
+  // is a reposition, not a hide-then-show.
+  function sync() {
+    const a = document.activeElement;
+    if (bar.contains(a)) return;                 // pressing a toolbar button is not leaving
+    const f = a && a.closest ? a.closest("[data-param]") : null;
+    if (f && body.contains(f)) show(f); else hide();
+  }
+  body.addEventListener("focusin", sync);
+  body.addEventListener("focusout", () => setTimeout(sync, 0));
   body.addEventListener("scroll", place, { passive: true });
   window.addEventListener("resize", place);
 }
