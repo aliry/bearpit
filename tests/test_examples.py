@@ -107,3 +107,22 @@ def test_toolcheck_is_a_complete_platform_diagnostic():
     # tool calls non-deterministically (toolcheck-k1 sealed, k3 didn't), which would make a red run
     # ambiguous. Every agent here runs on a tier that reliably calls tools.
     assert all(a.model_category in ("medium", "large") for a in project.agents)
+
+
+def test_the_invariant_count_in_the_docs_matches_the_contract() -> None:
+    """Three places quote the number of invariants, and adding #19 left all three saying 18.
+
+    A count in prose rots the moment someone adds a rule, and a reader who trusts it stops at the
+    wrong place. Cheaper to assert than to remember."""
+    import re
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[1]
+    contract = (repo / "docs" / "scenario-contract.md").read_text()
+    actual = len(re.findall(r"^## \d+\.", contract, re.M))
+    for name in ("CLAUDE.md", "README.md"):
+        text = (repo / name).read_text()
+        for quoted in re.findall(r"(\d+) invariants", text):
+            assert int(quoted) == actual, (
+                f"{name} says {quoted} invariants; docs/scenario-contract.md has {actual}"
+            )
