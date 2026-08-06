@@ -124,3 +124,86 @@ def test_stop_sets_flag(monkeypatch, tmp_path: Path):
     r = runner.invoke(app, ["stop", "myrealm"])
     assert r.exit_code == 0
     assert (tmp_path / ".bearpit" / "realms" / "myrealm.stop").exists()
+
+
+# ------------------------------------------------------------------ parameters (ADR-003, #41)
+
+def _param_manifest(p: Path, spec_extra: dict | None = None) -> Path:
+    f = p / "project.json"
+    f.write_text(json.dumps({
+        "metadata": {"name": "param-demo", "description": "a ${category,fruit} relay"},
+        "spec": {
+            "goals": ["reach ${target,10,Points to win}", "name it ${team_name,,Who is playing}"],
+            "termination": [{"type": "manual"}],
+            **(spec_extra or {}),
+        },
+        "agents": [{"id": "orin", "model_category": "medium",
+                    "persona": "You play for ${team_name}"}],
+    }))
+    return f
+
+
+def test_params_lists_what_a_scenario_takes(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["params", str(_param_manifest(tmp_path))])
+    assert result.exit_code == 0, result.output
+    assert "3 parameter(s), 1 required" in result.output
+    assert "team_name" in result.output and "(required)" in result.output
+    assert "Points to win" in result.output          # inline description
+    assert "spec.goals[0]" in result.output          # where it is used
+
+
+def test_params_shows_that_the_manifest_overrode_the_inline_default(tmp_path: Path) -> None:
+    """The one real cost of letting the manifest win is an override the author cannot see."""
+    f = _param_manifest(tmp_path, {"parameters": {"target": {"default": "99"}}})
+    result = runner.invoke(app, ["params", str(f)])
+    assert result.exit_code == 0, result.output
+    assert "'99'" in result.output
+    assert "overrides the inline default '10'" in result.output
+
+
+def test_validate_lists_parameters_and_flags_required(tmp_path: Path) -> None:
+    """`validate` is what an author runs after editing, so a typo that invents a parameter has to
+    be visible there rather than at launch."""
+    result = runner.invoke(app, ["validate", str(_param_manifest(tmp_path))])
+    assert result.exit_code == 0, result.output
+    assert "parameters: 3" in result.output
+    assert "team_name*" in result.output
+    assert "1 required" in result.output
+
+
+def test_validate_rejects_a_declaration_for_an_unused_parameter(tmp_path: Path) -> None:
+    f = _param_manifest(tmp_path, {"parameters": {"ghost": {"default": "x"}}})
+    result = runner.invoke(app, ["validate", str(f)])
+    assert result.exit_code != 0
+    assert "no scenario text uses" in result.output
+
+
+def test_up_refuses_a_value_outside_its_choices(tmp_path: Path) -> None:
+    """Rejected before anything is provisioned — a typo costs a message, not a container."""
+    f = _param_manifest(tmp_path, {"parameters": {"category": {"choices": ["fruit", "colour"]}}})
+    result = runner.invoke(app, ["up", str(f), "--param", "category=furniture",
+                                 "--param", "team_name=X", "--yes"])
+    assert result.exit_code == 2
+    assert "must be one of" in result.output
+
+
+def test_up_refuses_an_unknown_parameter(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["up", str(_param_manifest(tmp_path)),
+                                 "--param", "nope=1", "--yes"])
+    assert result.exit_code == 2
+    assert "not a parameter of this scenario" in result.output
+
+
+def test_up_refuses_a_malformed_param(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["up", str(_param_manifest(tmp_path)), "--param", "teamname"])
+    assert result.exit_code == 2
+    assert "must be name=value" in result.output
+
+
+def test_up_warns_about_a_missing_value_and_stops_without_consent(tmp_path: Path) -> None:
+    """A realm that spends real money on prose with holes in it should be a decision."""
+    result = runner.invoke(app, ["up", str(_param_manifest(tmp_path))], input="n\n")
+    assert result.exit_code == 1
+    assert "have no value and no default" in result.output
+    assert "team_name" in result.output
+    assert "Continuing will leave them empty" in result.output

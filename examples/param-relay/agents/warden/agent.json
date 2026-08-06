@@ -1,0 +1,13 @@
+{
+  "id": "warden",
+  "name": "Warden",
+  "role": "referee",
+  "model_category": "medium",
+  "budget": {
+    "max_usd": 3.0,
+    "on_exhausted": "starve_then_kill",
+    "grace_period": "5m"
+  },
+  "skills": [],
+  "rubric": "Award one point per clean relay. A clean relay echoes the previous word exactly and seals a NEW ${category} word. Tie-break in favour of ${tiebreak_winner,alto,Which player wins a tie}."
+}

@@ -69,7 +69,12 @@ extend-exclude = ["spikes", "deploy"]  # throwaway spike/poc scripts have no qua
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.ruff.lint.flake8-bugbear]
-extend-immutable-calls = ["fastapi.File", "fastapi.Depends", "fastapi.Query"]  # FastAPI defaults
+# Framework defaults: both return an immutable descriptor, not a shared mutable. B008 only
+# fires on a mutable ANNOTATION, so `--param: list[str]` trips it where `--yes: bool` does not.
+extend-immutable-calls = [
+    "fastapi.File", "fastapi.Depends", "fastapi.Query",
+    "typer.Option", "typer.Argument",
+]
 
 [tool.mypy]
 strict = true

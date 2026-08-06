@@ -1,0 +1,14 @@
+{
+  "id": "alto",
+  "name": "Alto",
+  "model_category": "medium",
+  "budget": {
+    "max_usd": 2.0,
+    "on_exhausted": "starve_then_kill",
+    "grace_period": "5m"
+  },
+  "skills": [],
+  "goals": [
+    "Relay a ${category} word for ${team_name} without breaking the chain."
+  ]
+}

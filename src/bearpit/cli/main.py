@@ -145,6 +145,23 @@ def validate(
     typer.echo(f"  referee:  {ref.id if ref else '—'}")
     typer.echo(f"  mechanics: {', '.join(m.kind for m in project.spec.mechanics) or '—'}")
     typer.echo(f"  termination: {', '.join(t.type for t in project.spec.termination) or '—'}")
+    # Surface parameters here too: `validate` is what an author runs after editing, and a typo
+    # that invents a new parameter is otherwise invisible until launch (ADR-003).
+    from bearpit.core.params import ParameterError as _ParamError
+    from bearpit.core.params import scan as _scan_params
+    try:
+        found = _scan_params(project)
+    except _ParamError as exc:
+        typer.secho(f"✗ parameters: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(1) from exc
+    if found:
+        req = [p.name for p in found if p.required]
+        names = ", ".join(f"{p.name}*" if p.required else p.name for p in found)
+        typer.echo(f"  parameters: {len(found)} ({names})")
+        if req:
+            typer.secho(
+                f"  * {len(req)} required — pass --param or they run empty", fg=typer.colors.YELLOW
+            )
     persistent = [a.id for a in project.agents if a.memory != a.memory.EPHEMERAL]
     if persistent:
         typer.secho(
@@ -162,6 +179,131 @@ def schema(
         typer.echo(f"wrote {Path(path)}")
 
 
+def _apply_params(
+    project: Project, pairs: list[str], *, assume_yes: bool
+) -> Project:
+    """Bind `--param` values into the project, warning about any left empty (ADR-003).
+
+    A parameter with no default and no value does not silently vanish and does not hard-fail:
+    the author is told which ones and where each is used, and continues only on an explicit
+    confirmation. A realm that spends real money on prose with holes in it should be a decision.
+
+    Non-interactive callers cannot answer a prompt, so `--yes` is the consent there. Without it,
+    nothing is provisioned."""
+    from bearpit.core.params import (
+        ParameterError,
+        bind,
+        missing_values,
+        resolve_values,
+        scan,
+        validate_values,
+    )
+
+    supplied: dict[str, str] = {}
+    for pair in pairs:
+        name, sep, value = pair.partition("=")
+        if not sep:
+            typer.secho(f"--param must be name=value (got {pair!r})", fg=typer.colors.RED, err=True)
+            raise typer.Exit(2)
+        supplied[name.strip()] = value
+
+    try:
+        params = scan(project)
+    except ParameterError as exc:
+        typer.secho(f"scenario parameters: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from exc
+
+    if not params and not supplied:
+        return project
+
+    problems = validate_values(params, supplied)
+    if problems:
+        for line in problems:
+            typer.secho(f"  {line}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+
+    missing = missing_values(params, supplied)
+    if missing:
+        typer.secho(
+            f"⚠ {len(missing)} parameter(s) have no value and no default:", fg=typer.colors.YELLOW
+        )
+        for p in missing:
+            used = ", ".join(p.occurrences[:3]) + ("…" if len(p.occurrences) > 3 else "")
+            desc = f" — {p.description}" if p.description else ""
+            typer.echo(f"    {p.name}{desc}")
+            typer.secho(f"      used in: {used}", fg=typer.colors.BRIGHT_BLACK)
+        typer.secho("  Continuing will leave them empty.", fg=typer.colors.YELLOW)
+        if not assume_yes and not typer.confirm("Continue?", default=False):
+            raise typer.Exit(1)
+
+    values = resolve_values(params, supplied)
+    for p in params:
+        origin = ""
+        if p.overridden:
+            origin = f"  (manifest default, overrides inline {p.inline_default!r})"
+        typer.secho(f"  {p.name} = {values[p.name]!r}{origin}", fg=typer.colors.BRIGHT_BLACK)
+    try:
+        return bind(project, values)
+    except Exception as exc:  # noqa: BLE001 - surface the field, not a traceback
+        typer.secho(f"binding parameters failed: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from exc
+
+
+@app.command()
+def params(
+    path: str = typer.Argument(..., help="Project package folder or project.json"),
+) -> None:
+    """List the parameters a scenario takes, their effective defaults, and where each is used.
+
+    This is the mitigation for the one real cost of the design: a typo like `${targt_score}`
+    creates a NEW parameter rather than an error, and a manifest default silently overrides the
+    one written in the prose. Both become visible here."""
+    from bearpit.core.params import ParameterError, scan
+
+    project = _load_or_exit(path)
+    try:
+        found = scan(project)
+    except ParameterError as exc:
+        typer.secho(f"scenario parameters: {exc}", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from exc
+
+    if not found:
+        typer.echo(f"{project.metadata.name}: no parameters")
+        return
+
+    required = sum(1 for p in found if p.required)
+    typer.secho(
+        f"{project.metadata.name}: {len(found)} parameter(s), {required} required",
+        fg=typer.colors.CYAN,
+    )
+    for p in found:
+        if p.required:
+            head = typer.style("  (required)", fg=typer.colors.YELLOW)
+        else:
+            origin = f" [{p.default_origin}]" if p.default_origin else ""
+            head = f"  = {p.default!r}{origin}"
+        typer.echo(f"\n{typer.style(p.name, bold=True)}{head}")
+        if p.overridden:
+            typer.secho(
+                f"  manifest overrides the inline default {p.inline_default!r}",
+                fg=typer.colors.YELLOW,
+            )
+        if p.description:
+            src = f" [{p.description_origin}]" if p.description_origin else ""
+            typer.echo(f"  {p.description}{src}")
+        bits = [f"type={p.type}"]
+        if p.choices:
+            bits.append("choices=" + "|".join(p.choices))
+        if p.minimum is not None:
+            bits.append(f"min={p.minimum:g}")
+        if p.maximum is not None:
+            bits.append(f"max={p.maximum:g}")
+        if p.multiline:
+            bits.append("multiline")
+        typer.secho("  " + "  ".join(bits), fg=typer.colors.BRIGHT_BLACK)
+        typer.secho(f"  used in: {', '.join(p.occurrences)}", fg=typer.colors.BRIGHT_BLACK)
+
+
 @app.command()
 def up(
     path: str = typer.Argument(..., help="Project package folder or project.json"),
@@ -169,12 +311,20 @@ def up(
     free_response: bool = typer.Option(
         False, "--free-response", help="Free-response rooms (default: mention-gated)"
     ),
+    param: list[str] = typer.Option(
+        [], "--param", "-p", metavar="NAME=VALUE",
+        help="Set a scenario parameter (repeatable). See `pit params <path>`.",
+    ),
+    assume_yes: bool = typer.Option(
+        False, "--yes", "-y", help="Proceed even if some parameters are left empty.",
+    ),
 ) -> None:
     """Provision and run a realm to conclusion, then print the final report.
 
     Requires the platform stack up (deploy/docker-compose.yaml) and the pinned Hermes image.
     """
     project = _load_or_exit(path)
+    project = _apply_params(project, list(param), assume_yes=assume_yes)
     # a fresh id per run by default — realm-scoped Matrix users can't be re-created, so reusing
     # an id collides. Pass --realm to pin one deliberately.
     rid = realm_id or f"{_slug(project.metadata.name)}-{secrets.token_hex(3)}"
