@@ -258,6 +258,10 @@ select { appearance: none; background-image:
 .stat-row .k { color: var(--dim); }
 .stat-row .v { font-family: var(--mono); color: var(--text); font-size: 12.5px; }
 .stat-row .v.big { font-size: 16px; }
+/* A value that is not what was asked for — today only the provider a run was substituted onto
+   (#47). Amber, not red: the run happened and its result is valid; it just ran on something the
+   operator did not pick. */
+.stat-row .v.warn { color: var(--amber); }
 
 /* A row whose value is too long to sit beside its label — "ends on: verdict · message · duration
    60m · stall 20m" squeezed into the rail wrapped mid-phrase and collided with the label. Stack it:

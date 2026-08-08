@@ -22,7 +22,7 @@ from bearpit.core.runconfig import run_config
 from bearpit.core.schema import Project, parse_duration
 from bearpit.core.settings import Settings, load_settings
 from bearpit.forge import DockerRuntime, Forge, RealmHandles, RealmtoolsConfig
-from bearpit.gatekeeper.appstate import active_provider, providers_config
+from bearpit.gatekeeper.appstate import providers_config, resolve_provider
 from bearpit.gatekeeper.runner import LiveSnapshot, Runner
 from bearpit.herald import BusProvision, Herald, HttpMatrixClient
 from bearpit.ledger import HttpLiteLLMClient, KeyStore, Ledger
@@ -31,6 +31,17 @@ from bearpit.warden import ConcludeResult, TurnManager, Warden
 
 class ConfigError(RuntimeError):
     """A required runtime secret/config is missing."""
+
+
+class ProviderFallbackError(RuntimeError):
+    """The configured model provider could not be resolved, and the caller did not consent to
+    running on the substitute (#47).
+
+    Not a config error: nothing is missing or malformed. The stored setting is intact and still
+    says what the operator chose — it simply cannot be honoured right now, usually because the
+    plugin contributing that provider is not installed. Falling back is safe; falling back
+    *silently* is not, because a flat-rate pipeline is replaced by a metered one and the run bills
+    real money against a choice nobody made."""
 
 
 def stop_flag_path(realm_id: str) -> Path:
@@ -69,11 +80,19 @@ class Platform:
         *,
         require_mention: bool = True,
         parameters: dict[str, str] | None = None,
+        allow_provider_fallback: bool = False,
     ) -> ConcludeResult:
         # Apply the active model-provider pipeline: resolve each agent's model_category to a real
         # model via the active provider's table, and pace turn windows for the slower pipeline.
         # Single launch chokepoint; manifests are never mutated on disk.
-        provider = active_provider()
+        choice = resolve_provider()
+        if choice.fell_back and not allow_provider_fallback:
+            raise ProviderFallbackError(
+                f"{choice.stored!r} is the configured model provider but {choice.reason}; "
+                f"this run would use {choice.name!r} instead. Re-run with consent to accept the "
+                f"substitute, or restore the provider."
+            )
+        provider = choice.name
         providers = providers_config()
         project = resolve_project(project, provider, providers)
         project = pace_turns_for_provider(project, provider, providers)
@@ -118,6 +137,11 @@ class Platform:
             run_config=run_config(
                 project, provider, require_mention=require_mention,
                 parameters=parameters,
+                provider_fallback=(
+                    {"stored": choice.stored or "", "effective": choice.name,
+                     "reason": choice.reason}
+                    if choice.fell_back else None
+                ),
             ),
         )
 

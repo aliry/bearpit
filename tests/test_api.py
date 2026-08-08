@@ -20,12 +20,14 @@ class FakeManager:
         self.parameters = {}
         self.max_active = max_active
 
-    def start(self, realm_id, project, *, require_mention=True, parameters=None):
+    def start(self, realm_id, project, *, require_mention=True, parameters=None,
+              allow_provider_fallback=False):
         if len(self.active()) >= self.max_active:
             raise CapacityError(f"{self.max_active} realms already running")
         self.started.append((realm_id, len(project.agents)))
         self.projects[realm_id] = project
         self.parameters = dict(parameters or {})
+        self.allow_provider_fallback = allow_provider_fallback
 
     def stop(self, realm_id):
         self.stopped.append(realm_id)

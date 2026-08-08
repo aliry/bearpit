@@ -46,7 +46,12 @@ async function api(path, opts = {}) {
   if (!res.ok) {
     let detail = res.statusText;
     try { detail = (await res.json()).detail || detail; } catch { /* non-json */ }
-    throw new Error(detail);
+    // A structured detail (the parameter and provider gates both send one) stringifies to
+    // "[object Object]" if it is only ever read through .message. Carry the object too, so a
+    // caller that knows the shape can turn a refusal into a decision.
+    const err = new Error(typeof detail === "string" ? detail : (detail.error || res.statusText));
+    if (detail && typeof detail === "object") err.detail = detail;
+    throw err;
   }
   const ct = res.headers.get("content-type") || "";
   return ct.includes("application/json") ? res.json() : res.text();
@@ -670,7 +675,11 @@ function realmConfig(c, realmId) {
   const t = c.turns;
 
   const run = el("div", { class: "side-stat" }, el("h4", null, "Run configuration"));
-  run.append(statRow("Provider", el("span", { class: "v mono", text: c.provider || "—" })));
+  const pfb = c.provider_fallback;
+  run.append(statRow("Provider", pfb
+    ? el("span", { class: "v mono warn", title: `${pfb.stored} was selected, but ${pfb.reason}`,
+        text: `${c.provider} (substituted for ${pfb.stored})` })
+    : el("span", { class: "v mono", text: c.provider || "—" })));
   run.append(statRow("Turn-taking", el("span", { class: "v", title: t
         ? `${t.policy} · ${t.enforcement} · order ${t.order} · referee cue: ${t.referee_cue}`
         : "no turns — every agent may post at any time",
@@ -736,14 +745,24 @@ function realmConfig(c, realmId) {
 // consequence spelled out — never a bare "re-run" button that quietly picks one.
 function rerunModal(id, cfg) {
   const pkg = cfg && cfg.package;
-  const go = async (mode, close) => {
+  const go = async (mode, close, allowFallback = false) => {
     try {
-      const r = await api(`/api/realms/${encodeURIComponent(id)}/rerun?mode=${mode}`,
-        { method: "POST" });
+      const q = `mode=${mode}` + (allowFallback ? "&allow_provider_fallback=true" : "");
+      const r = await api(`/api/realms/${encodeURIComponent(id)}/rerun?${q}`, { method: "POST" });
       close();
       ok(mode === "snapshot" ? "Replaying exact run" : "Running with latest", r.realm_id);
       location.hash = `#/realm/${r.realm_id}`;
-    } catch (e) { fail("Could not start", e.message); }
+    } catch (e) {
+      const fb = e.detail && e.detail.provider_fallback;
+      // This dialog has no form to warn inside, and re-running is a deliberate act already, so it
+      // asks outright rather than inventing a second confirmation step.
+      if (fb && confirm(
+        `${fb.stored} is the selected model provider but ${fb.reason}, so this would run on `
+        + `${fb.effective}, which may be metered.\n\nRun on ${fb.effective}?`)) {
+        return go(mode, close, true);
+      }
+      if (!fb) fail("Could not start", e.message);
+    }
   };
   const opt = (title, lines) => el("div", { class: "rerun-opt" },
     el("h4", { text: title }),
@@ -921,6 +940,7 @@ function launchModal(packages, preselect) {
   let inputs = {};            // name -> element
   let params = [];            // as returned by the API
   let consented = false;      // "Launch anyway" was pressed once
+  let providerConsent = false;  // ...and again for a substituted model provider (#47)
 
   function renderParams() {
     paramBox.innerHTML = "";
@@ -1026,11 +1046,24 @@ function launchModal(packages, preselect) {
             return;
           }
           if (empty.length) body.allow_missing_parameters = true;
+          if (providerConsent) body.allow_provider_fallback = true;
           try {
             const r = await api("/api/realms", { method: "POST", body });
             close(); ok("Realm launched", r.realm_id);
             location.hash = `#/realm/${encodeURIComponent(r.realm_id)}`;
-          } catch (e) { fail("Launch failed", e.message); }
+          } catch (e) {
+            const fb = e.detail && e.detail.provider_fallback;
+            if (!fb) { fail("Launch failed", e.message); return; }
+            // Not a mistake the operator made, and not one they can fix from this dialog — so it
+            // explains the substitution and asks, rather than failing them out of the flow.
+            providerConsent = true;
+            paramBox.prepend(el("div", { class: "param-warn" },
+              el("strong", null, `Running on ${fb.effective}, not ${fb.stored}. `),
+              `${fb.stored} is selected on the Settings page but ${fb.reason}, and `
+              + `${fb.effective} may be metered.`,
+              el("div", { class: "hint" }, "Press Launch anyway to continue.")));
+            setTimeout(() => btn.replaceChildren("Launch anyway"), 0);
+          }
         })
       }, el("span", { class: "ic" }, "▶"), "Launch");
       return [el("button", { class: "btn ghost", onclick: close }, "Cancel"), btn];
@@ -2526,6 +2559,17 @@ function modelPipelinePanel(s) {
   }
   sel.value = s.model_provider;
   renderStatus(s.model_provider);
+  // Only when the stored provider cannot be honoured. The select cannot show it — it stopped
+  // being a known provider, which is the whole problem — so the alert carries the name.
+  const fb = s.provider_fallback;
+  if (fb) {
+    panel.append(el("div", { class: "param-warn" },
+      el("strong", null, `Running on ${fb.effective}, not ${fb.stored}. `),
+      `${fb.stored} is still your saved choice, but ${fb.reason}. `,
+      el("div", { class: "hint" },
+        `Restore it, or pick a provider below to make ${fb.effective} the deliberate choice. `
+        + "Launching meanwhile asks first.")));
+  }
   const save = el("button", { class: "btn" }, "Apply pipeline");
   save.onclick = guard("Applying…", async () => {
     const name = sel.value;
