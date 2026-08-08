@@ -98,6 +98,9 @@ class CreateRealm(BaseModel):
     # UI sets it from "Launch anyway"; without it a scenario with an unfilled required parameter
     # is a 400 listing exactly which, rather than a realm quietly spending money on holes.
     allow_missing_parameters: bool = False
+    # Same shape of consent, for the same reason: the configured provider may be unresolvable, and
+    # the substitute is metered (#47). Silence must not be read as agreement to spend.
+    allow_provider_fallback: bool = False
 
 
 class ScribeSessionCreate(BaseModel):
@@ -924,9 +927,10 @@ def create_app(
         )
         # the model pipeline: which provider agents run on, each provider's editable category tables
         # (small/medium/large -> model + effort + costs + context), and readiness (keystore handle)
-        from bearpit.gatekeeper.appstate import active_provider, providers_config
+        from bearpit.gatekeeper.appstate import providers_config, resolve_provider
 
         cfg = providers_config()
+        choice = resolve_provider()
         model_providers = []
         for name, prof in cfg.items():
             need = str(prof.get("api_key_ref") or "")
@@ -954,7 +958,13 @@ def create_app(
             "scenarios_dir": str(_import_base()),
             "examples_dir": str(_scenario_bases()[1]),
             "model_categories": ["small", "medium", "large"],
-            "model_provider": active_provider(),
+            "model_provider": choice.name,
+            # Present ONLY when the stored provider cannot be honoured, so the page can say the
+            # value is a substitution rather than the choice. None when nothing is wrong (#47).
+            "provider_fallback": (
+                {"stored": choice.stored, "effective": choice.name, "reason": choice.reason}
+                if choice.fell_back else None
+            ),
             "model_providers": model_providers,
         }
 
@@ -1028,8 +1038,34 @@ def create_app(
             ],
         }
 
+    def _check_provider(allow: bool) -> None:
+        """Refuse to launch on a provider the operator did not choose.
+
+        The stored provider can stop resolving without anything being edited — a plugin that
+        contributes it is pruned by an ordinary `uv sync`. Falling back keeps the platform
+        working, but a flat-rate pipeline becomes a metered one, so the run costs real money
+        against a choice nobody made. Explicit consent, exactly like an unfilled required
+        parameter (ADR-003)."""
+        from bearpit.gatekeeper.appstate import resolve_provider
+
+        choice = resolve_provider()
+        if not choice.fell_back or allow:
+            return
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "the configured model provider is unavailable",
+                "provider_fallback": {
+                    "stored": choice.stored, "effective": choice.name, "reason": choice.reason,
+                },
+                "hint": "restore the provider, choose another on the Settings page, or resend "
+                        "with allow_provider_fallback=true to run on the substitute",
+            },
+        )
+
     @app.post("/api/realms")
     async def create_realm(req: CreateRealm) -> dict[str, Any]:
+        _check_provider(req.allow_provider_fallback)
         try:
             project = load_package(req.package)
         except (PackageError, FileNotFoundError) as exc:
@@ -1080,7 +1116,8 @@ def create_app(
         require_mention = project.spec.environment.require_mention and not req.free_response
         try:
             get_manager().start(
-                realm_id, project, require_mention=require_mention, parameters=values
+                realm_id, project, require_mention=require_mention, parameters=values,
+                allow_provider_fallback=req.allow_provider_fallback,
             )
         except CapacityError as exc:
             raise HTTPException(status_code=429, detail=str(exc)) from exc
@@ -1145,7 +1182,9 @@ def create_app(
                         headers={"X-Content-Type-Options": "nosniff"})
 
     @app.post("/api/realms/{realm_id}/rerun")
-    async def rerun_realm(realm_id: str, mode: str = "snapshot") -> dict[str, Any]:
+    async def rerun_realm(
+        realm_id: str, mode: str = "snapshot", allow_provider_fallback: bool = False
+    ) -> dict[str, Any]:
         """Run this realm again. Two honestly-different things, and the caller must choose.
 
         mode="snapshot" (a REPLAY) — restores the resolved project captured when that run started:
@@ -1166,6 +1205,7 @@ def create_app(
 
         if mode not in ("snapshot", "latest"):
             raise HTTPException(status_code=400, detail="mode must be 'snapshot' or 'latest'")
+        _check_provider(allow_provider_fallback)
 
         events = await get_chron().events(realm_id, kind=EventKind.LIFECYCLE)
         snap = next((e.payload for e in events if e.payload.get("project")), None)
@@ -1200,7 +1240,8 @@ def create_app(
         base = re.sub(r"[^a-z0-9-]+", "-", project.metadata.name.lower()).strip("-") or "realm"
         new_id = f"{base}-{secrets.token_hex(3)}"
         try:
-            get_manager().start(new_id, project, require_mention=require_mention)
+            get_manager().start(new_id, project, require_mention=require_mention,
+                                allow_provider_fallback=allow_provider_fallback)
         except CapacityError as exc:
             raise HTTPException(status_code=429, detail=str(exc)) from exc
         except ValueError as exc:

@@ -42,6 +42,7 @@ class RealmManager:
         *,
         require_mention: bool = True,
         parameters: dict[str, str] | None = None,
+        allow_provider_fallback: bool = False,
     ) -> None:
         """Launch a realm as a background task. Non-blocking; poll status via the Chronicle.
         Raises CapacityError if `max_active` realms are already running."""
@@ -55,7 +56,8 @@ class RealmManager:
         async def _run() -> None:
             try:
                 result = await self.platform.run(
-                    realm_id, project, require_mention=require_mention, parameters=parameters
+                    realm_id, project, require_mention=require_mention, parameters=parameters,
+                    allow_provider_fallback=allow_provider_fallback,
                 )
                 self.runs[realm_id].report = result.report
             except Exception as exc:  # keep the failure on the run record + mark the realm failed

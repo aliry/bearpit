@@ -1,6 +1,7 @@
 """CLI: version, validate (ok + failure), schema export, and read commands (status/tail/archive)."""
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -207,3 +208,36 @@ def test_up_warns_about_a_missing_value_and_stops_without_consent(tmp_path: Path
     assert "have no value and no default" in result.output
     assert "team_name" in result.output
     assert "Continuing will leave them empty" in result.output
+
+
+# --- the provider gate (#47) ------------------------------------------------------------------
+def _unresolvable_provider(tmp_path: Path) -> None:
+    import json
+    d = Path(os.environ["HOME"]) / ".bearpit"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "platform.json").write_text(json.dumps({"model_provider": "vanished-cli"}))
+
+
+def test_up_stops_when_the_configured_provider_is_unavailable(tmp_path: Path) -> None:
+    """Declining costs a message. Not declining used to cost a metered run nobody chose."""
+    _unresolvable_provider(tmp_path)
+    result = runner.invoke(app, ["up", str(_param_manifest(tmp_path)), "-p", "team_name=X"],
+                           input="n\n")
+    assert result.exit_code == 1
+    assert "vanished-cli" in result.output and "azure" in result.output
+
+
+def test_up_says_nothing_about_providers_when_the_stored_one_resolves(tmp_path: Path) -> None:
+    """The warning must be rare enough to mean something."""
+    result = runner.invoke(app, ["up", str(_param_manifest(tmp_path)), "-p", "team_name=X"],
+                           input="n\n")
+    assert "vanished-cli" not in result.output
+
+
+def test_up_does_not_say_it_twice(tmp_path: Path) -> None:
+    """The module logs a WARNING and the CLI prints its own prompt; both reached the terminal, so
+    the same problem appeared to happen twice."""
+    _unresolvable_provider(tmp_path)
+    result = runner.invoke(app, ["up", str(_param_manifest(tmp_path)), "-p", "team_name=X"],
+                           input="n\n")
+    assert result.output.count("its provider plugin is not installed") == 1

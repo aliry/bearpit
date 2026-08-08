@@ -71,13 +71,18 @@ def run_config(
     *,
     require_mention: bool,
     parameters: dict[str, str] | None = None,
+    provider_fallback: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """The resolved, effective configuration of one run — JSON-safe, for the chronicle + UI.
 
     `parameters` are the values this run was launched with (ADR-003). They are recorded even
     though the bound project already contains the substituted prose: reading a value back out of
     finished prose is guesswork, and comparing two runs of one scenario is the whole point of
-    having parameters."""
+    having parameters.
+
+    `provider_fallback` is set only when `provider` is a substitution for a configured provider
+    that could not be resolved (#47). A finished realm's spend is otherwise impossible to explain:
+    the record would say `azure` with nothing to say the operator had chosen something else."""
     spec = project.spec
     env = spec.environment
     turns = spec.turns
@@ -85,6 +90,7 @@ def run_config(
 
     return {
         "provider": provider,
+        "provider_fallback": dict(provider_fallback) if provider_fallback else None,
         "parameters": dict(parameters or {}),
         "package": project.source,   # None for a project that was not loaded from a package
         # TURN CONTROL — the single most consequential switch, and the one people ask about first
