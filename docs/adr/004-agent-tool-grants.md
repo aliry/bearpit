@@ -133,10 +133,17 @@ Issue #41 established that idle tools tempt agents into misusing them and waste 
 appears in the list and then refuses is worse than one that was never offered, because the agent
 spends a turn discovering it and may retry.
 
-FastMCP's support for per-request tool filtering is the one **implementation risk** in this ADR. If
-it cannot filter per token, the fallback is a per-agent mount path (`/mcp/<token>`) that Realmtools
-routes itself — more surface, same guarantee. This must be settled by a spike before the rest is
-built, because it decides the server's shape.
+**Settled by the spike in #51** (`tests/test_tool_visibility_spike.py`): the SDK supports this, so
+the per-agent mount path considered as a fallback is not needed and the server keeps one endpoint.
+Re-registering the low-level `list_tools` handler overwrites FastMCP's own, and the caller's bearer
+token is reachable from inside it through the request contextvar — the same route `_identity`
+already uses from inside a tool call.
+
+The spike also established the thing that matters more, by asserting it rather than assuming it:
+**filtering the list is not a security boundary.** A tool hidden from `tools/list` still executes
+when a caller names it directly. Hiding is a UX control that stops an agent wasting a turn on a
+tool it cannot use; the grant must *also* be checked inside the tool body, and that check is what
+actually enforces the grant.
 
 ### 6. Cost: quotas now, dollar budgets later
 
