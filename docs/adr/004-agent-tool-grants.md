@@ -10,8 +10,9 @@ contract in `realmtools/tokens.py`, and the four control boundaries (architectur
 Agents today have no web access of any kind. Their entire tool surface is the Realmtools MCP
 server — `run_code`, `remember`/`recall`, `send_private`, sealed submissions, and the referee's
 Arbiter tools — and every shipped scenario runs at `network_egress: model_only`, so the container
-has no route to the internet at all. On the subscription pipeline the shim passes `--tools ""`,
-which strips the backend's own built-in search from the prompt as well.
+has no route to the internet at all. And not every pipeline can fall back on the model backend's
+own built-in search: on at least one, the backend's native tools are disabled outright, so they
+never reach the prompt either.
 
 That surface is also **uniform**: every agent in a realm gets the same tools. Nothing in the
 platform can say *this* agent may search the web and *that* one may not, which rules out a whole
@@ -236,8 +237,8 @@ and how exfiltration is detected rather than merely permitted. The `elevated` ti
 gate are built now so that work has somewhere to land.
 
 **Provider-native web search.** Cheapest — no key, no billing surface — and rejected: availability
-varies by pipeline and there is none at all on the subscription shim, so the same scenario would
-behave differently on different pipelines. That directly contradicts architecture §2.8, *"switching
+varies by pipeline and on at least one there is none at all, so the same scenario would behave
+differently depending on a setting made elsewhere. That directly contradicts architecture §2.8, *"switching
 providers is a config change and not a behaviour change."*
 
 **One hardcoded search backend.** Fastest to ship and it forfeits the request: "extend in future to
