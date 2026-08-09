@@ -18,9 +18,50 @@ SECRET = "platform-secret"
 # --- tokens -----------------------------------------------------------------
 def test_token_roundtrip_and_role():
     t = mint_token("duel", "vela", is_referee=False, secret=SECRET)
-    assert verify_token(t, SECRET) == ("duel", "vela", False, ())
+    assert verify_token(t, SECRET) == ("duel", "vela", False, (), ())
     r = mint_token("duel", "themis", is_referee=True, secret=SECRET, roster=["vela", "orin"])
-    assert verify_token(r, SECRET) == ("duel", "themis", True, ("vela", "orin"))
+    assert verify_token(r, SECRET) == ("duel", "themis", True, ("vela", "orin"), ())
+
+
+def test_grants_survive_the_round_trip_in_a_stable_order(): 
+    """Tool grants ride in the token, extending what `is_referee` already does: authority is in
+    the signed token, never in a tool argument (ADR-004 §4). Sorted on mint, so one grant set
+    always produces one token — a token that varied with dict order would be a nightmare to
+    compare across runs."""
+    a = mint_token("duel", "vela", is_referee=False, secret=SECRET,
+                   grants=["web.search", "web.fetch"])
+    b = mint_token("duel", "vela", is_referee=False, secret=SECRET,
+                   grants=["web.fetch", "web.search"])
+    assert a == b
+    assert verify_token(a, SECRET) == ("duel", "vela", False, (), ("web.fetch", "web.search"))
+
+
+def test_a_token_minted_before_grants_existed_still_verifies():
+    """The deploy hazard this guards: token code runs in BOTH the host Forge and the realmtools
+    container, and they are separate deployments. A hard cutover would mean any skew between them
+    reads as an auth failure — the least debuggable symptom available. A 4-field token is a
+    grantless one."""
+    import base64
+
+    from bearpit.realmtools import tokens as tokmod
+
+    payload = ":".join(("duel", "vela", "player", "vela,orin"))          # the pre-change shape
+    body = base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
+    old_token = f"{body}.{tokmod._sign(payload, SECRET)}"
+    assert verify_token(old_token, SECRET) == ("duel", "vela", False, ("vela", "orin"), ())
+
+
+def test_the_grants_field_cannot_be_edited_without_breaking_the_signature():
+    """The whole security property. If a grant could be added by hand, the token would be a
+    suggestion rather than an authority, and every tool check downstream would be theatre."""
+    import base64
+
+    honest = mint_token("duel", "vela", is_referee=False, secret=SECRET, grants=["web.fetch"])
+    body, sig = honest.split(".", 1)
+    payload = base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)).decode()
+    forged_payload = payload.replace("web.fetch", "net.open")
+    forged_body = base64.urlsafe_b64encode(forged_payload.encode()).decode().rstrip("=")
+    assert verify_token(f"{forged_body}.{sig}", SECRET) is None
 
 
 def test_token_rejects_tamper_and_wrong_secret():
@@ -270,3 +311,33 @@ async def test_sealed_state_and_scores_survive_a_realmtools_restart():
     assert all("rock" not in str(e.payload) and "paper" not in str(e.payload)
                for e in seals)
     await chron.close()
+
+
+def test_the_server_surfaces_grants_on_the_identity_it_resolves():
+    """The last link in the chain #54 consumes. Forge bakes grants in and `verify_token` returns
+    them, but neither proves the SERVER hands them to a tool body — and `Identity(*verified)`
+    unpacks positionally, so a field added in the wrong place would land silently in `roster`."""
+    from types import SimpleNamespace
+
+    from bearpit.realmtools.server import _identity
+
+    token = mint_token("duel", "vela", is_referee=False, secret=SECRET,
+                       roster=["vela", "orin"], grants=["web.fetch", "web.search"])
+    ctx = SimpleNamespace(request_context=SimpleNamespace(
+        request=SimpleNamespace(headers={"authorization": f"Bearer {token}"})))
+
+    ident = _identity(ctx, SECRET)
+    assert ident is not None
+    assert ident.agent_id == "vela"
+    assert ident.roster == ("vela", "orin")
+    assert ident.grants == ("web.fetch", "web.search")
+
+
+def test_an_unsigned_caller_gets_no_identity_and_therefore_no_grants():
+    from types import SimpleNamespace
+
+    from bearpit.realmtools.server import _identity
+
+    ctx = SimpleNamespace(request_context=SimpleNamespace(
+        request=SimpleNamespace(headers={"authorization": "Bearer forged"})))
+    assert _identity(ctx, SECRET) is None

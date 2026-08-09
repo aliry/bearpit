@@ -456,3 +456,46 @@ async def test_forge_reports_the_realmtools_tokens_it_minted():
     assert set(handles.agent_tokens) == {"vela", "orin"}
     assert all(t for t in handles.agent_tokens.values())
     assert handles.agent_tokens["vela"] != handles.agent_tokens["orin"]   # per-agent, not shared
+
+
+async def test_forge_bakes_each_agents_tool_grants_into_its_own_token():
+    """The token IS the authority (ADR-004 §4), so a grant that never reaches the mint can never
+    be exercised — and one that reaches the WRONG agent's token is a privilege leak. Asserting per
+    agent, not just that grants appear somewhere."""
+    from bearpit.core.schema import AgentSpec, ModelRef, Project, ProjectMeta, ProjectSpec
+    from bearpit.forge import RealmtoolsConfig
+    from bearpit.herald.types import MatrixCreds
+    from bearpit.realmtools.tokens import verify_token
+
+    def _model():
+        return ModelRef(provider="azure", model="m", api_key_ref="azure-main",
+                        input_cost_per_token=1e-7, output_cost_per_token=1e-7)
+
+    project = Project(
+        metadata=ProjectMeta(name="p"),
+        spec=ProjectSpec(mechanics=[{"kind": "sealed-submit"}]),
+        agents=[
+            AgentSpec(id="analyst", model=_model(), persona="x", tools=["web.search", "web.fetch"]),
+            AgentSpec(id="sealed", model=_model(), persona="y"),   # granted nothing
+        ],
+    )
+    creds = {
+        a.id: MatrixCreds(homeserver="http://hs", user_id=f"@{a.id}:realm.local",
+                          access_token=f"tok-{a.id}", allowed_users=[], commons_room="!c")
+        for a in project.agents
+    }
+    ks = _ks()
+    ks.put("azure-main", "REALKEY")
+    forge = Forge(FakeRuntime(), Ledger(ks, FakeLiteLLM(), "http://p"),
+                  realmtools=RealmtoolsConfig(url="http://rt:9100/mcp", secret="s" * 40,
+                                              container="pit-realmtools"))
+    handles = await forge.provision_realm(
+        "r1", project, creds, bus_homeserver="http://hs", proxy_url="http://p",
+        commons_room="!c",
+    )
+
+    analyst = verify_token(handles.agent_tokens["analyst"], "s" * 40)
+    sealed = verify_token(handles.agent_tokens["sealed"], "s" * 40)
+    assert analyst is not None and sealed is not None
+    assert analyst[4] == ("web.fetch", "web.search")
+    assert sealed[4] == (), "an agent granted nothing must not inherit a peer's tools"

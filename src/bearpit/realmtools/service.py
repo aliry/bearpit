@@ -23,6 +23,7 @@ class Identity:
     agent_id: str
     is_referee: bool
     roster: tuple[str, ...] = field(default_factory=tuple)  # participant ids expected to submit
+    grants: tuple[str, ...] = field(default_factory=tuple)  # tool names this agent holds (ADR-004)
 
 
 class EscrowService:
