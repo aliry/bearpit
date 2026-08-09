@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
@@ -246,6 +247,11 @@ def project_from_snapshot(data: dict[str, Any]) -> Project:
     return project
 
 
+# A granted tool runs on the host, so a hung handler holds a host task, not a container.
+# Shorter than realmtools' own wait (60s) so the agent hears a timeout rather than silence.
+_TOOL_TIMEOUT_S = 30.0
+
+
 class LiveSnapshot:
     """Assembles a RealmSnapshot from the running realm each tick: elapsed time, mirrored
     messages, shared-folder files, per-agent spend, referee verdict, and the manual stop flag."""
@@ -269,6 +275,7 @@ class LiveSnapshot:
         containers: dict[str, str] | None = None,
         agent_tokens: dict[str, str] | None = None,
         budget_policy: dict[str, tuple[str, float]] | None = None,
+        tool_config: dict[str, dict[str, object]] | None = None,
         participants: Sequence[str] | None = None,
     ) -> None:
         self._herald = herald
@@ -299,6 +306,10 @@ class LiveSnapshot:
         # only ever execute inside its own sandbox.
         self._containers = containers or {}
         self._executed: set[int] = set()  # EXEC event ids already run
+        self._tools_done: set[int] = set()  # TOOL_CALL event ids already performed
+        # realm-level `spec.tools` policy, passed to each handler. The scenario sets the policy;
+        # the agent holds the grant (ADR-004 §1).
+        self._tool_config: dict[str, dict[str, object]] = dict(tool_config or {})
         # agent_id -> (on_exhausted, grace_seconds). The BUDGET boundary (architecture §6) was only
         # half-built: LiteLLM refuses the call, but nothing ever acted on it. `Ledger.exhausted()`
         # even documents itself as "(Warden acts on these)" — and had no caller in production.
@@ -325,6 +336,7 @@ class LiveSnapshot:
         # the sender). Doing it before the mirror means the message is captured this same tick.
         await self._deliver_private()
         await self._run_exec_requests()
+        await self._run_tool_requests()
         await self._herald.mirror(self._realm, self._commons, self._chron)
         # Also mirror the platform-brokered private DM rooms — the system is a member, so they are
         # captured into the Chronicle just like the commons (they carry their own room-id channel).
@@ -482,6 +494,68 @@ class LiveSnapshot:
                 {"id": ev.payload.get("id"), "agent": agent,
                  "exit_code": exit_code, "output": self._redactor()(output)[:8000]},
             )
+
+    async def _run_tool_requests(self) -> None:
+        """Perform agents' granted tool calls (ADR-004 §3).
+
+        realmtools records the intent and waits; the host performs it, because the host holds the
+        keystore and the only route to the internet. Same broker shape as `run_code`, for the same
+        reason — a credential in that small agent-facing server would be a credential leaked by any
+        bug in it.
+
+        Every failure mode answers. An unanswered call costs the agent its whole wait, so a broken
+        tool must cost one call and never the realm.
+        """
+        from bearpit.core.tools import tool_registry
+
+        registry = tool_registry()
+        for ev in await self._chron.events(self._realm, kind=EventKind.TOOL_CALL):
+            if ev.id in self._tools_done:
+                continue
+            self._tools_done.add(ev.id)
+            req = ev.payload.get("id")
+            agent = str(ev.payload.get("agent", ""))
+            name = str(ev.payload.get("tool", ""))
+            args = ev.payload.get("args") or {}
+            profile = registry.get(name)
+            if profile is None:
+                # The grant was checked against the token, not against this machine — a tool can
+                # be granted by a manifest and absent from the host that runs it (#47's shape).
+                await self._tool_result(req, agent, name, ok=False,
+                                        error=f"{name!r} is not installed on this platform")
+                continue
+            config = dict(self._tool_config.get(name, {}))
+            try:
+                result = await asyncio.wait_for(
+                    profile.handler(dict(args), config, {"realm_id": self._realm, "agent": agent}),
+                    timeout=_TOOL_TIMEOUT_S,
+                )
+            except TimeoutError:
+                await self._tool_result(req, agent, name, ok=False,
+                                        error=f"{name!r} timed out after {_TOOL_TIMEOUT_S:g}s")
+                continue
+            except Exception as exc:  # noqa: BLE001 - a third-party handler may do anything
+                await self._tool_result(req, agent, name, ok=False, error=f"{name} failed: {exc}")
+                continue
+            await self._tool_result(
+                req, agent, name, ok=True, result=result, cost=profile.cost_per_call_usd,
+            )
+
+    async def _tool_result(
+        self, req: object, agent: str, tool: str, *, ok: bool,
+        result: object = None, error: str = "", cost: float = 0.0,
+    ) -> None:
+        text = "" if result is None else (
+            result if isinstance(result, str) else json.dumps(result, default=str)
+        )
+        await self._chron.append_event(
+            self._realm, EventKind.TOOL_RESULT,
+            {"id": req, "agent": agent, "tool": tool, "ok": ok,
+             # redacted for the same reason exec output is: a tool answers with text an agent
+             # chose the input to, so it is a channel for whatever the realm's own credentials
+             # happen to be reachable from.
+             "result": self._redactor()(text)[:16000], "error": error, "cost_usd": cost},
+        )
 
     def _redactor(self) -> Redactor:
         """Mask the credentials this platform minted for this realm.

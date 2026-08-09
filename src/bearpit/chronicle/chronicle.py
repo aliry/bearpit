@@ -49,6 +49,13 @@ class EventKind(StrEnum):
     # exactly as it already brokers PRIVATE messages, and answers with EXEC_RESULT {id, exit, out}.
     EXEC = "exec"
     EXEC_RESULT = "exec_result"
+    # an agent invoked a granted tool {id, agent, tool, args} (ADR-004). Same broker shape as EXEC
+    # and for the same reason: realmtools holds no API keys, so the HOST — which holds the keystore
+    # and the only internet route — performs the call and answers with TOOL_RESULT
+    # {id, agent, tool, ok, result|error, cost_usd}. Both are chronicled, so what an agent looked
+    # up (and what it cost) is part of the permanent record from day one.
+    TOOL_CALL = "tool_call"
+    TOOL_RESULT = "tool_result"
     # a referee's `eliminate` tool call {agent|None, reason, issued_by}: agent None closes a round
     # with no ejection; a named agent is dropped from the turn rotation by the host (physics)
     ELIMINATION = "elimination"
@@ -148,6 +155,10 @@ class Chronicle:
         msgs = await self.messages(realm_id)
 
         spend: dict[str, float] = {}
+        # agent -> (calls, usd). Tool spend is reported SEPARATELY from model spend, not folded
+        # into it: the per-agent budget is a proxy key that meters models and cannot see a tool's
+        # bill, so one combined number would imply an enforcement that does not exist (ADR-004 §6).
+        tools: dict[str, tuple[int, float]] = {}
         score: dict[str, float] = {}
         violations: list[str] = []
         outcome: str | None = None
@@ -156,6 +167,9 @@ class Chronicle:
             p = e.payload
             if e.kind == EventKind.SPEND and "agent" in p:
                 spend[p["agent"]] = spend.get(p["agent"], 0.0) + float(p.get("usd", 0))
+            elif e.kind == EventKind.TOOL_RESULT and "agent" in p:
+                n, usd = tools.get(p["agent"], (0, 0.0))
+                tools[p["agent"]] = (n + 1, usd + float(p.get("cost_usd", 0) or 0))
             elif e.kind == EventKind.SCORE and "agent" in p:
                 score[p["agent"]] = score.get(p["agent"], 0.0) + float(p.get("delta", 0))
             elif e.kind == EventKind.VIOLATION and "agent" in p:
@@ -190,5 +204,13 @@ class Chronicle:
             lines.append(f"- **total: ${sum(spend.values()):.4f}**")
         else:
             lines.append("- (no spend recorded)")
+        if tools:
+            lines += ["", "## Tool use"]
+            lines += [f"- {a}: {n} call{'s' if n != 1 else ''}"
+                      + (f", ${usd:.4f}" if usd else "")
+                      for a, (n, usd) in sorted(tools.items())]
+            total = sum(usd for _, usd in tools.values())
+            if total:
+                lines.append(f"- **total: ${total:.4f}**")
         lines += ["", f"_{len(msgs)} messages, {len(evs)} events chronicled._"]
         return "\n".join(lines)

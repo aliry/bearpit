@@ -121,6 +121,8 @@ class Platform:
                 # catches, calling rounds into a room whose players are all dead.
                 participants=[a.id for a in project.agents
                               if project.referee is None or a.id != project.referee.id],
+                # realm-level per-tool policy, so the host's handlers get the scenario's rules
+                tool_config={k: dict(v) for k, v in project.spec.tools.items()},
                 budget_policy={
                     a.id: (str(a.budget.on_exhausted),
                            parse_duration(a.budget.grace_period)
