@@ -184,6 +184,9 @@ class Forge:
                 token = mint_token(
                     realm_id, agent.id, is_referee=is_ref,
                     secret=self._realmtools.secret, roster=escrow_roster,
+                    # this agent's tool grants, straight from the manifest — the token IS the
+                    # authority, so a grant that never reaches here can never be exercised
+                    grants=agent.tools,
                 )
                 realmtools_creds = RealmtoolsCreds(url=self._realmtools.url, token=token)
                 tokens[agent.id] = token
