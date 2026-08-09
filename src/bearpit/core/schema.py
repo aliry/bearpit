@@ -32,6 +32,11 @@ LineText = Annotated[str, StringConstraints(max_length=2000)]  # one-liners (des
 TagText = Annotated[str, StringConstraints(max_length=40)]  # a single tag
 GoalText = Annotated[str, StringConstraints(max_length=1000)]  # a single goal
 LongText = Annotated[str, StringConstraints(max_length=50000)]  # persona/rubric/guidelines bodies
+# One tool grant: `family.verb`, lowercase (ADR-004). Shape only — whether the tool is INSTALLED
+# is checked by `core.tools.check_grants`, deliberately not here: existence depends on which
+# packages this machine happens to have, and a manifest must stay loadable, viewable and
+# exportable on a machine that lacks the plugin.
+ToolName = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$")]
 
 _DURATION_RE = re.compile(r"^\d+(\.\d+)?\s*(s|m|h|d)$")
 _UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
@@ -594,10 +599,19 @@ class AgentSpec(_Base):
         "from model_category via the active provider. When set, it wins for this agent.",
     )
     budget: Budget = Field(default_factory=Budget, description="Per-agent spend cap + policy.")
-    tools: list[ShortText] = Field(
+    tools: list[ToolName] = Field(
         default_factory=list, max_length=50,
-        description="MCP tool-server refs = this agent's loadout."
+        description="Tools this agent is granted, e.g. 'web.search' (ADR-004). Per-agent on "
+        "purpose: one agent who can research and one who cannot is a scenario primitive.",
     )
+
+    @field_validator("tools")
+    @classmethod
+    def _no_duplicate_grants(cls, v: list[str]) -> list[str]:
+        dupes = sorted({n for n in v if v.count(n) > 1})
+        if dupes:
+            raise ValueError(f"duplicate tool grant(s): {', '.join(dupes)}")
+        return v
     skills: list[SkillRef] = Field(
         default_factory=list, max_length=50,
         description="Skills to seed (§12.5); Forge adds role defaults."
@@ -796,6 +810,12 @@ class ProjectSpec(_Base):
         "the scenario needs it. Set false for a purely message-based scenario (open votes, "
         "message-termination) so idle tools can't tempt agents into misusing them.",
     )
+    tools: dict[ToolName, dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Per-tool policy for every agent granted it, keyed by tool name (ADR-004) — "
+        "e.g. {'web.fetch': {'allow': ['*.wikipedia.org']}}. The scenario sets the policy; the "
+        "agent holds the grant. Each block is validated against that tool's own config schema.",
+    )
 
 
 class Project(_Base):
@@ -855,6 +875,17 @@ class Project(_Base):
             raise ValueError(f"duplicate agent ids: {sorted(dupes)}")
         if sum(a.role == AgentRole.REFEREE for a in self.agents) > 1:
             raise ValueError("at most one referee agent is allowed")
+        # Policy for a tool nobody holds does nothing at all. The schema already says this about
+        # spec-level `duration`: two ways to say the same thing, one of them silently inert, is
+        # exactly how a scenario ends up with no backstop. This one is registry-free — it is a
+        # statement about THIS manifest — so it belongs here rather than in `tools.check_grants`.
+        granted = {name for a in self.agents for name in a.tools}
+        orphans = sorted(set(self.spec.tools) - granted)
+        if orphans:
+            raise ValueError(
+                f"spec.tools configures {', '.join(repr(o) for o in orphans)} but no agent is "
+                f"granted it — grant it, or drop the config"
+            )
         # A per-round DM quota needs a round concept. Without a turns block the runner has no round,
         # so the quota silently becomes a whole-run cap under a "per round" name — fail loudly.
         if self.spec.turns is None:
