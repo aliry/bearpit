@@ -553,3 +553,67 @@ def _cred():
     from bearpit.ledger import AgentCredential
 
     return AgentCredential(virtual_key="k", model_name="m", proxy_url="http://p")
+
+
+async def test_a_grant_alone_wires_the_realmtools_server():
+    """A scenario whose only tool need is a grant — no referee, no mechanic, no turns, no DMs.
+
+    Realmtools serves granted tools, so not attaching it leaves the grant in the manifest, in the
+    token and in the manifest event, with nothing on the other end. Live, that agent answered from
+    memory and reported the tool broken (#73)."""
+    from bearpit.core.schema import AgentSpec, ModelRef, Project, ProjectMeta, ProjectSpec
+    from bearpit.forge import RealmtoolsConfig
+    from bearpit.herald.types import MatrixCreds
+
+    def _model():
+        return ModelRef(provider="azure", model="m", api_key_ref="azure-main",
+                        input_cost_per_token=1e-7, output_cost_per_token=1e-7)
+
+    project = Project(
+        metadata=ProjectMeta(name="p"),
+        spec=ProjectSpec(termination=[{"type": "manual"}]),
+        agents=[AgentSpec(id="prober", model=_model(), persona="x", tools=["web_fetch"],
+                          private_messaging={"enabled": False})],
+    )
+    creds = {"prober": MatrixCreds(homeserver="http://hs", user_id="@prober:realm.local",
+                                   access_token="t", allowed_users=[], commons_room="!c")}
+    ks = _ks()
+    ks.put("azure-main", "REALKEY")
+    forge = Forge(FakeRuntime(), Ledger(ks, FakeLiteLLM(), "http://p"),
+                  realmtools=RealmtoolsConfig(url="http://rt:9100/mcp", secret="s" * 40,
+                                              container="pit-realmtools"))
+    handles = await forge.provision_realm(
+        "r1", project, creds, bus_homeserver="http://hs", proxy_url="http://p",
+        commons_room="!c",
+    )
+    assert handles.agent_tokens.get("prober"), "no realmtools token — the server was never wired"
+
+
+async def test_a_scenario_that_needs_nothing_still_gets_no_tools():
+    """The opt-out must survive: idle tools tempt agents into misusing them."""
+    from bearpit.core.schema import AgentSpec, ModelRef, Project, ProjectMeta, ProjectSpec
+    from bearpit.forge import RealmtoolsConfig
+    from bearpit.herald.types import MatrixCreds
+
+    def _model():
+        return ModelRef(provider="azure", model="m", api_key_ref="azure-main",
+                        input_cost_per_token=1e-7, output_cost_per_token=1e-7)
+
+    project = Project(
+        metadata=ProjectMeta(name="p"),
+        spec=ProjectSpec(termination=[{"type": "manual"}]),
+        agents=[AgentSpec(id="talker", model=_model(), persona="x",
+                          private_messaging={"enabled": False})],
+    )
+    creds = {"talker": MatrixCreds(homeserver="http://hs", user_id="@talker:realm.local",
+                                   access_token="t", allowed_users=[], commons_room="!c")}
+    ks = _ks()
+    ks.put("azure-main", "REALKEY")
+    forge = Forge(FakeRuntime(), Ledger(ks, FakeLiteLLM(), "http://p"),
+                  realmtools=RealmtoolsConfig(url="http://rt:9100/mcp", secret="s" * 40,
+                                              container="pit-realmtools"))
+    handles = await forge.provision_realm(
+        "r1", project, creds, bus_homeserver="http://hs", proxy_url="http://p",
+        commons_room="!c",
+    )
+    assert not handles.agent_tokens

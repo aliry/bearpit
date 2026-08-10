@@ -78,7 +78,7 @@ class ToolCallService:
         tool: str,
         args: dict[str, Any],
         *,
-        wait_s: float = _WAIT_S,
+        wait_s: float | None = None,
         sleep: Any = None,
     ) -> dict[str, Any]:
         """Record the intent, wait for the host's answer, return it.
@@ -109,6 +109,9 @@ class ToolCallService:
                     "quota_exhausted": True,
                 }
 
+        # read at call time, not as a default, so a test can shorten the wait without reaching
+        # into the signature
+        wait = _WAIT_S if wait_s is None else wait_s
         req = uuid.uuid4().hex[:16]
         await self._c().append_event(
             who.realm_id, EventKind.TOOL_CALL,
@@ -116,7 +119,7 @@ class ToolCallService:
         )
         napper = sleep or asyncio.sleep
         waited = 0.0
-        while waited < wait_s:
+        while waited < wait:
             for ev in await self._c().events(who.realm_id, kind=EventKind.TOOL_RESULT):
                 if ev.payload.get("id") != req:
                     continue

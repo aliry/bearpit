@@ -1,0 +1,38 @@
+{
+  "apiVersion": "bearpit/v1alpha1",
+  "kind": "Project",
+  "metadata": {
+    "name": "fetchprobe",
+    "description": "One agent, one job: call web_fetch once."
+  },
+  "spec": {
+    "goals": [
+      "Call web_fetch once each and report the exact value it returned"
+    ],
+    "guidelines": "Prober calls its web_fetch tool on https://uuid.rocks/json and posts the exact UUID it returns. Witness then does the same and reports whether its UUID differs.\n\nThe endpoint generates a fresh UUID on every request, so two different values are proof that both of you actually fetched. A UUID nobody can trace to a `tool_call` event was invented.",
+    "environment": {
+      "network_egress": "model_only",
+      "require_mention": false
+    },
+    "tools": {
+      "web_fetch": {
+        "max_calls_per_agent": 3
+      }
+    },
+    "termination": [
+      {
+        "type": "message",
+        "channel": "commons",
+        "pattern": "PROBE-DONE"
+      },
+      {
+        "type": "duration",
+        "limit": "8m"
+      },
+      {
+        "type": "stall",
+        "limit": "5m"
+      }
+    ]
+  }
+}
