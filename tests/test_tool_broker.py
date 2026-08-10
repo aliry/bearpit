@@ -80,24 +80,24 @@ async def test_an_ungranted_tool_is_refused(chron):
     """#51 proved a hidden tool still executes when named. This is the check that actually
     enforces ADR-004; the list filter only stops an agent wasting a turn."""
     svc = ToolCallService(chron)
-    with pytest.raises(PermissionError, match="web.search"):
-        await svc.call(_who("web.fetch"), "web.search", {"query": "x"})
+    with pytest.raises(PermissionError, match="web_search"):
+        await svc.call(_who("web_fetch"), "web_search", {"query": "x"})
     assert await chron.events("r1", kind=EventKind.TOOL_CALL) == [], "an intent was still recorded"
 
 
 async def test_an_agent_with_no_grants_at_all_is_refused(chron):
     svc = ToolCallService(chron)
     with pytest.raises(PermissionError, match="you have none"):
-        await svc.call(_who(), "web.search", {"query": "x"})
+        await svc.call(_who(), "web_search", {"query": "x"})
 
 
 async def test_a_granted_call_is_recorded_and_answered(chron):
     svc = ToolCallService(chron)
-    out = await _call_with_host(chron, svc, _who("web.search"), "web.search",
+    out = await _call_with_host(chron, svc, _who("web_search"), "web_search",
                                 {"query": "otters"}, result="otters are mustelids")
     assert out["result"] == "otters are mustelids"
     recorded = (await chron.events("r1", kind=EventKind.TOOL_CALL))[0].payload
-    assert recorded["agent"] == "analyst" and recorded["tool"] == "web.search"
+    assert recorded["agent"] == "analyst" and recorded["tool"] == "web_search"
     assert recorded["args"] == {"query": "otters"}
 
 
@@ -105,14 +105,14 @@ async def test_a_failed_call_returns_the_error_rather_than_raising(chron):
     """A broken tool costs one call. Raising into the tool body would surface to the agent as a
     protocol error instead of something it can read and route around."""
     svc = ToolCallService(chron)
-    out = await _call_with_host(chron, svc, _who("web.search"), "web.search", {"query": "x"},
+    out = await _call_with_host(chron, svc, _who("web_search"), "web_search", {"query": "x"},
                                 ok=False, error="upstream is down")
     assert out == {"error": "upstream is down"}
 
 
 async def test_a_call_nobody_answers_times_out_with_a_readable_message(chron):
     svc = ToolCallService(chron)
-    out = await svc.call(_who("web.search"), "web.search", {"query": "x"},
+    out = await svc.call(_who("web_search"), "web_search", {"query": "x"},
                          wait_s=1.0, sleep=_tick)
     assert "did not answer in time" in out["error"]
 
@@ -120,7 +120,7 @@ async def test_a_call_nobody_answers_times_out_with_a_readable_message(chron):
 async def test_oversized_arguments_are_refused_before_anything_is_recorded(chron):
     svc = ToolCallService(chron)
     with pytest.raises(ValueError, match="too long"):
-        await svc.call(_who("web.search"), "web.search", {"query": "x" * 20000})
+        await svc.call(_who("web_search"), "web_search", {"query": "x" * 20000})
     assert await chron.events("r1", kind=EventKind.TOOL_CALL) == []
 
 
@@ -137,11 +137,11 @@ async def _with_policy(chron: Chronicle, policy: dict[str, Any]) -> ToolCallServ
 
 
 async def test_the_quota_is_read_from_the_run_record_and_enforced(chron):
-    svc = await _with_policy(chron, {"web.search": {"max_calls_per_agent": 2}})
+    svc = await _with_policy(chron, {"web_search": {"max_calls_per_agent": 2}})
     for _ in range(2):
         await chron.append_event("r1", EventKind.TOOL_CALL,
-                                 {"id": "x", "agent": "analyst", "tool": "web.search"})
-    out = await svc.call(_who("web.search"), "web.search", {"query": "x"})
+                                 {"id": "x", "agent": "analyst", "tool": "web_search"})
+    out = await svc.call(_who("web_search"), "web_search", {"query": "x"})
     assert out["quota_exhausted"] is True
     assert "2/2" in out["error"], "the agent should be told where it stands, not just refused"
 
@@ -149,22 +149,22 @@ async def test_the_quota_is_read_from_the_run_record_and_enforced(chron):
 async def test_the_quota_is_per_agent_not_per_realm(chron):
     """A shared counter would let one agent spend a peer's budget — and in a competitive realm
     that is a move, not an accident."""
-    svc = await _with_policy(chron, {"web.search": {"max_calls_per_agent": 1}})
+    svc = await _with_policy(chron, {"web_search": {"max_calls_per_agent": 1}})
     await chron.append_event("r1", EventKind.TOOL_CALL,
-                             {"id": "x", "agent": "rival", "tool": "web.search"})
-    out = await _call_with_host(chron, svc, _who("web.search"), "web.search", {"query": "x"})
+                             {"id": "x", "agent": "rival", "tool": "web_search"})
+    out = await _call_with_host(chron, svc, _who("web_search"), "web_search", {"query": "x"})
     assert "result" in out
 
 
 async def test_a_call_that_failed_still_counts_against_the_quota(chron):
     """Counted from TOOL_CALL, not TOOL_RESULT: a call that failed still consumed the thing the
     quota exists to bound, and counting only successes would make a flapping tool free."""
-    svc = await _with_policy(chron, {"web.search": {"max_calls_per_agent": 1}})
+    svc = await _with_policy(chron, {"web_search": {"max_calls_per_agent": 1}})
     await chron.append_event("r1", EventKind.TOOL_CALL,
-                             {"id": "a", "agent": "analyst", "tool": "web.search"})
+                             {"id": "a", "agent": "analyst", "tool": "web_search"})
     await chron.append_event("r1", EventKind.TOOL_RESULT,
-                             {"id": "a", "agent": "analyst", "tool": "web.search", "ok": False})
-    assert (await svc.call(_who("web.search"), "web.search", {"q": "x"}))["quota_exhausted"]
+                             {"id": "a", "agent": "analyst", "tool": "web_search", "ok": False})
+    assert (await svc.call(_who("web_search"), "web_search", {"q": "x"}))["quota_exhausted"]
 
 
 async def test_no_policy_means_no_quota(chron):
@@ -173,8 +173,8 @@ async def test_no_policy_means_no_quota(chron):
     svc = ToolCallService(chron)
     for _ in range(50):
         await chron.append_event("r1", EventKind.TOOL_CALL,
-                                 {"id": "x", "agent": "analyst", "tool": "web.search"})
-    out = await _call_with_host(chron, svc, _who("web.search"), "web.search", {"q": "x"})
+                                 {"id": "x", "agent": "analyst", "tool": "web_search"})
+    out = await _call_with_host(chron, svc, _who("web_search"), "web_search", {"q": "x"})
     assert "result" in out
 
 
@@ -204,7 +204,7 @@ def _snapshot(chron: Chronicle, tool_config: dict[str, Any] | None = None):
     )
 
 
-def _profile(name: str = "web.search", handler: Any = None, **kw: Any) -> ToolProfile:
+def _profile(name: str = "web_search", handler: Any = None, **kw: Any) -> ToolProfile:
     async def ok(args: dict[str, Any], config: dict[str, Any], ctx: Any) -> Any:
         return f"searched {args.get('query')} with {config.get('region', 'default')}"
 
@@ -236,9 +236,9 @@ def registry(monkeypatch):
 async def test_the_host_runs_the_handler_and_answers(chron, registry):
     registry(_profile(cost_per_call_usd=0.005))
     await chron.append_event("r1", EventKind.TOOL_CALL,
-                             {"id": "q1", "agent": "analyst", "tool": "web.search",
+                             {"id": "q1", "agent": "analyst", "tool": "web_search",
                               "args": {"query": "otters"}})
-    await _snapshot(chron, {"web.search": {"region": "uk"}})._run_tool_requests()
+    await _snapshot(chron, {"web_search": {"region": "uk"}})._run_tool_requests()
 
     results = await chron.events("r1", kind=EventKind.TOOL_RESULT)
     assert len(results) == 1
@@ -254,7 +254,7 @@ async def test_a_handler_that_raises_fails_only_that_call(chron, registry):
 
     registry(_profile(handler=angry))
     await chron.append_event("r1", EventKind.TOOL_CALL,
-                             {"id": "q1", "agent": "analyst", "tool": "web.search", "args": {}})
+                             {"id": "q1", "agent": "analyst", "tool": "web_search", "args": {}})
     await _snapshot(chron)._run_tool_requests()   # must not raise
 
     p = (await chron.events("r1", kind=EventKind.TOOL_RESULT))[0].payload
@@ -270,7 +270,7 @@ async def test_a_handler_that_hangs_is_timed_out_and_answered(chron, registry, m
     monkeypatch.setattr("bearpit.gatekeeper.runner._TOOL_TIMEOUT_S", 0.05)
     registry(_profile(handler=hang))
     await chron.append_event("r1", EventKind.TOOL_CALL,
-                             {"id": "q1", "agent": "analyst", "tool": "web.search", "args": {}})
+                             {"id": "q1", "agent": "analyst", "tool": "web_search", "args": {}})
     await _snapshot(chron)._run_tool_requests()
 
     p = (await chron.events("r1", kind=EventKind.TOOL_RESULT))[0].payload
@@ -282,7 +282,7 @@ async def test_a_granted_tool_missing_from_THIS_host_is_answered_not_dropped(chr
     host does not have installed. Silence would cost the agent its full wait for nothing."""
     registry()  # empty registry
     await chron.append_event("r1", EventKind.TOOL_CALL,
-                             {"id": "q1", "agent": "analyst", "tool": "web.search", "args": {}})
+                             {"id": "q1", "agent": "analyst", "tool": "web_search", "args": {}})
     await _snapshot(chron)._run_tool_requests()
 
     p = (await chron.events("r1", kind=EventKind.TOOL_RESULT))[0].payload
@@ -295,7 +295,7 @@ async def test_a_non_string_result_is_serialised_rather_than_lost(chron, registr
 
     registry(_profile(handler=structured))
     await chron.append_event("r1", EventKind.TOOL_CALL,
-                             {"id": "q1", "agent": "analyst", "tool": "web.search", "args": {}})
+                             {"id": "q1", "agent": "analyst", "tool": "web_search", "args": {}})
     await _snapshot(chron)._run_tool_requests()
 
     p = (await chron.events("r1", kind=EventKind.TOOL_RESULT))[0].payload
@@ -312,7 +312,7 @@ async def test_each_call_is_performed_exactly_once(chron, registry):
 
     registry(_profile(handler=counting))
     await chron.append_event("r1", EventKind.TOOL_CALL,
-                             {"id": "q1", "agent": "analyst", "tool": "web.search", "args": {}})
+                             {"id": "q1", "agent": "analyst", "tool": "web_search", "args": {}})
     snap = _snapshot(chron)
     await snap._run_tool_requests()
     await snap._run_tool_requests()
@@ -366,21 +366,21 @@ async def _as(app: Any, token: str) -> Any:
 async def test_an_agent_sees_and_calls_only_the_tools_it_holds(registry):
     """The whole chain with an EMPTY registry in this process: token -> manifest -> list -> call."""
     registry()  # nothing installed, deliberately
-    analyst = mint_token("r1", "analyst", is_referee=False, secret=SECRET, grants=["web.search"])
+    analyst = mint_token("r1", "analyst", is_referee=False, secret=SECRET, grants=["web_search"])
     sealed = mint_token("r1", "sealed", is_referee=False, secret=SECRET)
 
-    async with _server({"r1": _manifest("web.search", "web.fetch")}) as app:
+    async with _server({"r1": _manifest("web_search", "web_fetch")}) as app:
         async with _as(app, analyst) as session:
             names = {t.name for t in (await session.list_tools()).tools}
-            assert "web.search" in names
-            assert "web.fetch" not in names, "a tool this agent does not hold must not be listed"
+            assert "web_search" in names
+            assert "web_fetch" not in names, "a tool this agent does not hold must not be listed"
             assert "remember" in names, "the built-in verbs must be unaffected"
 
         async with _as(app, sealed) as session:
             names = {t.name for t in (await session.list_tools()).tools}
-            assert "web.search" not in names and "remember" in names
+            assert "web_search" not in names and "remember" in names
             # hidden is not the boundary (#51): naming it directly must still be refused
-            out = await session.call_tool("web.search", {"query": "x"})
+            out = await session.call_tool("web_search", {"query": "x"})
             text = "".join(getattr(c, "text", "") for c in out.content)
             assert "Unknown tool" in text or "not one of your tools" in text
 
@@ -388,15 +388,15 @@ async def test_an_agent_sees_and_calls_only_the_tools_it_holds(registry):
 async def test_a_granted_tool_advertises_the_manifests_typed_parameters(registry):
     """The schema an agent sees comes from the record, not from an installed package."""
     registry()
-    token = mint_token("r1", "analyst", is_referee=False, secret=SECRET, grants=["web.search"])
-    described = {"web.search": {"available": True, "description": "Search the web",
+    token = mint_token("r1", "analyst", is_referee=False, secret=SECRET, grants=["web_search"])
+    described = {"web_search": {"available": True, "description": "Search the web",
                                 "params": {"type": "object",
                                            "properties": {"query": {"type": "string"},
                                                           "count": {"type": "integer"}},
                                            "required": ["query"]},
                                 "policy": {}}}
     async with _server({"r1": _manifest(described=described)}) as app, _as(app, token) as session:
-        tool = next(t for t in (await session.list_tools()).tools if t.name == "web.search")
+        tool = next(t for t in (await session.list_tools()).tools if t.name == "web_search")
         assert tool.description == "Search the web"
         assert set(tool.inputSchema.get("properties", {})) == {"query", "count"}
         assert tool.inputSchema.get("required") == ["query"]
@@ -406,21 +406,21 @@ async def test_two_realms_on_one_server_see_only_their_own_tools(registry):
     """realmtools is shared by every realm. With per-realm descriptions read from data, realm A
     must never be described by realm B's manifest — the realm id comes from the signed token."""
     registry()
-    a = mint_token("ra", "analyst", is_referee=False, secret=SECRET, grants=["web.search"])
-    b = mint_token("rb", "analyst", is_referee=False, secret=SECRET, grants=["web.search"])
+    a = mint_token("ra", "analyst", is_referee=False, secret=SECRET, grants=["web_search"])
+    b = mint_token("rb", "analyst", is_referee=False, secret=SECRET, grants=["web_search"])
 
     async with _server({
-        "ra": _manifest(described={"web.search": {"available": True, "description": "REALM A",
+        "ra": _manifest(described={"web_search": {"available": True, "description": "REALM A",
                                                   "params": {"type": "object"}, "policy": {}}}),
-        "rb": _manifest(described={"web.search": {"available": True, "description": "REALM B",
+        "rb": _manifest(described={"web_search": {"available": True, "description": "REALM B",
                                                   "params": {"type": "object"}, "policy": {}}}),
     }) as app:
         async with _as(app, a) as s:
             assert next(t for t in (await s.list_tools()).tools
-                        if t.name == "web.search").description == "REALM A"
+                        if t.name == "web_search").description == "REALM A"
         async with _as(app, b) as s:
             assert next(t for t in (await s.list_tools()).tools
-                        if t.name == "web.search").description == "REALM B"
+                        if t.name == "web_search").description == "REALM B"
 
 
 async def test_a_grant_with_no_manifest_entry_is_still_offered(registry):
@@ -428,10 +428,10 @@ async def test_a_grant_with_no_manifest_entry_is_still_offered(registry):
     describe a tool, it is listed unconstrained rather than dropped — a guessed argument shape is
     recoverable, a tool the agent never sees is not."""
     registry()
-    token = mint_token("r1", "analyst", is_referee=False, secret=SECRET, grants=["web.search"])
+    token = mint_token("r1", "analyst", is_referee=False, secret=SECRET, grants=["web_search"])
     empty = {"version": 1, "tools": {}, "grants": {}}
     async with _server({"r1": empty}) as app, _as(app, token) as session:
-        tool = next(t for t in (await session.list_tools()).tools if t.name == "web.search")
+        tool = next(t for t in (await session.list_tools()).tools if t.name == "web_search")
         assert tool.inputSchema == {"type": "object"}
 
 
@@ -439,11 +439,11 @@ async def test_a_manifest_from_a_future_version_degrades_rather_than_breaks(regi
     """Host and container are separate deployments (the tokens.py hazard). An unreadable manifest
     must cost precision, never the grant."""
     registry()
-    token = mint_token("r1", "analyst", is_referee=False, secret=SECRET, grants=["web.search"])
-    bad = {"version": 99, "tools": {"web.search": {"params": {"nope": 1}}}}
+    token = mint_token("r1", "analyst", is_referee=False, secret=SECRET, grants=["web_search"])
+    bad = {"version": 99, "tools": {"web_search": {"params": {"nope": 1}}}}
     async with _server({"r1": bad}) as app, _as(app, token) as session:
         names = {t.name for t in (await session.list_tools()).tools}
-        assert "web.search" in names
+        assert "web_search" in names
 
 
 # --- the writer and the reader must agree (#66) ------------------------------------------------
@@ -460,17 +460,17 @@ async def test_the_quota_the_platform_writes_is_the_quota_the_broker_reads(chron
 
     project = Project(
         metadata=ProjectMeta(name="p"),
-        spec=ProjectSpec(tools={"web.search": {"max_calls_per_agent": 1}}),
-        agents=[AgentSpec(id="analyst", tools=["web.search"])],
+        spec=ProjectSpec(tools={"web_search": {"max_calls_per_agent": 1}}),
+        agents=[AgentSpec(id="analyst", tools=["web_search"])],
     )
     await chron.append_event("r1", EventKind.TOOL_MANIFEST, grant_manifest(project))
 
     svc = ToolCallService(chron)
-    assert await svc.policy("r1", "web.search") == {"max_calls_per_agent": 1}, (
+    assert await svc.policy("r1", "web_search") == {"max_calls_per_agent": 1}, (
         "the platform's own manifest does not carry the policy the broker reads"
     )
 
     await chron.append_event("r1", EventKind.TOOL_CALL,
-                             {"id": "a", "agent": "analyst", "tool": "web.search", "args": {}})
-    out = await svc.call(_who("web.search"), "web.search", {"query": "x"})
+                             {"id": "a", "agent": "analyst", "tool": "web_search", "args": {}})
+    out = await svc.call(_who("web_search"), "web_search", {"query": "x"})
     assert out["quota_exhausted"] is True, "the cap the scenario set did not bite"

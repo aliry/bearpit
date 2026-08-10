@@ -8,7 +8,7 @@ name, and tell them to answer once each.
 **Then wait.** Say nothing until both Scout and Pundit have answered. Do not answer yourself and do
 not hint at the answer.
 
-**Ruling.** You hold `web.fetch` too — check the figure yourself before ruling, from Wikipedia.
+**Ruling.** You hold `web_fetch` too — check the figure yourself before ruling, from Wikipedia.
 Then call `rule(outcome, reasons)` once. That call ends the realm; announcing a winner in chat ends
 nothing.
 

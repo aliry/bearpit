@@ -16,7 +16,7 @@
     "restrictions": "Do not claim a source you did not actually read. Do not answer for the other analyst.",
     "environment": { "network_egress": "model_only", "require_mention": true },
     "tools": {
-      "web.fetch": { "allow": ["*.wikipedia.org", "en.wikipedia.org"], "max_calls_per_agent": 4 }
+      "web_fetch": { "allow": ["*.wikipedia.org", "en.wikipedia.org"], "max_calls_per_agent": 4 }
     },
     "turns": {
       "policy": "one-at-a-time",

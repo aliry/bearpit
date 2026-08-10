@@ -48,21 +48,24 @@ authority.**
 
 ```json
 "agents": [
-  { "id": "analyst", "tools": ["web.search", "web.fetch"] },
-  { "id": "rival",   "tools": ["web.search"] },
+  { "id": "analyst", "tools": ["web_search", "web_fetch"] },
+  { "id": "rival",   "tools": ["web_search"] },
   { "id": "sealed",  "tools": [] }
 ]
 ```
 
-Names are strings, like `skills`, so the picker stays a multi-select and a manifest stays
-diffable. **Per-tool configuration is realm-level**, in a new `spec.tools` block keyed by tool
+Names are `family_verb`, lowercase and underscore-separated — strings, like `skills`, so the picker stays a multi-select and a manifest stays diffable.
+
+**Not `family.verb`, which this ADR originally specified.** A dot survives MCP perfectly: the SDK lists it, calls it, and a spike proved exactly that. It then dies one layer further on, because model function-calling APIs allow only `[A-Za-z0-9_-]` in a tool name. The first live run found it the expensive way — the agent held the grant, Realmtools advertised the tool with the correct schema, and the agent reported that no such tool existed. Every one of the platform's own fifteen verbs was already underscore-named; this was the first dot anyone had tried.
+
+The rename creates one hazard it is worth naming: with a dot, a plugin could not collide with a Realmtools verb; with an underscore, `run_code` is one plausible name away. The registry refuses any name in that set. Single-word verbs (`rule`, `remember`) are unreachable anyway, since a tool name must contain an underscore. **Per-tool configuration is realm-level**, in a new `spec.tools` block keyed by tool
 name, and applies to every agent granted that tool:
 
 ```json
 "spec": {
   "tools": {
-    "web.fetch":  { "allow": ["*.wikipedia.org", "arxiv.org"], "max_calls_per_agent": 20 },
-    "web.search": { "max_calls_per_agent": 10 }
+    "web_fetch":  { "allow": ["*.wikipedia.org", "arxiv.org"], "max_calls_per_agent": 20 },
+    "web_search": { "max_calls_per_agent": 10 }
   }
 }
 ```
@@ -86,7 +89,7 @@ A `ToolProfile` declares:
 
 | field | purpose |
 |---|---|
-| `name` | namespaced id, e.g. `web.search` |
+| `name` | namespaced id, e.g. `web_search` |
 | `label`, `description` | the picker's label; the description the *agent* sees in its tool list |
 | `params` | JSON Schema for the call arguments |
 | `config_schema` | JSON Schema for this tool's `spec.tools[name]` block |
@@ -95,8 +98,8 @@ A `ToolProfile` declares:
 | `cost_per_call_usd` | for quotas and the run record |
 | `handler(args, config, ctx)` | async; **runs on the host** |
 
-`web.fetch` ships in-tree: it needs no key and no third party, so the platform should not require
-an install to be useful. **`web.search` ships as a separate public plugin** (`bearpit-websearch`,
+`web_fetch` ships in-tree: it needs no key and no third party, so the platform should not require
+an install to be useful. **`web_search` ships as a separate public plugin** (`bearpit-websearch`,
 Brave-backed), because the search backend is a vendor choice with a vendor key, and baking one into
 core makes that choice look like the platform's rather than the operator's.
 
@@ -178,7 +181,7 @@ about being a quota, which is better than a dollar figure that only counts half 
 Two tiers, because a warning shown on every research scenario stops being a warning — the lesson
 from #47.
 
-- **`contained`** (`web.search`, `web.fetch`): metered, chronicled, no isolation change. Launches
+- **`contained`** (`web_search`, `web_fetch`): metered, chronicled, no isolation change. Launches
   silently. The grants are visible on the scenario card, in the agent editor, and in the run record.
 - **`elevated`** (any plugin that declares it; container egress and external MCP servers when they
   land): launching returns **400** listing exactly which agent gets which tool, and proceeds only on
@@ -188,7 +191,7 @@ from #47.
 The tier is declared by the tool, so a contributed plugin can put itself behind the gate without
 the platform knowing anything about it.
 
-### 8. `web.fetch` and the server-side request forgery problem
+### 8. `web_fetch` and the server-side request forgery problem
 
 Host-brokering is what makes this safe from the *container's* point of view, and it is exactly what
 makes it dangerous from the *host's*. The host can reach the operator's LAN, the control plane on
@@ -208,7 +211,7 @@ Every one of these is required, and each needs a test that fails without it:
 - **No inherited authority** — no cookie jar, no auth headers, no proxy credentials.
 - **Bounded response** — 10s timeout, 256 KB cap, `text/*` + JSON/XML content types only, returned
   as text. Never binary.
-- **Optional domain allowlist** — `spec.tools["web.fetch"].allow`. When set, only those hosts.
+- **Optional domain allowlist** — `spec.tools["web_fetch"].allow`. When set, only those hosts.
 - **Chronicled** — the requested URL, every redirect hop, the final URL, status and byte count.
 
 The realm-boundary guarantee this preserves is the one SECURITY.md already makes: in-realm
@@ -243,13 +246,13 @@ The scenario builder must be able to grant tools, and must not be able to invent
 ### 11. Scenario contract
 
 A new invariant: **a scenario that tells an agent to use a tool must grant that tool.** Prose
-ordering an agent to "search for the latest figures" when it holds no `web.search` is the same
+ordering an agent to "search for the latest figures" when it holds no `web_search` is the same
 defect as the skills bug this codebase already paid for — the prompt kept ordering agents to load a
 skill that was never delivered.
 
 ## Alternatives considered
 
-**Per-agent container egress (`net.open`) in v1.** Rejected for now, deliberately, and not because
+**Per-agent container egress (`net_open`) in v1.** Rejected for now, deliberately, and not because
 it is unattractive: it is a *real* capability where brokering is a narrow one — any protocol, any
 client, `pip install`, the agent's own tooling. But it removes the realm-isolation guarantee for
 that agent, and the honest version of that feature needs its own design: what a compromised or
@@ -274,8 +277,8 @@ who cannot is a scenario primitive, not a configuration corner.
 
 ## Non-goals (this ADR)
 
-- **Container egress / `net.open`.** Deferred as above; needs its own ADR.
-- **External MCP servers.** The grant namespace (`mcp.<name>`) and the `spec.tools` config block are
+- **Container egress / `net_open`.** Deferred as above; needs its own ADR.
+- **External MCP servers.** The grant namespace (`mcp_<name>`) and the `spec.tools` config block are
   designed to hold them, but the trust model — a third party that sees realm content, holds its own
   credentials, and can change behaviour under you — is a separate decision.
 - **Dollar budgets for tool spend** through the Ledger (§6).

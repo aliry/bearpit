@@ -43,6 +43,7 @@ def _system_prompt(
     restrictions: str | None,
     dm_rooms: dict[str, str] | None = None,
     has_realmtools: bool = False,
+    granted_tools: tuple[str, ...] = (),
     shared_folder: bool = False,
     resources: Sequence[str] = (),
 ) -> str:
@@ -95,6 +96,25 @@ def _system_prompt(
             "turn with no memory of the last, so `recall()` FIRST to see what you knew, and "
             "`remember(...)` LAST to record what you learned. Anything you do not write down is "
             "lost. Tool calls are free and never use up your turn."
+        )
+    if granted_tools and has_realmtools:
+        # The runtime NAMESPACES every MCP tool as `mcp_<server>_<tool>`, so the thing an agent can
+        # actually call is `mcp_realmtools_web_fetch`, not `web_fetch`. A scenario writes the plain
+        # name — it should not have to know how this runtime prefixes anything — so the mapping is
+        # stated here, in the one place that knows.
+        #
+        # This is not a nicety. Live, an agent held a grant, realmtools advertised it correctly, the
+        # function reached the model under its prefixed name, and the agent still reported that no
+        # such tool existed: it was looking for the literal name its persona gave it. The tool was
+        # present and unreachable at the same time.
+        listed = ", ".join(f"`mcp_realmtools_{name}` (written `{name}` in your instructions)"
+                           for name in sorted(granted_tools))
+        lines.append(
+            "TOOLS GRANTED TO YOU, AND WHAT THEY ARE ACTUALLY CALLED. This realm has given you: "
+            f"{listed}. Your instructions use the short name; the function you invoke carries the "
+            "`mcp_realmtools_` prefix. They are the same tool. If a task needs one, CALL it and "
+            "use what it returns — never claim you tried. A granted tool you do not use is worth "
+            "exactly as much as one you were never given."
         )
     if shared_folder and has_realmtools:
         # The realm's shared volume is mounted into this container, but a realm agent has NO
@@ -189,6 +209,7 @@ def render_hermes_home(
             "api_max_retries": 1,  # C7 / S3: fail fast against the budget-capped proxy
             "system_prompt": _system_prompt(agent, matrix, roster, guidelines, restrictions,
                                              dm_rooms or {}, realmtools is not None,
+                                             tuple(agent.tools),
                                              shared_folder, sorted(agent.resource_files)),
             "verify_on_stop": False,  # autonomous: don't pause for human verification
         },

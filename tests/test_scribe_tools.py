@@ -218,8 +218,8 @@ async def test_list_tools_reports_what_can_actually_be_granted(monkeypatch, tmp_
     tools, _ = _tools(FakePackageStore())
     listed = _json.loads(await tools.dispatch(ToolCall(id="1", name="list_tools", arguments={})))
     names = {t["name"] for t in listed}
-    assert "web.fetch" in names
-    fetch = next(t for t in listed if t["name"] == "web.fetch")
+    assert "web_fetch" in names
+    fetch = next(t for t in listed if t["name"] == "web_fetch")
     assert fetch["ready"] is True and fetch["needs_key_ref"] is None
     assert fetch["risk"] == "contained"
     assert fetch["description"]
@@ -236,10 +236,10 @@ def test_a_draft_granting_a_tool_that_does_not_exist_is_refused():
         "spec": {"goals": ["find out"], "guidelines": "g",
                  "termination": [{"type": "duration", "limit": "1h"}]},
         "agents": [{"id": "analyst", "model_category": "medium", "persona": "p",
-                    "tools": ["web.crawl"]}],
+                    "tools": ["web_crawl"]}],
     }
     problems = draft_problems(spec)
-    assert problems and "web.crawl" in problems and "analyst" in problems
+    assert problems and "web_crawl" in problems and "analyst" in problems
 
 
 def test_a_draft_granting_a_real_tool_passes():
@@ -251,6 +251,6 @@ def test_a_draft_granting_a_real_tool_passes():
         "spec": {"goals": ["find out"], "guidelines": "g",
                  "termination": [{"type": "duration", "limit": "1h"}]},
         "agents": [{"id": "analyst", "model_category": "medium", "persona": "p",
-                    "tools": ["web.fetch"]}],
+                    "tools": ["web_fetch"]}],
     }
     assert draft_problems(spec) is None

@@ -2,8 +2,8 @@
 
 **Two analysts, the same question, and only one of them can look things up.**
 
-This is the worked example for per-agent tool grants (ADR-004). Scout holds `web.fetch` and is told
-to answer by reading; Pundit holds nothing and must answer from memory; the Judge holds `web.fetch`
+This is the worked example for per-agent tool grants (ADR-004). Scout holds `web_fetch` and is told
+to answer by reading; Pundit holds nothing and must answer from memory; the Judge holds `web_fetch`
 too, so it can verify rather than recall before ruling.
 
 Before tool grants existed, every agent in a realm had the same capabilities, which made this
@@ -31,6 +31,6 @@ the manifest.
 
 ## Policy
 
-`spec.tools` caps `web.fetch` at four calls per agent and allows Wikipedia only, so the scenario is
+`spec.tools` caps `web_fetch` at four calls per agent and allows Wikipedia only, so the scenario is
 bounded in both spend and blast radius. Both are realm-level: the scenario sets the policy, each
 agent holds the grant.

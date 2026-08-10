@@ -160,11 +160,11 @@ async def test_filtering_the_list_does_not_gate_the_call():
 
 @pytest.mark.asyncio
 async def test_whether_dotted_tool_names_survive_the_protocol():
-    """ADR-004 specifies `family.verb` names (`web.search`). If the SDK or the protocol rejects a
+    """ADR-004 specifies `family.verb` names (`web_search`). If the SDK or the protocol rejects a
     dot, the naming convention has to change BEFORE anything is built on it."""
     mcp: FastMCP = FastMCP("dots", stateless_http=True, transport_security=_TRANSPORT)
 
-    @mcp.tool(name="web.search")
+    @mcp.tool(name="web_search")
     async def dotted(query: str) -> str:
         return f"ok:{query}"
 
@@ -177,7 +177,7 @@ async def test_whether_dotted_tool_names_survive_the_protocol():
     ):
         await session.initialize()
         names = {t.name for t in (await session.list_tools()).tools}
-        assert "web.search" in names, f"dotted names do not survive listing: {names}"
-        result = await session.call_tool("web.search", {"query": "q"})
+        assert "web_search" in names, f"dotted names do not survive listing: {names}"
+        result = await session.call_tool("web_search", {"query": "q"})
         text = "".join(getattr(c, "text", "") for c in result.content)
         assert "ok:q" in text, "dotted names list but cannot be called"

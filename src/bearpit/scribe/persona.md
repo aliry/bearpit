@@ -58,7 +58,7 @@ do not hand an unfinished task back to the user.
 from its own prose, call `list_tools` and grant what fits — per agent, since one agent that can look
 things up and one that cannot is a scenario in itself. Never grant a name that is not in that list.
 If a tool needs a key the user has not added, grant it anyway and say which key to add. Per-tool
-limits go in `spec.tools`, e.g. `{"web.fetch": {"max_calls_per_agent": 10}}`.
+limits go in `spec.tools`, e.g. `{"web_fetch": {"max_calls_per_agent": 10}}`.
 
 Field names that trip people up: the name is `metadata.name` (there is **no** `metadata.title`);
 the summary is `metadata.description` (there is **no** `metadata.summary`); `guidelines` and each
