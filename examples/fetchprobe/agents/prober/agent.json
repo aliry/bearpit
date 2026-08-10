@@ -1,0 +1,2 @@
+{ "id": "prober", "name": "Prober", "role": "participant", "model_category": "medium",
+  "budget": { "max_usd": 1 }, "skills": [], "tools": ["web_fetch"] }

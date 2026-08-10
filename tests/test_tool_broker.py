@@ -474,3 +474,27 @@ async def test_the_quota_the_platform_writes_is_the_quota_the_broker_reads(chron
                              {"id": "a", "agent": "analyst", "tool": "web_search", "args": {}})
     out = await svc.call(_who("web_search"), "web_search", {"query": "x"})
     assert out["quota_exhausted"] is True, "the cap the scenario set did not bite"
+
+
+async def test_a_granted_tool_can_actually_be_CALLED_through_the_protocol(registry):
+    """The path nothing covered: a granted agent INVOKING its tool over real MCP.
+
+    The e2e tests checked that a granted agent could SEE the tool and that an ungranted one was
+    refused — never that the granted one could call it. Live, agents reported the tool as broken;
+    a dispatch that falls through to FastMCP answers "Unknown tool", which is exactly what a
+    "broken tool" looks like from inside a model (#73).
+    """
+    registry()
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr("bearpit.realmtools.toolcall._WAIT_S", 0.05)  # no host here to answer
+    token = mint_token("r1", "analyst", is_referee=False, secret=SECRET, grants=["web_fetch"])
+    async with _server({"r1": _manifest("web_fetch")}) as app, _as(app, token) as session:
+        result = await session.call_tool("web_fetch", {"query": "otters"})
+        text = "".join(getattr(c, "text", "") for c in result.content)
+        assert "Unknown tool" not in text, (
+            "a granted tool fell through to FastMCP's own dispatcher — the agent is told the tool "
+            "does not exist, which is why live runs reported it broken"
+        )
+        # the broker must have recorded the intent for the host to perform
+        assert "did not answer in time" in text or "result" in text or "error" in text
+    monkeypatch.undo()

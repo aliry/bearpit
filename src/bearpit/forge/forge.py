@@ -150,6 +150,12 @@ class Forge:
             # private DMs: an agent with the permission needs the send_private tool (the host can't
             # rely on the agent finding its DM room unaided — the tool is the reliable path).
             or any(a.private_messaging.enabled for a in project.agents)
+            # ...and a granted tool is served by this same server (ADR-004), so a scenario whose
+            # only tool need is a grant must wire it too. Without this clause the grant was in the
+            # manifest, in the token and in the manifest event, and the agent was never connected
+            # to anything that could serve it — so it answered from memory and said the tool was
+            # broken. Found with a one-agent probe that had no referee and no mechanic (#73).
+            or any(a.tools for a in project.agents)
         )
         wire_tools = needs_tools and self._realmtools is not None and project.spec.provide_tools
         if wire_tools:
