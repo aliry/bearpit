@@ -56,6 +56,12 @@ class EventKind(StrEnum):
     # up (and what it cost) is part of the permanent record from day one.
     TOOL_CALL = "tool_call"
     TOOL_RESULT = "tool_result"
+    # what agents were SHOWN: {version, tools:{name:{description,params,policy,...}}, grants}.
+    # Realmtools describes a granted tool from this and nothing else, so no tool plugin has to be
+    # installed in that container (#65). Descriptive, never authoritative — the signed token remains
+    # the only thing that says what an agent may call. Its own kind, not run_config's `config`,
+    # because `config` is served verbatim to a 2s console poll and read first-match.
+    TOOL_MANIFEST = "tool_manifest"
     # a referee's `eliminate` tool call {agent|None, reason, issued_by}: agent None closes a round
     # with no ejection; a named agent is dropped from the turn rotation by the host (physics)
     ELIMINATION = "elimination"

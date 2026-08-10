@@ -1,6 +1,12 @@
 # Realmtools MCP server — serves the deterministic mechanics (sealed submissions, scoring,
 # verdicts) to agents. Built from the bearpit package; Forge attaches it to each realm network.
 #
+# TOOL PLUGINS DO NOT BELONG HERE, and adding one is a regression. Granted tools (ADR-004) are
+# described from the per-realm manifest the host writes to the chronicle, and executed by the host,
+# which holds the keystore and the only internet route. Installing a tool package here would put a
+# third party's dependency tree and import-time code inside the agent-facing server for no benefit
+# at all — see #65.
+#
 # Built with `context: ..` (the repo root), so the root .dockerignore decides what reaches the
 # daemon. Keep that allowlist tight: this build needs only the package and its lockfile.
 FROM python:3.12-slim
