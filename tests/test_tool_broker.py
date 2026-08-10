@@ -432,3 +432,36 @@ async def test_a_realm_that_used_no_tools_has_no_tool_section(chron):
     nothing, and none of them should grow an empty heading."""
     await chron.append_event("r1", EventKind.LIFECYCLE, {"event": "running"})
     assert "## Tool use" not in await chron.final_report("r1")
+
+
+# --- the writer and the reader must agree (#66) ------------------------------------------------
+async def test_the_quota_the_platform_writes_is_the_quota_the_broker_reads(chron):
+    """The test that was missing, and the reason nine quota tests passed against a dead feature.
+
+    Every other quota test seeds the lifecycle payload by hand, so they prove the READER works on
+    input the WRITER never produced. This one drives the real `run_config()` into the chronicle
+    exactly as `runner.py` writes it, and lets the real `policy()` read it back. No hand-written
+    payload anywhere in the path.
+    """
+    from bearpit.core.runconfig import run_config
+    from bearpit.core.schema import AgentSpec, Project, ProjectMeta, ProjectSpec
+
+    project = Project(
+        metadata=ProjectMeta(name="p"),
+        spec=ProjectSpec(tools={"web.search": {"max_calls_per_agent": 1}}),
+        agents=[AgentSpec(id="analyst", tools=["web.search"])],
+    )
+    await chron.append_event("r1", EventKind.LIFECYCLE, {
+        "event": "running",
+        "config": run_config(project, "azure", require_mention=True),
+    })
+
+    svc = ToolCallService(chron)
+    assert await svc.policy("r1", "web.search") == {"max_calls_per_agent": 1}, (
+        "the platform's own run record does not carry the policy the broker reads"
+    )
+
+    await chron.append_event("r1", EventKind.TOOL_CALL,
+                             {"id": "a", "agent": "analyst", "tool": "web.search", "args": {}})
+    out = await svc.call(_who("web.search"), "web.search", {"query": "x"})
+    assert out["quota_exhausted"] is True, "the cap the scenario set did not bite"
