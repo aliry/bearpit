@@ -1063,6 +1063,26 @@ def create_app(
             },
         )
 
+    def _check_tools(project: Project) -> None:
+        """Refuse a launch whose tool grants cannot work on this machine (#67).
+
+        Not a style check. Realmtools advertises tools from its own registry, so an uninstalled
+        grant is never offered to the agent at all — it silently lacks a capability the scenario's
+        prose still tells it to use, and the realm spends real money producing nonsense for a
+        reason nothing anywhere states. A missing key handle fails the same way, one call later.
+        """
+        from bearpit.core.tools import check_grants, keystore_handles
+
+        problems = check_grants(project, key_refs=keystore_handles())
+        if problems:
+            raise HTTPException(
+                status_code=400,
+                detail={"error": "this scenario's tool grants cannot work here",
+                        "problems": problems,
+                        "hint": "install the packages that provide them, add the missing key "
+                                "handles, or remove the grants"},
+            )
+
     @app.post("/api/realms")
     async def create_realm(req: CreateRealm) -> dict[str, Any]:
         _check_provider(req.allow_provider_fallback)
@@ -1096,6 +1116,7 @@ def create_app(
             project = bind_params(project, values)
         except ParameterError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        _check_tools(project)
         if req.turns is not None:  # UI override: enable/disable turns for this run
             turns = (
                 Turns(silence_timeout_s=req.turns.silence_timeout_s)
@@ -1107,6 +1128,7 @@ def create_app(
         import re
         import secrets
 
+        _check_tools(project)
         base = re.sub(r"[^a-z0-9-]+", "-", project.metadata.name.lower()).strip("-") or "realm"
         realm_id = req.realm_id or f"{base}-{secrets.token_hex(3)}"
         # Mention policy: the scenario may opt into free-response (require_mention=false) so agents

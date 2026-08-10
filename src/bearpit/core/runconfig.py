@@ -91,6 +91,11 @@ def run_config(
     return {
         "provider": provider,
         "provider_fallback": dict(provider_fallback) if provider_fallback else None,
+        # Per-tool policy for this realm (ADR-004 §1). Recorded because the Realmtools broker reads
+        # its quotas back out of this snapshot: it is stateless and shared across realms, so the run
+        # record is the only per-realm configuration it can be sure is the one that actually ran.
+        # Omitting it did not fail loudly — `max_calls_per_agent` simply never fired (#66).
+        "tools": {name: dict(cfg) for name, cfg in spec.tools.items()},
         "parameters": dict(parameters or {}),
         "package": project.source,   # None for a project that was not loaded from a package
         # TURN CONTROL — the single most consequential switch, and the one people ask about first

@@ -15,6 +15,7 @@ Every test drives a FAKE plugin through discovery, so nothing here depends on wh
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -255,3 +256,115 @@ def test_the_same_missing_tool_is_reported_once_per_agent(monkeypatch):
     problems = check_grants(project, key_refs=set())
     assert len(problems) == 2
     assert {"one", "two"} == {p.split("'")[1] for p in problems}
+
+
+# --- check_grants must actually be CALLED (#67) ------------------------------------------------
+class _LaunchManager:
+    """Just enough manager for the launch endpoints."""
+
+    max_active = 6
+
+    def __init__(self) -> None:
+        self.runs: dict[str, Any] = {}
+        self.started: list[tuple[str, dict[str, Any]]] = []
+
+    def start(self, realm_id: str, project: Any, **kw: Any) -> None:
+        self.started.append((realm_id, kw))
+
+    def active(self) -> list[str]:
+        return [r for r, _ in self.started]
+
+
+def _pkg_granting(tmp_path, tool="web.search"):
+    import json
+    pkg = tmp_path / "pkg"
+    pkg.mkdir(parents=True, exist_ok=True)
+    (pkg / "project.json").write_text(json.dumps({
+        "metadata": {"name": "duel"},
+        "spec": {"termination": [{"type": "manual"}]},
+        "agents": [{"id": "analyst", "tools": [tool],
+                    "model": {"provider": "azure", "model": "m", "api_key_ref": "azure-main"}}],
+    }))
+    return pkg
+
+
+@pytest.mark.asyncio
+async def test_launching_with_an_uninstalled_tool_is_refused_and_says_which(tmp_path, monkeypatch):
+    """The grant was checked against the token, not this machine. Realmtools registers from its own
+    registry, so an uninstalled tool is never advertised: the agent silently lacks it while the
+    scenario's prose still tells it to search. That realm spends money producing nonsense for a
+    reason nothing states — the #47 failure, one layer down."""
+    from starlette.testclient import TestClient
+
+    from bearpit.chronicle import Chronicle
+    from bearpit.gatekeeper.api import create_app
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _install(monkeypatch)  # nothing installed
+    chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+    with TestClient(create_app(chron=chron, manager=_LaunchManager())) as c:
+        r = c.post("/api/realms", json={"package": str(_pkg_granting(tmp_path))})
+    await chron.close()
+    assert r.status_code == 400, r.text
+    detail = r.json()["detail"]
+    body = json.dumps(detail)
+    assert "web.search" in body and "analyst" in body and "not installed" in body
+
+
+@pytest.mark.asyncio
+async def test_launching_with_every_granted_tool_present_is_untouched(tmp_path, monkeypatch):
+    from starlette.testclient import TestClient
+
+    from bearpit.chronicle import Chronicle
+    from bearpit.gatekeeper.api import create_app
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _install(monkeypatch, _FakeEntryPoint("ws", _Plugin(_profile())))
+    chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+    with TestClient(create_app(chron=chron, manager=_LaunchManager())) as c:
+        r = c.post("/api/realms", json={"package": str(_pkg_granting(tmp_path))})
+    await chron.close()
+    assert r.status_code == 200, r.text
+
+
+@pytest.mark.asyncio
+async def test_a_granted_tool_whose_key_is_missing_is_refused_too(tmp_path, monkeypatch):
+    """It would fail on every call at run time. Saying so up front costs a message; not saying so
+    costs the run."""
+    from starlette.testclient import TestClient
+
+    from bearpit.chronicle import Chronicle
+    from bearpit.gatekeeper.api import create_app
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _install(monkeypatch, _FakeEntryPoint("ws", _Plugin(_profile(api_key_ref="search-main"))))
+    chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+    with TestClient(create_app(chron=chron, manager=_LaunchManager())) as c:
+        r = c.post("/api/realms", json={"package": str(_pkg_granting(tmp_path))})
+    await chron.close()
+    assert r.status_code == 400
+    assert "search-main" in json.dumps(r.json()["detail"])
+
+
+def test_validate_reports_tool_problems(tmp_path, monkeypatch):
+    """`validate` is what an author runs after editing; a grant that cannot work should surface
+    there rather than at launch."""
+    from typer.testing import CliRunner
+
+    from bearpit.cli.main import app
+
+    _install(monkeypatch)
+    result = CliRunner().invoke(app, ["validate", str(_pkg_granting(tmp_path))])
+    assert "web.search" in result.output and "not installed" in result.output
+
+
+def test_up_refuses_a_grant_that_cannot_work(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from bearpit.cli.main import app
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _install(monkeypatch)
+    result = CliRunner().invoke(app, ["up", str(_pkg_granting(tmp_path))])
+    assert result.exit_code != 0
+    assert "web.search" in result.output

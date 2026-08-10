@@ -169,6 +169,25 @@ def is_tool(name: str) -> bool:
     return name in tool_registry()
 
 
+def keystore_handles() -> set[str]:
+    """Handle names in the local keystore — names only, never a secret value.
+
+    Read here rather than through the Ledger so a caller that only wants to VALIDATE a scenario
+    does not have to construct one.
+    """
+    import json
+    from pathlib import Path
+
+    store = Path.home() / ".bearpit" / "keystore.json"
+    if not store.exists():
+        return set()
+    try:
+        data = json.loads(store.read_text())
+    except (OSError, ValueError):
+        return set()
+    return set(data) if isinstance(data, dict) else set()
+
+
 def check_grants(project: Project, *, key_refs: set[str]) -> list[str]:
     """Problems with this project's tool grants **on this machine**, as readable lines.
 
@@ -225,6 +244,7 @@ __all__ = [
     "ToolProfile",
     "ToolRisk",
     "check_grants",
+    "keystore_handles",
     "is_tool",
     "reset_tool_cache",
     "tool_registry",

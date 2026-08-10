@@ -145,6 +145,15 @@ def validate(
     typer.echo(f"  referee:  {ref.id if ref else '—'}")
     typer.echo(f"  mechanics: {', '.join(m.kind for m in project.spec.mechanics) or '—'}")
     typer.echo(f"  termination: {', '.join(t.type for t in project.spec.termination) or '—'}")
+    # Tool grants that cannot work on this machine. `validate` is what an author runs after
+    # editing, and an uninstalled grant is otherwise invisible until an agent quietly lacks it.
+    from bearpit.core.tools import check_grants, keystore_handles
+
+    tool_problems = check_grants(project, key_refs=keystore_handles())
+    if tool_problems:
+        typer.secho("  tools:", fg=typer.colors.YELLOW)
+        for line in tool_problems:
+            typer.secho(f"    {line}", fg=typer.colors.YELLOW)
     # Surface parameters here too: `validate` is what an author runs after editing, and a typo
     # that invents a new parameter is otherwise invisible until launch (ADR-003).
     from bearpit.core.params import ParameterError as _ParamError
@@ -325,6 +334,7 @@ def up(
     """
     project = _load_or_exit(path)
     project, param_values = _apply_params(project, list(param), assume_yes=assume_yes)
+    _tools_or_exit(project)
     consented = _confirm_provider(assume_yes)
     # a fresh id per run by default — realm-scoped Matrix users can't be re-created, so reusing
     # an id collides. Pass --realm to pin one deliberately.
@@ -730,6 +740,24 @@ async def _assist_repl(session: Any) -> None:  # pragma: no cover - interactive 
                 _show(event)
         except Exception as exc:  # a backend error must not kill the session
             typer.secho(f"! {exc}", fg=typer.colors.RED, err=True)
+
+
+def _tools_or_exit(project: Project) -> None:
+    """Stop before provisioning if a granted tool cannot work here (#67).
+
+    Realmtools advertises tools from its own registry, so an uninstalled grant is never offered to
+    the agent — it silently lacks a capability the scenario still tells it to use. Finding that out
+    per-call costs the run; finding it out here costs a message.
+    """
+    from bearpit.core.tools import check_grants, keystore_handles
+
+    problems = check_grants(project, key_refs=keystore_handles())
+    if not problems:
+        return
+    typer.secho("✗ this scenario's tool grants cannot work here:", fg=typer.colors.RED, err=True)
+    for line in problems:
+        typer.secho(f"    {line}", fg=typer.colors.RED, err=True)
+    raise typer.Exit(2)
 
 
 def _confirm_provider(assume_yes: bool) -> bool:
