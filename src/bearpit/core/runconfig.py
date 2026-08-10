@@ -62,6 +62,7 @@ def _agent_row(project: Project, agent: Any) -> dict[str, Any]:
             "max_per_round": pm.max_per_round,
         },
         "verdict_ends_realm": bool(agent.powers and agent.powers.verdict_ends_realm),
+        "tools": list(agent.tools),
     }
 
 

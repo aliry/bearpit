@@ -879,8 +879,12 @@ class Project(_Base):
         # spec-level `duration`: two ways to say the same thing, one of them silently inert, is
         # exactly how a scenario ends up with no backstop. This one is registry-free — it is a
         # statement about THIS manifest — so it belongs here rather than in `tools.check_grants`.
+        # ...but only once there is a roster to check against. The package loader validates
+        # project.json on its own first and attaches agents afterwards, so an unconditional check
+        # here rejects every package whose spec configures a tool — the config is present and the
+        # agents legitimately are not yet. A project with no agents cannot run regardless.
         granted = {name for a in self.agents for name in a.tools}
-        orphans = sorted(set(self.spec.tools) - granted)
+        orphans = sorted(set(self.spec.tools) - granted) if self.agents else []
         if orphans:
             raise ValueError(
                 f"spec.tools configures {', '.join(repr(o) for o in orphans)} but no agent is "

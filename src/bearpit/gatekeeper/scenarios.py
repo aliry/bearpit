@@ -60,7 +60,10 @@ def _agent_files(agent: dict[str, Any]) -> tuple[dict[str, Any], str]:
     override = agent.get("model_ref") or agent.get("model")
     if isinstance(override, dict) and override:
         out["model"] = override
-    for opt in ("rubric", "goals", "responsibilities", "powers", "private_messaging", "color"):
+    # `tools` belongs here: this list is an allowlist, so a field missing from it is dropped
+    # silently on save — the editor showed the grant, the package never carried it (#58).
+    for opt in ("rubric", "goals", "responsibilities", "powers", "private_messaging", "color",
+                "tools"):
         if agent.get(opt):
             out[opt] = agent[opt]
     return out, persona

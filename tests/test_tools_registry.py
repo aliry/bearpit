@@ -369,3 +369,187 @@ def test_up_refuses_a_grant_that_cannot_work(tmp_path, monkeypatch):
     result = CliRunner().invoke(app, ["up", str(_pkg_granting(tmp_path))])
     assert result.exit_code != 0
     assert "web.search" in result.output
+
+
+# --- the elevated tier takes consent (#57) -----------------------------------------------------
+def _elevated_profile(name="net.open"):
+    return _profile(name=name, risk=ToolRisk.ELEVATED)
+
+
+@pytest.mark.asyncio
+async def test_an_elevated_grant_is_refused_until_consented(tmp_path, monkeypatch):
+    from starlette.testclient import TestClient
+
+    from bearpit.chronicle import Chronicle
+    from bearpit.gatekeeper.api import create_app
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _install(monkeypatch, _FakeEntryPoint("x", _Plugin(_elevated_profile())))
+    pkg = _pkg_granting(tmp_path, tool="net.open")
+    chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+    manager = _LaunchManager()
+    with TestClient(create_app(chron=chron, manager=manager)) as c:
+        blocked = c.post("/api/realms", json={"package": str(pkg)})
+        allowed = c.post("/api/realms",
+                         json={"package": str(pkg), "allow_elevated_tools": True})
+    await chron.close()
+    assert blocked.status_code == 400, blocked.text
+    detail = blocked.json()["detail"]
+    assert detail["elevated"] == [{"agent": "analyst", "tools": ["net.open"]}]
+    assert "allow_elevated_tools" in detail["hint"]
+    assert allowed.status_code == 200, allowed.text
+
+
+@pytest.mark.asyncio
+async def test_contained_grants_launch_with_no_prompt(tmp_path, monkeypatch):
+    """The tier only means something if the common case is silent — a warning shown on every
+    research scenario stops being a warning (#47)."""
+    from starlette.testclient import TestClient
+
+    from bearpit.chronicle import Chronicle
+    from bearpit.gatekeeper.api import create_app
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _install(monkeypatch, _FakeEntryPoint("ws", _Plugin(_profile())))  # contained by default
+    chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+    with TestClient(create_app(chron=chron, manager=_LaunchManager())) as c:
+        r = c.post("/api/realms", json={"package": str(_pkg_granting(tmp_path))})
+    await chron.close()
+    assert r.status_code == 200, r.text
+
+
+def test_elevated_grants_lists_who_holds_what(monkeypatch):
+    from bearpit.core.tools import elevated_grants
+
+    _install(monkeypatch, _FakeEntryPoint("x", _Plugin(_elevated_profile(), _profile())))
+    project = Project(
+        metadata=ProjectMeta(name="p"),
+        agents=[AgentSpec(id="scraper", tools=["net.open", "web.search"]),
+                AgentSpec(id="analyst", tools=["web.search"])],
+    )
+    assert elevated_grants(project) == {"scraper": ["net.open"]}
+
+
+def test_up_asks_before_running_an_elevated_grant(tmp_path, monkeypatch):
+    from typer.testing import CliRunner
+
+    from bearpit.cli.main import app
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _install(monkeypatch, _FakeEntryPoint("x", _Plugin(_elevated_profile())))
+    result = CliRunner().invoke(app, ["up", str(_pkg_granting(tmp_path, tool="net.open"))],
+                                input="n\n")
+    assert result.exit_code == 1
+    assert "reach past the realm" in result.output and "net.open" in result.output
+
+
+@pytest.mark.asyncio
+async def test_rerun_checks_tool_grants_too(tmp_path, monkeypatch):
+    """Rerun is a launch, and the easier one to forget — it takes no request body, and both gates
+    were once written into `create_realm` twice while rerun had neither. A tool installed when a
+    realm first ran can be gone by the time someone replays it."""
+    from starlette.testclient import TestClient
+
+    from bearpit.chronicle import Chronicle, EventKind
+    from bearpit.gatekeeper.api import create_app
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _install(monkeypatch)  # the tool the recorded run used is no longer installed
+    chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+    project = Project(metadata=ProjectMeta(name="p"),
+                      agents=[AgentSpec(id="analyst", tools=["web.search"])])
+    await chron.append_event("old", EventKind.LIFECYCLE, {
+        "event": "running", "require_mention": True,
+        "project": project.model_dump(mode="json"),
+    })
+    with TestClient(create_app(chron=chron, manager=_LaunchManager())) as c:
+        r = c.post("/api/realms/old/rerun?mode=snapshot")
+    await chron.close()
+    assert r.status_code == 400, r.text
+    assert "web.search" in json.dumps(r.json()["detail"])
+
+
+@pytest.mark.asyncio
+async def test_rerun_gates_an_elevated_grant_and_accepts_consent(tmp_path, monkeypatch):
+    from starlette.testclient import TestClient
+
+    from bearpit.chronicle import Chronicle, EventKind
+    from bearpit.gatekeeper.api import create_app
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _install(monkeypatch, _FakeEntryPoint("x", _Plugin(_elevated_profile())))
+    chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+    project = Project(metadata=ProjectMeta(name="p"),
+                      agents=[AgentSpec(id="scraper", tools=["net.open"])])
+    await chron.append_event("old", EventKind.LIFECYCLE, {
+        "event": "running", "require_mention": True,
+        "project": project.model_dump(mode="json"),
+    })
+    with TestClient(create_app(chron=chron, manager=_LaunchManager())) as c:
+        blocked = c.post("/api/realms/old/rerun?mode=snapshot")
+        allowed = c.post("/api/realms/old/rerun?mode=snapshot&allow_elevated_tools=true")
+    await chron.close()
+    assert blocked.status_code == 400 and "net.open" in json.dumps(blocked.json()["detail"])
+    assert allowed.status_code == 200, allowed.text
+
+
+def test_a_grant_survives_the_editor_save_and_reload(tmp_path, monkeypatch):
+    """The round trip the browser caught and the suite did not.
+
+    `_agent_files` builds an explicit allowlist, so a field missing from it is dropped in silence:
+    the editor showed the grant, the save reported success, and the package never carried it. The
+    assertion has to go through the real writer AND the real loader, or it proves nothing.
+    """
+    from bearpit.core.package import load_package
+    from bearpit.gatekeeper.scenarios import write_scenario
+
+    base = tmp_path / "scen"
+    base.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "metadata": {"name": "granting"},
+        "spec": {"termination": [{"type": "manual"}],
+                 "tools": {"web.fetch": {"max_calls_per_agent": 5}}},
+        "agents": [
+            {"id": "analyst", "model_category": "medium", "persona": "x",
+             "tools": ["web.fetch"]},
+            {"id": "sealed", "model_category": "medium", "persona": "y"},
+        ],
+    }
+    written = write_scenario(base, "granting", payload)
+    project = load_package(str(base / (written.get("name") or "granting")))
+    by_id = {a.id: a for a in project.agents}
+    assert by_id["analyst"].tools == ["web.fetch"], "the editor's grant did not reach the package"
+    assert by_id["sealed"].tools == []
+    assert project.spec.tools == {"web.fetch": {"max_calls_per_agent": 5}}
+
+
+@pytest.mark.asyncio
+async def test_the_editor_reads_back_the_grants_it_saved(tmp_path, monkeypatch):
+    """Writer and reader again, from the other side.
+
+    The save path was fixed first, and the editor still showed "no tools" for an agent that had
+    one — because the READ endpoint omitted the field. Half a round trip is worse than none: the
+    grant is on disk, invisible in the editor, and dropped by the next save.
+    """
+    from starlette.testclient import TestClient
+
+    from bearpit.chronicle import Chronicle
+    from bearpit.gatekeeper.api import create_app
+    from bearpit.gatekeeper.scenarios import write_scenario
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    base = tmp_path / "scen"
+    base.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("BEARPIT_SCENARIOS_DIR", str(base))
+    write_scenario(base, "granting", {
+        "metadata": {"name": "granting"},
+        "spec": {"termination": [{"type": "manual"}]},
+        "agents": [{"id": "analyst", "model_category": "medium", "persona": "x",
+                    "tools": ["web.fetch"]}],
+    })
+    chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+    with TestClient(create_app(chron=chron, manager=_LaunchManager())) as c:
+        payload = c.get("/api/packages/granting").json()
+    await chron.close()
+    analyst = next(a for a in payload["agents"] if a["id"] == "analyst")
+    assert analyst["tools"] == ["web.fetch"]

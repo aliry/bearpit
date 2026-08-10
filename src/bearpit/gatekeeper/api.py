@@ -101,6 +101,9 @@ class CreateRealm(BaseModel):
     # Same shape of consent, for the same reason: the configured provider may be unresolvable, and
     # the substitute is metered (#47). Silence must not be read as agreement to spend.
     allow_provider_fallback: bool = False
+    # ...and once more for a tool grant that breaks realm isolation or hands a third party realm
+    # content (ADR-004 §7). Contained tools launch silently; these do not.
+    allow_elevated_tools: bool = False
 
 
 class ScribeSessionCreate(BaseModel):
@@ -213,6 +216,9 @@ def serialize_project(project: Any, name: str, path: str) -> dict[str, Any]:
                 "budget_ref": a.budget.model_dump(mode="json"),
                 "private_messaging": a.private_messaging.model_dump(mode="json"),
                 "skills": [f"{sk.source}:{sk.ref}" for sk in a.skills],
+                # ...and its tool grants, or the editor shows "no tools" for an agent that has
+                # them and silently drops them on the next save (#58)
+                "tools": list(a.tools),
             }
             for a in roster
         ],
@@ -927,6 +933,7 @@ def create_app(
         )
         # the model pipeline: which provider agents run on, each provider's editable category tables
         # (small/medium/large -> model + effort + costs + context), and readiness (keystore handle)
+        from bearpit.core.tools import tool_registry
         from bearpit.gatekeeper.appstate import providers_config, resolve_provider
 
         cfg = providers_config()
@@ -958,6 +965,16 @@ def create_app(
             "scenarios_dir": str(_import_base()),
             "examples_dir": str(_scenario_bases()[1]),
             "model_categories": ["small", "medium", "large"],
+            # Installed tools, so the agent editor can offer exactly what can actually run and say
+            # why one cannot. Names + metadata only; a handler is never serialised.
+            "tools": [
+                {"name": p.name, "label": p.label, "description": p.description,
+                 "risk": str(p.risk), "cost_per_call_usd": p.cost_per_call_usd,
+                 "api_key_ref": p.api_key_ref,
+                 "ready": not p.api_key_ref or p.api_key_ref in set(key_refs),
+                 "setup_hint": p.setup_hint}
+                for p in sorted(tool_registry().values(), key=lambda x: x.name)
+            ],
             "model_provider": choice.name,
             # Present ONLY when the stored provider cannot be honoured, so the page can say the
             # value is a substitution rather than the choice. None when nothing is wrong (#47).
@@ -1083,6 +1100,28 @@ def create_app(
                                 "handles, or remove the grants"},
             )
 
+    def _check_elevated(project: Project, allow: bool) -> None:
+        """Consent for a grant whose blast radius reaches past the realm (ADR-004 §7).
+
+        Two tiers, because a warning shown on every research scenario stops being a warning — the
+        #47 lesson. Contained tools (web.search, web.fetch) are metered, chronicled and cannot
+        reach past the platform, so they launch silently and stay visible in the run record.
+        """
+        from bearpit.core.tools import elevated_grants
+
+        risky = elevated_grants(project)
+        if not risky or allow:
+            return
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "this scenario grants tools that need your consent",
+                "elevated": [{"agent": a, "tools": ts} for a, ts in sorted(risky.items())],
+                "hint": "these reach past the realm — remove the grants, or resend with "
+                        "allow_elevated_tools=true to run with them",
+            },
+        )
+
     @app.post("/api/realms")
     async def create_realm(req: CreateRealm) -> dict[str, Any]:
         _check_provider(req.allow_provider_fallback)
@@ -1117,6 +1156,7 @@ def create_app(
         except ParameterError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         _check_tools(project)
+        _check_elevated(project, req.allow_elevated_tools)
         if req.turns is not None:  # UI override: enable/disable turns for this run
             turns = (
                 Turns(silence_timeout_s=req.turns.silence_timeout_s)
@@ -1128,7 +1168,6 @@ def create_app(
         import re
         import secrets
 
-        _check_tools(project)
         base = re.sub(r"[^a-z0-9-]+", "-", project.metadata.name.lower()).strip("-") or "realm"
         realm_id = req.realm_id or f"{base}-{secrets.token_hex(3)}"
         # Mention policy: the scenario may opt into free-response (require_mention=false) so agents
@@ -1205,7 +1244,8 @@ def create_app(
 
     @app.post("/api/realms/{realm_id}/rerun")
     async def rerun_realm(
-        realm_id: str, mode: str = "snapshot", allow_provider_fallback: bool = False
+        realm_id: str, mode: str = "snapshot", allow_provider_fallback: bool = False,
+        allow_elevated_tools: bool = False,
     ) -> dict[str, Any]:
         """Run this realm again. Two honestly-different things, and the caller must choose.
 
@@ -1259,6 +1299,10 @@ def create_app(
                 ) from exc
             require_mention = project.spec.environment.require_mention
 
+        # Rerun is a launch: the same grants must be checked, and a tool that was installed when
+        # this realm first ran may be gone now.
+        _check_tools(project)
+        _check_elevated(project, allow_elevated_tools)
         base = re.sub(r"[^a-z0-9-]+", "-", project.metadata.name.lower()).strip("-") or "realm"
         new_id = f"{base}-{secrets.token_hex(3)}"
         try:
