@@ -88,9 +88,19 @@ class ToolPlugin(Protocol):
         """The tool profiles this package contributes."""
 
 
-# Tools that ship with the platform. Empty until `web.fetch` lands (#55); seeded first so a plugin
-# can never shadow one.
+# Tools that ship with the platform, seeded first so a plugin can never shadow one. `web.fetch`
+# needs no key and no third party, so the platform is useful without an install; a search backend
+# is a vendor choice with a vendor key and ships as a plugin instead (ADR-004 §2).
 BUILTIN_TOOLS: dict[str, ToolProfile] = {}
+
+
+def _register_builtins() -> None:
+    """Imported lazily inside the registry to avoid a cycle: `webfetch` imports ToolProfile."""
+    if BUILTIN_TOOLS:
+        return
+    from bearpit.core.webfetch import WEB_FETCH
+
+    BUILTIN_TOOLS[WEB_FETCH.name] = WEB_FETCH
 
 
 def _entry_points(group: str) -> list[EntryPoint]:
@@ -144,6 +154,7 @@ def tool_registry() -> dict[str, ToolProfile]:
     """
     global _registry
     if _registry is None:
+        _register_builtins()
         found: dict[str, ToolProfile] = dict(BUILTIN_TOOLS)
         for ep in _entry_points(TOOL_GROUP):
             plugin = _load(ep)

@@ -115,7 +115,8 @@ def test_a_badly_named_tool_is_refused_at_the_seam(monkeypatch, caplog, bad):
     `mcp` that ADR-004 reserves, and so the name is predictable in a manifest."""
     _install(monkeypatch, _FakeEntryPoint("bad", _Plugin(_profile(name=bad))))
     with caplog.at_level(logging.WARNING):
-        assert tool_registry() == {}
+        # the built-ins are always there; what must be absent is the plugin's contribution
+        assert bad not in tool_registry()
     assert bad in caplog.text
 
 
