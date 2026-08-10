@@ -1,0 +1,3 @@
+{ "id": "context", "name": "Context", "role": "participant", "model_category": "medium",
+  "budget": { "max_usd": 2 }, "skills": [], "tools": ["web_fetch"],
+  "goals": ["Explain how the situation came to be, and what changed recently"] }

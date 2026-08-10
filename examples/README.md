@@ -14,6 +14,7 @@ Sorted roughly by how much of the platform each one exercises.
 | [`toolcheck`](./toolcheck) | 3 | Diagnostic | The umpire confirms every tool answered — run this first if something looks wrong |
 | [`param-relay`](./param-relay) | 3 | Diagnostic, parameters | Shows `${name,default,description}` end to end — the worked example for ADR-003 |
 | [`fact-race`](./fact-race) | 3 | Research, asymmetric tools | One analyst can look things up and one cannot — the worked example for ADR-004 |
+| [`research-brief`](./research-brief) | 5 | Research, tools, review | Three angles, a citation critic, and an edited brief on any topic you pass in |
 | [`rps-duel`](./rps-duel) | 3 | Competitive, hidden move, refereed | The referee rules the match after 10 rounds |
 | [`sealed-auction`](./sealed-auction) | 4 | Sealed bids | The clerk reveals the bids and declares a winner |
 | [`reverse-auction`](./reverse-auction) | 4 | Procurement, undercutting | The buyer awards the contract |
