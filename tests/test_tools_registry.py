@@ -553,3 +553,19 @@ async def test_the_editor_reads_back_the_grants_it_saved(tmp_path, monkeypatch):
     await chron.close()
     analyst = next(a for a in payload["agents"] if a["id"] == "analyst")
     assert analyst["tools"] == ["web.fetch"]
+
+
+def test_the_worked_example_grants_asymmetrically():
+    """`fact-race` is the demonstration that this epic exists for: the same question put to one
+    agent that can look things up and one that cannot. If the grants ever equalise, the scenario
+    still runs and quietly stops demonstrating anything."""
+    from bearpit.core.package import load_package
+
+    project = load_package("examples/fact-race")
+    by_id = {a.id: a for a in project.agents}
+    assert by_id["scout"].tools == ["web.fetch"]
+    assert by_id["pundit"].tools == [], "the whole point is that Pundit cannot look things up"
+    assert by_id["judge"].tools == ["web.fetch"], "the referee must be able to check the answer"
+    # and the realm-level policy that bounds it
+    assert project.spec.tools["web.fetch"]["max_calls_per_agent"] == 4
+    assert "*.wikipedia.org" in project.spec.tools["web.fetch"]["allow"]

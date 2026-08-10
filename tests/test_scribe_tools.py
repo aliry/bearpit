@@ -198,6 +198,7 @@ def test_tool_specs_cover_the_authoring_verbs() -> None:
         "edit_scenario",
         "validate_scenario",
         "list_skills",
+        "list_tools",
         "read_skill",
         "preview_changes",
         "ask_user",
@@ -205,3 +206,51 @@ def test_tool_specs_cover_the_authoring_verbs() -> None:
     }
     for t in TOOL_SPECS:
         assert t.parameters.get("type") == "object"
+
+
+# --- granting tools while authoring (#59) ------------------------------------------------------
+async def test_list_tools_reports_what_can_actually_be_granted(monkeypatch, tmp_path):
+    """The assistant must not be able to invent a tool. It can only grant what this platform has,
+    and it should be able to tell the user when a tool would need a key they have not added."""
+    import json as _json
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    tools, _ = _tools(FakePackageStore())
+    listed = _json.loads(await tools.dispatch(ToolCall(id="1", name="list_tools", arguments={})))
+    names = {t["name"] for t in listed}
+    assert "web.fetch" in names
+    fetch = next(t for t in listed if t["name"] == "web.fetch")
+    assert fetch["ready"] is True and fetch["needs_key_ref"] is None
+    assert fetch["risk"] == "contained"
+    assert fetch["description"]
+
+
+def test_a_draft_granting_a_tool_that_does_not_exist_is_refused():
+    """Well-formed but inert: the name passes the schema, the agent never sees the tool, and the
+    prose still tells it to look things up. Caught at proposal time, it is a fixable draft."""
+    from bearpit.scribe.tools import draft_problems
+
+    spec = {
+        "apiVersion": "bearpit/v1alpha1", "kind": "Project",
+        "metadata": {"name": "research"},
+        "spec": {"goals": ["find out"], "guidelines": "g",
+                 "termination": [{"type": "duration", "limit": "1h"}]},
+        "agents": [{"id": "analyst", "model_category": "medium", "persona": "p",
+                    "tools": ["web.crawl"]}],
+    }
+    problems = draft_problems(spec)
+    assert problems and "web.crawl" in problems and "analyst" in problems
+
+
+def test_a_draft_granting_a_real_tool_passes():
+    from bearpit.scribe.tools import draft_problems
+
+    spec = {
+        "apiVersion": "bearpit/v1alpha1", "kind": "Project",
+        "metadata": {"name": "research"},
+        "spec": {"goals": ["find out"], "guidelines": "g",
+                 "termination": [{"type": "duration", "limit": "1h"}]},
+        "agents": [{"id": "analyst", "model_category": "medium", "persona": "p",
+                    "tools": ["web.fetch"]}],
+    }
+    assert draft_problems(spec) is None
