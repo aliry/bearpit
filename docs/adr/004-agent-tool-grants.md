@@ -100,6 +100,21 @@ an install to be useful. **`web.search` ships as a separate public plugin** (`be
 Brave-backed), because the search backend is a vendor choice with a vendor key, and baking one into
 core makes that choice look like the platform's rather than the operator's.
 
+### 2a. Metadata reaches Realmtools as data, not as an install
+
+An early build had Realmtools read the registry directly, which meant every tool plugin had to be
+installed in the agent-facing container as well as on the host. That was wrong, and #65 changed it.
+
+The host writes a per-realm `TOOL_MANIFEST` — each granted tool's description, parameter schema and
+policy — to the chronicle **before any container starts**. Realmtools describes granted tools from
+that record and nothing else, so it needs no tool package, no third-party dependency tree and no
+third-party import-time code. It is the same server that deliberately holds no Docker socket and no
+keys; the argument that keeps those out keeps plugins out too.
+
+The manifest is **descriptive, never authoritative**: what an agent may call still comes from its
+signed token alone. A grant the manifest cannot describe is listed unconstrained rather than
+dropped, because a guessed argument shape is recoverable and a tool the agent never sees is not.
+
 ### 3. Execution: brokered by the host, never in the container
 
 `run_code` and `send_private` already solved this shape and it is reused verbatim: **Realmtools

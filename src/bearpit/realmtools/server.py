@@ -9,7 +9,6 @@ service container attached to each realm network; agents reach it at
 
 from __future__ import annotations
 
-import inspect
 import logging
 import os
 from collections.abc import AsyncIterator, Callable
@@ -24,10 +23,10 @@ from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 
 from bearpit.chronicle import Chronicle
-from bearpit.core.tools import ToolProfile, tool_registry
 from bearpit.forge.skills import BUILTIN_SKILLS
 from bearpit.realmtools.arbiter import ArbiterService
 from bearpit.realmtools.code import CodeService
+from bearpit.realmtools.manifest import ManifestReader
 from bearpit.realmtools.notes import NoteService
 from bearpit.realmtools.private import PrivateMessageService
 from bearpit.realmtools.service import (
@@ -93,66 +92,12 @@ def _identity(ctx: ToolContext, secret: str) -> Identity | None:
     return Identity(*verified) if verified else None
 
 
-# JSON Schema -> Python annotation, for the synthesised signatures below. Anything unrecognised
-# stays `Any`, which advertises an unconstrained value rather than guessing wrong.
-_JSON_PY: dict[str, Any] = {
-    "string": str, "integer": int, "number": float,
-    "boolean": bool, "array": list, "object": dict,
-}
-
-
 def _ctx_of(mcp: FastMCP) -> Any:
     """The current request's context, or None outside a request."""
     try:
         return mcp.get_context()
     except Exception:  # noqa: BLE001 - listing outside a request is not an error, just anonymous
         return None
-
-
-def _granted_tool_body(profile: ToolProfile, granted: ToolCallService, secret: str) -> Any:
-    """An MCP tool that records an intent for the host to perform.
-
-    The signature is built from the profile's own JSON Schema rather than written by hand, because
-    FastMCP derives the advertised schema from the signature — so this is what makes an agent see
-    real, typed, individually-documented parameters (`query`, `count`) instead of one opaque
-    `args` blob. Verified against the SDK before being relied on; a nested-blob call works too,
-    and reads far worse to a model.
-    """
-    props: dict[str, Any] = profile.params.get("properties", {}) or {}
-    required = set(profile.params.get("required", []) or [])
-    params = [
-        inspect.Parameter(
-            name, inspect.Parameter.KEYWORD_ONLY,
-            annotation=_JSON_PY.get(str(spec.get("type", "")), Any),
-            default=inspect.Parameter.empty if name in required else None,
-        )
-        for name, spec in props.items()
-    ]
-
-    async def body(**kwargs: Any) -> dict[str, Any]:
-        ctx = _ctx_of(granted_mcp[0]) if granted_mcp else None
-        ident = _identity(ctx, secret) if ctx is not None else None
-        if ident is None:
-            _audit(f"{profile.name}()", None, "no valid realmtools token on this request")
-            return {"error": "no valid realmtools token on this request"}
-        args = {k: v for k, v in kwargs.items() if v is not None}
-        try:
-            result = await granted.call(ident, profile.name, args)
-        except (PermissionError, ValueError) as exc:
-            _audit(f"{profile.name}()", ident, str(exc))
-            return {"error": str(exc)}
-        _audit(f"{profile.name}()", ident, result=result)
-        return result
-
-    body.__signature__ = inspect.Signature(params)  # type: ignore[attr-defined]
-    body.__annotations__ = {p.name: p.annotation for p in params}
-    body.__doc__ = profile.description
-    return body
-
-
-# Set by build_app so a tool body can reach the live FastMCP for its request context. One server
-# per process; a list rather than a bare global so the closure sees assignment.
-granted_mcp: list[FastMCP] = []
 
 
 def build_app(
@@ -164,7 +109,8 @@ def build_app(
     private = PrivateMessageService(chronicle)
     notes = NoteService(chronicle)
     coder = CodeService(chronicle)
-    granted = ToolCallService(chronicle)
+    manifests = ManifestReader(chronicle)
+    granted = ToolCallService(chronicle, manifests=manifests)
 
     lifespan = None
     if chronicle is None and db_url is not None:
@@ -179,6 +125,7 @@ def build_app(
             notes.set_chronicle(chron)
             coder.set_chronicle(chron)
             granted.set_chronicle(chron)
+            manifests.set_chronicle(chron)
             try:
                 yield {}
             finally:
@@ -422,33 +369,56 @@ def build_app(
             return {"error": str(exc)}
 
     # --- granted tools (ADR-004) ---------------------------------------------------------------
-    # Registered from the tool REGISTRY's metadata only. The profile's `handler` is never called
-    # here and must not be: it needs the keystore and the internet, and this server is deliberately
-    # given neither. All these bodies do is record the intent for the host to perform.
-    granted_mcp.clear()
-    granted_mcp.append(mcp)
-    for profile in tool_registry().values():
-        mcp.add_tool(
-            _granted_tool_body(profile, granted, secret),
-            name=profile.name, description=profile.description,
-        )
-
-    # An agent sees only the tools it holds. #51 established this is a UX control, not a security
-    # one — a hidden tool still executes when named — so the grant is ALSO checked in the body
-    # above. This exists so an agent does not waste a turn discovering a tool it cannot use (#41).
+    # Served entirely from the per-realm manifest the host wrote, and never registered in FastMCP's
+    # tool manager. That is what lets this container hold no tool plugins: no third-party package,
+    # no third-party dependency tree, no third-party import-time code in the agent-facing server.
+    #
+    # It also removes a hazard that per-realm registration would have created — the tool manager is
+    # process-global and first-writer-wins, so two realms granting one name would have shared
+    # whichever schema was registered first.
     _base_list_tools = mcp.list_tools
 
-    async def list_tools_for_caller() -> list[MCPTool]:
-        listed = await _base_list_tools()
-        ident = _identity(_ctx_of(mcp), secret)
-        grants = set(ident.grants) if ident else set()
-        gated = set(tool_registry())
-        return [t for t in listed if t.name not in gated or t.name in grants]
+    async def _caller() -> Identity | None:
+        return _identity(_ctx_of(mcp), secret)
 
-    # Overwrites FastMCP's own handler — the low-level server keeps one per request type and the
-    # last registration wins. Verified against the SDK in #51, and guarded by the probes there:
-    # this reaches through a private attribute, so an SDK upgrade is what would break it.
+    async def list_tools_for_caller() -> list[MCPTool]:
+        """Built-in verbs, plus exactly the granted tools this caller holds.
+
+        Grants come from the signed token; descriptions come from the manifest. #51 established
+        that hiding a tool is not a security control — a hidden tool still executes when named —
+        so this exists to stop an agent wasting a turn (#41), and `ToolCallService` enforces.
+        """
+        listed = list(await _base_list_tools())
+        ident = await _caller()
+        if ident is None:
+            return listed
+        for name in ident.grants:
+            described = await manifests.describe(ident.realm_id, name)
+            listed.append(MCPTool(
+                name=name,
+                description=str(described.get("description") or f"The {name} tool."),
+                inputSchema=described.get("params") or {"type": "object"},
+            ))
+        return listed
+
+    async def call_tool_for_caller(name: str, arguments: dict[str, Any]) -> Any:
+        """Dispatch: a granted tool goes to the broker, anything else to FastMCP's own handler."""
+        ident = await _caller()
+        if ident is not None and name in ident.grants:
+            try:
+                result = await granted.call(ident, name, dict(arguments or {}))
+            except (PermissionError, ValueError) as exc:
+                _audit(f"{name}()", ident, str(exc))
+                return {"error": str(exc)}
+            _audit(f"{name}()", ident, result=result)
+            return result
+        # Not granted (or no identity): fall through. A caller naming a tool it does not hold
+        # lands here and gets "Unknown tool", which is the same answer as a typo — correct, since
+        # it must not learn from the error message whether the tool exists.
+        return await mcp.call_tool(name, arguments)
+
     mcp._mcp_server.list_tools()(list_tools_for_caller)  # type: ignore[no-untyped-call]
+    mcp._mcp_server.call_tool(validate_input=False)(call_tool_for_caller)
 
     app: Starlette = mcp.streamable_http_app()  # serves the MCP endpoint at /mcp
     app.add_route("/health", lambda _r: JSONResponse({"ok": True}), methods=["GET"])

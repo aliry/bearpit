@@ -21,6 +21,7 @@ from typing import Any
 from bearpit.chronicle import Chronicle, EventKind
 from bearpit.core.redact import Redactor
 from bearpit.core.schema import Project
+from bearpit.core.tools import grant_manifest
 from bearpit.forge import Forge, RealmHandles
 from bearpit.forge.container import ContainerRuntime
 from bearpit.herald import BusProvision, Herald
@@ -112,6 +113,12 @@ class Runner:
     ) -> ConcludeResult:
         await self.herald.ensure_system(system_password)
         await self.chronicle.append_event(realm_id, EventKind.LIFECYCLE, {"event": "provisioning"})
+        # BEFORE anything starts. Realmtools describes granted tools from this record, and agent
+        # containers begin running inside provision_realm below — writing it afterwards leaves a
+        # window in which an agent could list its tools before the platform had said what they are.
+        await self.chronicle.append_event(
+            realm_id, EventKind.TOOL_MANIFEST, grant_manifest(project)
+        )
         bus = await self.herald.provision_bus(realm_id, project, require_mention=require_mention)
         handles = await self.forge.provision_realm(
             realm_id, project, bus.creds,

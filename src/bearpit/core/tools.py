@@ -25,6 +25,7 @@ collisions are logged, and built-ins cannot be shadowed at all.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from collections.abc import Awaitable, Callable, Iterable
@@ -169,6 +170,53 @@ def is_tool(name: str) -> bool:
     return name in tool_registry()
 
 
+MANIFEST_VERSION = 1
+MAX_MANIFEST_TOOLS = 64          # a roster cannot plausibly need more; bounds the record
+MAX_PARAMS_CHARS = 8000          # one tool's JSON Schema
+
+
+def grant_manifest(project: Project) -> dict[str, Any]:
+    """What agents will be SHOWN for this realm's granted tools (#65).
+
+    Built on the HOST, where the registry lives, and written to the chronicle before any container
+    exists. Realmtools then describes every granted tool from this payload alone — which is what
+    lets the agent-facing container hold no tool plugins, no third-party dependencies and no
+    third-party import-time code.
+
+    A tool that is granted but not installed here is recorded as `available: false` with a reason
+    rather than omitted. Omitting it is how a grant becomes invisible with nothing said, and that
+    is the failure this whole change exists to remove.
+    """
+    registry = tool_registry()
+    granted = sorted({name for agent in project.agents for name in agent.tools})
+    tools: dict[str, Any] = {}
+    for name in granted[:MAX_MANIFEST_TOOLS]:
+        policy = dict(project.spec.tools.get(name, {}))
+        profile = registry.get(name)
+        if profile is None:
+            tools[name] = {"available": False, "policy": policy,
+                           "reason": "not installed on this platform"}
+            continue
+        params = profile.params
+        if len(json.dumps(params, default=str)) > MAX_PARAMS_CHARS:
+            log.warning("tool %r has an oversized parameter schema — advertising it unconstrained",
+                        name)
+            params = {"type": "object"}
+        tools[name] = {
+            "available": True, "description": profile.description, "params": params,
+            "policy": policy, "cost_per_call_usd": profile.cost_per_call_usd,
+        }
+    if len(granted) > MAX_MANIFEST_TOOLS:
+        log.warning("scenario grants %d tools; only the first %d are described",
+                    len(granted), MAX_MANIFEST_TOOLS)
+    return {
+        "version": MANIFEST_VERSION,
+        "tools": tools,
+        # descriptive only: the signed token decides what an agent may actually call
+        "grants": {a.id: list(a.tools) for a in project.agents if a.tools},
+    }
+
+
 def keystore_handles() -> set[str]:
     """Handle names in the local keystore — names only, never a secret value.
 
@@ -243,7 +291,9 @@ __all__ = [
     "ToolPlugin",
     "ToolProfile",
     "ToolRisk",
+    "MANIFEST_VERSION",
     "check_grants",
+    "grant_manifest",
     "keystore_handles",
     "is_tool",
     "reset_tool_cache",

@@ -23,6 +23,7 @@ import uuid
 from typing import Any
 
 from bearpit.chronicle import Chronicle, EventKind
+from bearpit.realmtools.manifest import ManifestReader
 from bearpit.realmtools.service import Identity
 
 MAX_ARGS_CHARS = 8000
@@ -32,11 +33,14 @@ _WAIT_S = 60.0  # the host drains on its tick (5s); this is the ceiling before w
 
 
 class ToolCallService:
-    def __init__(self, chronicle: Chronicle | None = None) -> None:
+    def __init__(self, chronicle: Chronicle | None = None,
+                 manifests: ManifestReader | None = None) -> None:
         self._chron = chronicle
+        self._manifests = manifests or ManifestReader(chronicle)
 
     def set_chronicle(self, chronicle: Chronicle) -> None:
         self._chron = chronicle
+        self._manifests.set_chronicle(chronicle)
 
     def _c(self) -> Chronicle:
         if self._chron is None:
@@ -44,17 +48,16 @@ class ToolCallService:
         return self._chron
 
     async def policy(self, realm_id: str, tool: str) -> dict[str, Any]:
-        """This realm's `spec.tools[tool]` block, from the run snapshot already in the chronicle.
+        """This realm's `spec.tools[tool]` block, from the tool manifest (#65).
 
         Read rather than injected: realmtools is stateless and shared across realms, so the run
         record is the only per-realm configuration it can be sure is the one that actually ran.
+
+        It reads the manifest rather than rescanning lifecycle events for two reasons — the
+        manifest is small where a lifecycle row carries the whole project snapshot, and it is
+        cached per realm, so a quota check costs nothing after the first.
         """
-        for ev in await self._c().events(realm_id, kind=EventKind.LIFECYCLE):
-            config = ev.payload.get("config")
-            if isinstance(config, dict) and isinstance(config.get("tools"), dict):
-                block = config["tools"].get(tool)
-                return dict(block) if isinstance(block, dict) else {}
-        return {}
+        return await self._manifests.policy(realm_id, tool)
 
     async def used(self, realm_id: str, agent_id: str, tool: str) -> int:
         """How many times this agent has already called this tool in this realm.
