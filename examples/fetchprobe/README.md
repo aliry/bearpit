@@ -39,7 +39,8 @@ scenario had only hinted at:
 
 - **`wire_tools` ignored grants.** A scenario with no referee, no mechanic and no turns was never
   connected to the Realmtools server at all — so a granted tool had nothing on the other end.
-- **The Copilot allowlist was hardcoded.** `--available-tools` named the fifteen standing verbs, so
-  a granted tool was explicitly excluded from what the model was permitted to call.
+- **A provider's tool allowlist was hardcoded.** On the pipeline that allows only named tools,
+  the list was the fifteen standing verbs — so a granted tool was excluded from what the model was
+  permitted to call, by the platform itself.
 
 Both are fixed. The probe stays, because the next tool to go quietly missing will look the same.
