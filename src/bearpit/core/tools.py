@@ -228,6 +228,23 @@ def grant_manifest(project: Project) -> dict[str, Any]:
     }
 
 
+def elevated_grants(project: Project) -> dict[str, list[str]]:
+    """Granted tools whose tier takes explicit consent, as {agent_id: [tool, ...]} (ADR-004 §7).
+
+    The tier is the TOOL's own declaration, so a contributed plugin puts itself behind the gate
+    without the platform knowing anything about it. A grant the platform cannot resolve is not
+    reported here — that is a different problem with a different fix, and `check_grants` says so.
+    """
+    registry = tool_registry()
+    out: dict[str, list[str]] = {}
+    for agent in project.agents:
+        risky = [n for n in agent.tools
+                 if (p := registry.get(n)) is not None and p.risk is ToolRisk.ELEVATED]
+        if risky:
+            out[agent.id] = risky
+    return out
+
+
 def keystore_handles() -> set[str]:
     """Handle names in the local keystore — names only, never a secret value.
 
@@ -304,6 +321,7 @@ __all__ = [
     "ToolRisk",
     "MANIFEST_VERSION",
     "check_grants",
+    "elevated_grants",
     "grant_manifest",
     "keystore_handles",
     "is_tool",

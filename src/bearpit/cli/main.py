@@ -335,6 +335,7 @@ def up(
     project = _load_or_exit(path)
     project, param_values = _apply_params(project, list(param), assume_yes=assume_yes)
     _tools_or_exit(project)
+    _confirm_elevated(project, assume_yes)
     consented = _confirm_provider(assume_yes)
     # a fresh id per run by default — realm-scoped Matrix users can't be re-created, so reusing
     # an id collides. Pass --realm to pin one deliberately.
@@ -758,6 +759,20 @@ def _tools_or_exit(project: Project) -> None:
     for line in problems:
         typer.secho(f"    {line}", fg=typer.colors.RED, err=True)
     raise typer.Exit(2)
+
+
+def _confirm_elevated(project: Project, assume_yes: bool) -> None:
+    """Consent for a tool grant that reaches past the realm (ADR-004 §7)."""
+    from bearpit.core.tools import elevated_grants
+
+    risky = elevated_grants(project)
+    if not risky:
+        return
+    typer.secho("⚠ this scenario grants tools that reach past the realm:", fg=typer.colors.YELLOW)
+    for agent_id, names in sorted(risky.items()):
+        typer.secho(f"    {agent_id}: {', '.join(names)}", fg=typer.colors.YELLOW)
+    if not assume_yes and not typer.confirm("Continue?", default=False):
+        raise typer.Exit(1)
 
 
 def _confirm_provider(assume_yes: bool) -> bool:

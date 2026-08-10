@@ -711,6 +711,16 @@ function realmConfig(c, realmId) {
   run.append(statRowWide("Mechanics & environment", el("span", { class: "v", text: flags || "—" })));
   cards.push(run);
 
+  const grantedAny = (c.agents || []).some((a) => (a.tools || []).length);
+  if (grantedAny) {
+    const tools = el("div", { class: "side-stat" }, el("h4", null, "Tools granted"));
+    (c.agents || []).forEach((a) => {
+      if (!(a.tools || []).length) return;
+      tools.append(statRowWide(a.id, el("span", { class: "v mono", text: a.tools.join(" · ") })));
+    });
+    cards.push(tools);
+  }
+
   const models = el("div", { class: "side-stat" }, el("h4", null, "Models & budgets"));
   (c.agents || []).forEach((a) => {
     const who = el("span", { class: "who", text: a.id });
@@ -941,6 +951,7 @@ function launchModal(packages, preselect) {
   let params = [];            // as returned by the API
   let consented = false;      // "Launch anyway" was pressed once
   let providerConsent = false;  // ...and again for a substituted model provider (#47)
+  let toolConsent = false;      // ...and for a grant that reaches past the realm (#57)
 
   function renderParams() {
     paramBox.innerHTML = "";
@@ -1047,11 +1058,24 @@ function launchModal(packages, preselect) {
           }
           if (empty.length) body.allow_missing_parameters = true;
           if (providerConsent) body.allow_provider_fallback = true;
+          if (toolConsent) body.allow_elevated_tools = true;
           try {
             const r = await api("/api/realms", { method: "POST", body });
             close(); ok("Realm launched", r.realm_id);
             location.hash = `#/realm/${encodeURIComponent(r.realm_id)}`;
           } catch (e) {
+            const elevated = e.detail && e.detail.elevated;
+            if (elevated) {
+              // A grant that reaches past the realm. Same shape as an empty parameter and a
+              // substituted provider: explained in place, and it takes a second press.
+              toolConsent = true;
+              paramBox.prepend(el("div", { class: "param-warn" },
+                el("strong", null, "This scenario grants tools that reach past the realm. "),
+                elevated.map((g) => `${g.agent}: ${g.tools.join(", ")}`).join(" · "),
+                el("div", { class: "hint" }, "Press Launch anyway to continue.")));
+              setTimeout(() => btn.replaceChildren("Launch anyway"), 0);
+              return;
+            }
             const fb = e.detail && e.detail.provider_fallback;
             if (!fb) { fail("Launch failed", e.message); return; }
             // Not a mistake the operator made, and not one they can fix from this dialog — so it
@@ -1148,6 +1172,7 @@ const INFO = {
   gracePeriod: "For starve_then_kill: how long to keep the agent alive after its budget is spent, "
     + "e.g. 5m.",
   skills: "SKILL.md briefs that give the agent its role and capabilities. Click a skill to read it.",
+  tools: "Capabilities this agent may use, granted per agent (ADR-004). One agent that can research and one that cannot is a scenario in itself.\n\nTools run on the host, never inside the agent's container, and every call is recorded with its cost. A tool marked ⚠ reaches past the realm and asks for your confirmation at launch.\n\nSet per-tool limits under spec.tools in the JSON, e.g. max_calls_per_agent.",
   persona: "The agent's private character brief (persona.md). Only this agent sees it.",
   rubric: "The referee's private judging criteria — how it scores or decides. Only the referee sees "
     + "it.",
@@ -1200,7 +1225,7 @@ function detailToState(d) {
           grace_period: br.grace_period ?? null },
         private_messaging: { enabled: !!(a.private_messaging || {}).enabled,
           include_referee: !!(a.private_messaging || {}).include_referee },
-        skills: a.skills || [], persona: a.persona || "", rubric: a.rubric || "", goals: a.goals || [],
+        skills: a.skills || [], tools: a.tools || [], persona: a.persona || "", rubric: a.rubric || "", goals: a.goals || [],
         color: a.color || null,
       };
     }),
@@ -1215,6 +1240,7 @@ async function editorPage(name, clone) {
   const [{ skills }, settings, { packages }] = await Promise.all([
     api("/api/skills"), api("/api/settings"), api("/api/packages")]);
   const keyRefs = settings.api_key_refs || [];
+  const installedTools = settings.tools || [];   // what this platform can actually run
   const categories = [...new Set(packages.map((p) => p.category).filter(Boolean))].sort();
   // Three modes: new (blank, POST), clone (load -> rename "X copy" -> POST), edit (load -> PUT
   // under the same name). Editing a bundled example writes to the user dir, so it shadows the
@@ -1241,7 +1267,8 @@ async function editorPage(name, clone) {
     { id: "environment", label: "Environment", build: () => envPanel(S) },
     { id: "turns", label: "Turns", build: () => turnsPanel(S) },
     { id: "termination", label: "Termination", build: () => terminationPanel(S) },
-    { id: "agents", label: "Agents", build: () => rosterPanel(S, skills, keyRefs) },
+    { id: "agents", label: "Agents",
+      build: () => rosterPanel(S, skills, keyRefs, installedTools) },
   ];
   let active = TABS[0].id;
 
@@ -1653,12 +1680,13 @@ function terminationPanel(S) {
         content_match: "GAME OVER" }); draw(); } }, "＋ Add condition")),
     el("p", { class: "panel-sub" }, "When the realm ends."), list);
 }
-function rosterPanel(S, skills, keyRefs) {
+function rosterPanel(S, skills, keyRefs, installedTools) {
   const list = el("div");
   const draw = () => {
     clear(list);
     // referee first for display parity with the rest of the app
-    S.agents.forEach((a, i) => list.append(agentBlock(S, a, i, skills, keyRefs, draw)));
+    S.agents.forEach((a, i) =>
+      list.append(agentBlock(S, a, i, skills, keyRefs, draw, installedTools)));
     if (!S.agents.length) list.append(el("p", { class: "inline-note",
       text: "No agents yet — add at least one." }));
   };
@@ -1709,7 +1737,7 @@ function privateMsgControl(a) {
     sub);
 }
 
-function agentBlock(S, a, i, skills, keyRefs, redraw) {
+function agentBlock(S, a, i, skills, keyRefs, redraw, installedTools) {
   const isRef = a.role === "referee";
   const skillWrap = el("div", { class: "pill-list", style: "margin-bottom:8px" });
   const drawSkills = () => {
@@ -1725,6 +1753,43 @@ function agentBlock(S, a, i, skills, keyRefs, redraw) {
     ...skills.map((s) => el("option", { value: `${s.source}:${s.ref}` }, `${s.source}:${s.ref}`)));
   skillPicker.onchange = (e) => { if (e.target.value && !a.skills.includes(e.target.value)) {
     a.skills.push(e.target.value); drawSkills(); } e.target.value = ""; };
+
+  // Tools (ADR-004). Deliberately the Skills control again rather than a second kind of
+  // multi-select: that pattern is already learned, and one editor with two ways to pick a list of
+  // things is how an interface starts feeling arbitrary.
+  a.tools = a.tools || [];
+  const installed = installedTools || [];
+  const toolWrap = el("div", { class: "pill-list", style: "margin-bottom:8px" });
+  const drawTools = () => {
+    clear(toolWrap);
+    a.tools.forEach((name, ti) => {
+      const meta = installed.find((x) => x.name === name);
+      const elevated = meta && meta.risk === "elevated";
+      const suffix = elevated ? " ⚠" : !meta ? " (not installed)" : !meta.ready ? " (needs key)" : "";
+      const title = !meta ? `${name} is not installed on this platform`
+        : !meta.ready ? `${meta.label} needs the key handle '${meta.api_key_ref}'`
+        : meta.description + (meta.cost_per_call_usd ? ` · $${meta.cost_per_call_usd}/call` : "");
+      toolWrap.append(el("span", { class: `skill-pill${elevated ? " warn-chip" : ""}`, title },
+        el("span", { text: name + suffix }),
+        el("span", { style: "cursor:pointer;color:var(--faint)",
+          onclick: () => { a.tools.splice(ti, 1); drawTools(); } }, " ✕")));
+    });
+    if (!a.tools.length) toolWrap.append(el("span", { class: "inline-note", text: "no tools" }));
+  };
+  drawTools();
+  const toolPicker = el("select", null, el("option", { value: "" }, "add tool…"),
+    // an unconfigured tool is shown and DISABLED with its reason, exactly as an unconfigured
+    // provider is on the Settings page — hiding it only makes it unfindable
+    ...installed.map((x) => {
+      const opt = el("option", { value: x.name },
+        `${x.name} — ${x.label}${x.ready ? "" : ` (needs key '${x.api_key_ref}')`}`);
+      if (!x.ready) opt.disabled = true;
+      return opt;
+    }));
+  toolPicker.onchange = (e) => {
+    if (e.target.value && !a.tools.includes(e.target.value)) { a.tools.push(e.target.value); drawTools(); }
+    e.target.value = "";
+  };
 
   // the summary's avatar + name mirror the Id/Display-name fields as you type
   const avatar = el("span", { class: `agent-avatar ${isRef ? "ref" : ""}` }, (a.name || a.id || "?").slice(0, 2));
@@ -1754,6 +1819,7 @@ function agentBlock(S, a, i, skills, keyRefs, redraw) {
       textField("Grace period", a.budget, "grace_period", { ph: "5m", info: INFO.gracePeriod, maxlength: 20 })),
     privateMsgControl(a),
     el("div", { class: "field" }, fieldLabel("Skills", { info: INFO.skills }), skillWrap, skillPicker),
+    el("div", { class: "field" }, fieldLabel("Tools", { info: INFO.tools }), toolWrap, toolPicker),
     textField("Persona", a, "persona", { area: true, rows: 3, info: INFO.persona, maxlength: 50000,
       ph: "The agent's private character brief (persona.md)." }),
     isRef && textField("Rubric", a, "rubric", { area: true, rows: 3, info: INFO.rubric, maxlength: 50000,
