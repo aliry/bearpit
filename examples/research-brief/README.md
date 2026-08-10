@@ -52,29 +52,28 @@ finding, not a silent failure.
 - **Does the Editor's verdict match reality?** If the transcript is full of unsourced claims and the
   outcome is `published`, the referee is being generous with itself.
 
-## The first live run
+## Two live runs, before and after the platform fix
 
-Run `brief-1`, topic *"How much electricity do data centres use, and is it growing?"*, audience
-*"a policy analyst"*. Five agents, ~$2.70, concluded on the editor's verdict.
+**Run 1 (`brief-1`)** — five agents, ~$2.70. **Zero `web_fetch` calls.** That turned out not to be
+the model's fault at all: the Forge never wired the Realmtools server for a grant, and the provider's
+tool allowlist excluded anything beyond the fifteen standing verbs. The tool could not be called by
+anyone (#73, fixed).
 
-**Outcome: `published — unverified`.** Not one `web_fetch` call was made by anyone — while the same
-agents used `recall`, `remember` and `run_code` from the same MCP server, repeatedly and
-successfully, in the same run (#73).
+**Run 2 (`brief-2`)**, after the fix — **32 fetches, all successful**, by four of the five agents,
+against real sources: IEA electricity reports, an OWID page, a `science.org` DOI that answered a
+genuine 403. The plumbing works.
 
-The point is what the scenario did with that:
+**The editor still ruled `published — unverified`**, on the grounds that no figure in the brief was
+traceable to a page a researcher had actually read. That is now a *scenario* question rather than a
+platform one, and it is the interesting one: agents fetched, and then wrote their claims from
+memory anyway rather than from what came back. Some of it is real — the IEA pages are heavy and a
+403 is a 403 — and some of it is a citation habit the prompts have not yet instilled.
 
-- each researcher disclosed it rather than inventing citations — *"I have no working `web_fetch` in
-  this session, so nothing below is a fresh citation — from memory, unverified"*
-- the Critic's audit came back, in the Editor's words, *"clean but empty"*
-- the Editor pushed back once, named the exact fetch it wanted from each agent, and then published
-  under the honest outcome
-- the verdict records it plainly: *"Zero of the brief's factual claims were grounded in a fetched
-  source"*
+So the mechanism did its job twice, for two different reasons. In run 1 it correctly reported a
+platform that could not fetch; in run 2 it correctly reported researchers who fetched and did not
+cite. A confident brief would have been wrong both times.
 
-So the run is a **legible failure**, which is the design goal. A scenario that cannot yet reach the
-web still produces an accurate account of the fact — rather than a confident brief resting on
-remembered numbers.
-
+## If nothing gets fetched
 ## If nothing gets fetched
 
 In rough order of what to try: raise the researchers' `model_category` to `large`; give the topic a
