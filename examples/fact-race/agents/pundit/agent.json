@@ -1,0 +1,9 @@
+{
+  "id": "pundit",
+  "name": "Pundit",
+  "role": "participant",
+  "model_category": "medium",
+  "budget": { "max_usd": 2 },
+  "skills": [],
+  "goals": ["Answer accurately from what you already know"]
+}

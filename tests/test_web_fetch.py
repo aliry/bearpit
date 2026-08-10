@@ -1,4 +1,4 @@
-"""`web.fetch` and its SSRF defences (#55, ADR-004 §8).
+"""`web_fetch` and its SSRF defences (#55, ADR-004 §8).
 
 Host-brokering is what makes tool access safe from the container's side and precisely what makes
 it dangerous from the host's: the host reaches the LAN, loopback and cloud metadata, and the AGENT
@@ -228,7 +228,7 @@ def test_web_fetch_is_a_builtin_and_contained():
     """It needs no key and no third party, so the platform should be useful without an install."""
     from bearpit.core.tools import ToolRisk, tool_registry
 
-    profile = tool_registry()["web.fetch"]   # present with no plugin installed
+    profile = tool_registry()["web_fetch"]   # present with no plugin installed
     assert profile.risk is ToolRisk.CONTAINED
     assert profile.api_key_ref is None, "a built-in must not need a key to be useful"
 

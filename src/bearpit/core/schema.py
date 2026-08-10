@@ -32,11 +32,13 @@ LineText = Annotated[str, StringConstraints(max_length=2000)]  # one-liners (des
 TagText = Annotated[str, StringConstraints(max_length=40)]  # a single tag
 GoalText = Annotated[str, StringConstraints(max_length=1000)]  # a single goal
 LongText = Annotated[str, StringConstraints(max_length=50000)]  # persona/rubric/guidelines bodies
-# One tool grant: `family.verb`, lowercase (ADR-004). Shape only — whether the tool is INSTALLED
+# One tool grant: `family_verb`, lowercase (ADR-004). NOT dotted: a dot survives MCP and then dies
+# at the model, whose function-calling API allows only [A-Za-z0-9_-] in a tool name. Shape only —
+# whether the tool is INSTALLED
 # is checked by `core.tools.check_grants`, deliberately not here: existence depends on which
 # packages this machine happens to have, and a manifest must stay loadable, viewable and
 # exportable on a machine that lacks the plugin.
-ToolName = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$")]
+ToolName = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9]*_[a-z][a-z0-9_]*$")]
 
 _DURATION_RE = re.compile(r"^\d+(\.\d+)?\s*(s|m|h|d)$")
 _UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
@@ -601,7 +603,7 @@ class AgentSpec(_Base):
     budget: Budget = Field(default_factory=Budget, description="Per-agent spend cap + policy.")
     tools: list[ToolName] = Field(
         default_factory=list, max_length=50,
-        description="Tools this agent is granted, e.g. 'web.search' (ADR-004). Per-agent on "
+        description="Tools this agent is granted, e.g. 'web_search' (ADR-004). Per-agent on "
         "purpose: one agent who can research and one who cannot is a scenario primitive.",
     )
 
@@ -813,7 +815,7 @@ class ProjectSpec(_Base):
     tools: dict[ToolName, dict[str, Any]] = Field(
         default_factory=dict,
         description="Per-tool policy for every agent granted it, keyed by tool name (ADR-004) — "
-        "e.g. {'web.fetch': {'allow': ['*.wikipedia.org']}}. The scenario sets the policy; the "
+        "e.g. {'web_fetch': {'allow': ['*.wikipedia.org']}}. The scenario sets the policy; the "
         "agent holds the grant. Each block is validated against that tool's own config schema.",
     )
 

@@ -6,7 +6,7 @@ The split under test is the one `SkillRef` already established and this repeats 
   * the MODEL validates SHAPE and in-manifest consistency — things true of the manifest alone,
   * the REGISTRY validates EXISTENCE — things true only of this machine, right now.
 
-Putting existence in the model would make a scenario that grants `web.search` fail to *load* on a
+Putting existence in the model would make a scenario that grants `web_search` fail to *load* on a
 machine without that plugin, so it could not be viewed, edited or exported either. That is the
 #47 failure in a new place: behaviour that depends on which packages happen to be installed.
 
@@ -51,7 +51,7 @@ async def _noop(args: dict[str, Any], config: dict[str, Any], ctx: Any) -> Any:
     return "ok"
 
 
-def _profile(name: str = "web.search", **kw: Any) -> ToolProfile:
+def _profile(name: str = "web_search", **kw: Any) -> ToolProfile:
     return ToolProfile(
         name=name, label=kw.pop("label", "Search"), description="searches",
         params={"type": "object", "properties": {"query": {"type": "string"}}},
@@ -77,7 +77,7 @@ def _clean_cache() -> Any:
 # --- the registry + plugin contract -----------------------------------------------------------
 def test_a_plugin_contributes_a_tool(monkeypatch):
     _install(monkeypatch, _FakeEntryPoint("ws", _Plugin(_profile())))
-    assert tool_registry()["web.search"].label == "Search"
+    assert tool_registry()["web_search"].label == "Search"
 
 
 def test_a_plugin_that_fails_to_load_is_skipped(monkeypatch, caplog):
@@ -90,7 +90,7 @@ def test_a_plugin_that_fails_to_load_is_skipped(monkeypatch, caplog):
     )
     with caplog.at_level(logging.WARNING):
         registry = tool_registry()
-    assert "web.search" in registry, "one broken plugin took the healthy one down with it"
+    assert "web_search" in registry, "one broken plugin took the healthy one down with it"
     assert "broken" in caplog.text
 
 
@@ -102,13 +102,13 @@ def test_a_plugin_that_raises_while_listing_is_skipped(monkeypatch, caplog):
     _install(monkeypatch, _FakeEntryPoint("angry", _Angry()),
              _FakeEntryPoint("good", _Plugin(_profile())))
     with caplog.at_level(logging.WARNING):
-        assert "web.search" in tool_registry()
+        assert "web_search" in tool_registry()
     assert "kaboom" in caplog.text
 
 
 @pytest.mark.parametrize(
     "bad",
-    ["websearch", "Web.Search", "web.", ".search", "web.search.deep", "web search", "web-search"],
+    ["websearch", "Web.Search", "web.", ".search", "web_search.deep", "web search", "web-search"],
 )
 def test_a_badly_named_tool_is_refused_at_the_seam(monkeypatch, caplog, bad):
     """`family.verb`, lowercase. Enforced here so a plugin cannot squat a bare namespace like
@@ -129,8 +129,8 @@ def test_the_first_registration_of_a_name_wins(monkeypatch, caplog):
     _install(monkeypatch, _FakeEntryPoint("a", _Plugin(first)),
              _FakeEntryPoint("b", _Plugin(second)))
     with caplog.at_level(logging.WARNING):
-        assert tool_registry()["web.search"].label == "First"
-    assert "web.search" in caplog.text
+        assert tool_registry()["web_search"].label == "First"
+    assert "web_search" in caplog.text
 
 
 def test_the_registry_is_discovered_once(monkeypatch):
@@ -159,7 +159,7 @@ def _project(tools: list[str] | None = None, spec_tools: dict[str, Any] | None =
 def test_a_well_formed_grant_is_accepted_with_no_plugin_installed(monkeypatch):
     """The point of the split: this must not depend on what is installed."""
     _install(monkeypatch)  # empty registry
-    assert _project(["web.search"]).agents[0].tools == ["web.search"]
+    assert _project(["web_search"]).agents[0].tools == ["web_search"]
 
 
 @pytest.mark.parametrize("bad", ["websearch", "Web.Search", "web.", "web search"])
@@ -170,52 +170,52 @@ def test_a_malformed_grant_is_a_schema_error(bad):
 
 def test_a_duplicate_grant_is_a_schema_error():
     with pytest.raises(ValidationError, match="duplicate"):
-        _project(["web.search", "web.search"])
+        _project(["web_search", "web_search"])
 
 
 def test_a_spec_tools_entry_for_a_tool_nobody_holds_is_an_error():
     """Two ways to say the same thing, one of them silently inert, is exactly how a scenario ends
     up with no backstop at all — the schema already says this about spec-level `duration`."""
-    with pytest.raises(ValidationError, match="web.fetch"):
-        _project(["web.search"], {"web.fetch": {"allow": ["example.com"]}})
+    with pytest.raises(ValidationError, match="web_fetch"):
+        _project(["web_search"], {"web_fetch": {"allow": ["example.com"]}})
 
 
 def test_spec_tools_for_a_granted_tool_is_fine():
-    p = _project(["web.fetch"], {"web.fetch": {"allow": ["example.com"]}})
-    assert p.spec.tools["web.fetch"]["allow"] == ["example.com"]
+    p = _project(["web_fetch"], {"web_fetch": {"allow": ["example.com"]}})
+    assert p.spec.tools["web_fetch"]["allow"] == ["example.com"]
 
 
 # --- the registry checks: existence, config, keys ----------------------------------------------
 def test_an_unknown_tool_is_reported_with_the_agent_that_wants_it(monkeypatch):
     _install(monkeypatch, _FakeEntryPoint("ws", _Plugin(_profile())))
-    problems = check_grants(_project(["web.crawl"]), key_refs=set())
+    problems = check_grants(_project(["web_crawl"]), key_refs=set())
     assert len(problems) == 1
-    assert "web.crawl" in problems[0] and "analyst" in problems[0]
+    assert "web_crawl" in problems[0] and "analyst" in problems[0]
 
 
 def test_a_config_that_fails_the_tools_own_schema_is_reported(monkeypatch):
     _install(monkeypatch, _FakeEntryPoint("wf", _Plugin(_profile(
-        name="web.fetch",
+        name="web_fetch",
         config_schema={"type": "object",
                        "properties": {"allow": {"type": "array", "items": {"type": "string"}}},
                        "additionalProperties": False},
     ))))
-    problems = check_grants(_project(["web.fetch"], {"web.fetch": {"allow": "example.com"}}),
+    problems = check_grants(_project(["web_fetch"], {"web_fetch": {"allow": "example.com"}}),
                             key_refs=set())
-    assert len(problems) == 1 and "web.fetch" in problems[0]
+    assert len(problems) == 1 and "web_fetch" in problems[0]
 
 
 def test_a_missing_keystore_handle_is_reported_not_fatal(monkeypatch):
     """Actionable, and separable from 'the tool does not exist' — the fix is different."""
     _install(monkeypatch, _FakeEntryPoint("ws", _Plugin(_profile(api_key_ref="search-main"))))
-    problems = check_grants(_project(["web.search"]), key_refs=set())
+    problems = check_grants(_project(["web_search"]), key_refs=set())
     assert len(problems) == 1 and "search-main" in problems[0]
-    assert check_grants(_project(["web.search"]), key_refs={"search-main"}) == []
+    assert check_grants(_project(["web_search"]), key_refs={"search-main"}) == []
 
 
 def test_a_clean_project_reports_nothing(monkeypatch):
     _install(monkeypatch, _FakeEntryPoint("ws", _Plugin(_profile())))
-    assert check_grants(_project(["web.search"]), key_refs=set()) == []
+    assert check_grants(_project(["web_search"]), key_refs=set()) == []
 
 
 def test_a_project_granting_nothing_needs_no_registry(monkeypatch):
@@ -228,10 +228,10 @@ def test_elevated_tools_are_identifiable_for_the_launch_gate(monkeypatch):
     """#57 consumes this; assert the tier survives the round trip rather than discovering later
     that every tool reads as contained."""
     _install(monkeypatch, _FakeEntryPoint("x", _Plugin(
-        _profile(name="net.open", risk=ToolRisk.ELEVATED), _profile(name="web.search"))))
+        _profile(name="net_open", risk=ToolRisk.ELEVATED), _profile(name="web_search"))))
     reg = tool_registry()
-    assert reg["net.open"].risk is ToolRisk.ELEVATED
-    assert reg["web.search"].risk is ToolRisk.CONTAINED  # the default
+    assert reg["net_open"].risk is ToolRisk.ELEVATED
+    assert reg["web_search"].risk is ToolRisk.CONTAINED  # the default
 
 
 def test_a_malformed_key_in_spec_tools_is_a_schema_error():
@@ -251,8 +251,8 @@ def test_the_same_missing_tool_is_reported_once_per_agent(monkeypatch):
     _install(monkeypatch)
     project = Project(
         metadata=ProjectMeta(name="p"),
-        agents=[AgentSpec(id="one", tools=["web.search"]),
-                AgentSpec(id="two", tools=["web.search"])],
+        agents=[AgentSpec(id="one", tools=["web_search"]),
+                AgentSpec(id="two", tools=["web_search"])],
     )
     problems = check_grants(project, key_refs=set())
     assert len(problems) == 2
@@ -276,7 +276,7 @@ class _LaunchManager:
         return [r for r, _ in self.started]
 
 
-def _pkg_granting(tmp_path, tool="web.search"):
+def _pkg_granting(tmp_path, tool="web_search"):
     import json
     pkg = tmp_path / "pkg"
     pkg.mkdir(parents=True, exist_ok=True)
@@ -309,7 +309,7 @@ async def test_launching_with_an_uninstalled_tool_is_refused_and_says_which(tmp_
     assert r.status_code == 400, r.text
     detail = r.json()["detail"]
     body = json.dumps(detail)
-    assert "web.search" in body and "analyst" in body and "not installed" in body
+    assert "web_search" in body and "analyst" in body and "not installed" in body
 
 
 @pytest.mark.asyncio
@@ -356,7 +356,7 @@ def test_validate_reports_tool_problems(tmp_path, monkeypatch):
 
     _install(monkeypatch)
     result = CliRunner().invoke(app, ["validate", str(_pkg_granting(tmp_path))])
-    assert "web.search" in result.output and "not installed" in result.output
+    assert "web_search" in result.output and "not installed" in result.output
 
 
 def test_up_refuses_a_grant_that_cannot_work(tmp_path, monkeypatch):
@@ -368,11 +368,11 @@ def test_up_refuses_a_grant_that_cannot_work(tmp_path, monkeypatch):
     _install(monkeypatch)
     result = CliRunner().invoke(app, ["up", str(_pkg_granting(tmp_path))])
     assert result.exit_code != 0
-    assert "web.search" in result.output
+    assert "web_search" in result.output
 
 
 # --- the elevated tier takes consent (#57) -----------------------------------------------------
-def _elevated_profile(name="net.open"):
+def _elevated_profile(name="net_open"):
     return _profile(name=name, risk=ToolRisk.ELEVATED)
 
 
@@ -385,7 +385,7 @@ async def test_an_elevated_grant_is_refused_until_consented(tmp_path, monkeypatc
 
     monkeypatch.setenv("HOME", str(tmp_path))
     _install(monkeypatch, _FakeEntryPoint("x", _Plugin(_elevated_profile())))
-    pkg = _pkg_granting(tmp_path, tool="net.open")
+    pkg = _pkg_granting(tmp_path, tool="net_open")
     chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
     manager = _LaunchManager()
     with TestClient(create_app(chron=chron, manager=manager)) as c:
@@ -395,7 +395,7 @@ async def test_an_elevated_grant_is_refused_until_consented(tmp_path, monkeypatc
     await chron.close()
     assert blocked.status_code == 400, blocked.text
     detail = blocked.json()["detail"]
-    assert detail["elevated"] == [{"agent": "analyst", "tools": ["net.open"]}]
+    assert detail["elevated"] == [{"agent": "analyst", "tools": ["net_open"]}]
     assert "allow_elevated_tools" in detail["hint"]
     assert allowed.status_code == 200, allowed.text
 
@@ -424,10 +424,10 @@ def test_elevated_grants_lists_who_holds_what(monkeypatch):
     _install(monkeypatch, _FakeEntryPoint("x", _Plugin(_elevated_profile(), _profile())))
     project = Project(
         metadata=ProjectMeta(name="p"),
-        agents=[AgentSpec(id="scraper", tools=["net.open", "web.search"]),
-                AgentSpec(id="analyst", tools=["web.search"])],
+        agents=[AgentSpec(id="scraper", tools=["net_open", "web_search"]),
+                AgentSpec(id="analyst", tools=["web_search"])],
     )
-    assert elevated_grants(project) == {"scraper": ["net.open"]}
+    assert elevated_grants(project) == {"scraper": ["net_open"]}
 
 
 def test_up_asks_before_running_an_elevated_grant(tmp_path, monkeypatch):
@@ -437,10 +437,10 @@ def test_up_asks_before_running_an_elevated_grant(tmp_path, monkeypatch):
 
     monkeypatch.setenv("HOME", str(tmp_path))
     _install(monkeypatch, _FakeEntryPoint("x", _Plugin(_elevated_profile())))
-    result = CliRunner().invoke(app, ["up", str(_pkg_granting(tmp_path, tool="net.open"))],
+    result = CliRunner().invoke(app, ["up", str(_pkg_granting(tmp_path, tool="net_open"))],
                                 input="n\n")
     assert result.exit_code == 1
-    assert "reach past the realm" in result.output and "net.open" in result.output
+    assert "reach past the realm" in result.output and "net_open" in result.output
 
 
 @pytest.mark.asyncio
@@ -457,7 +457,7 @@ async def test_rerun_checks_tool_grants_too(tmp_path, monkeypatch):
     _install(monkeypatch)  # the tool the recorded run used is no longer installed
     chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
     project = Project(metadata=ProjectMeta(name="p"),
-                      agents=[AgentSpec(id="analyst", tools=["web.search"])])
+                      agents=[AgentSpec(id="analyst", tools=["web_search"])])
     await chron.append_event("old", EventKind.LIFECYCLE, {
         "event": "running", "require_mention": True,
         "project": project.model_dump(mode="json"),
@@ -466,7 +466,7 @@ async def test_rerun_checks_tool_grants_too(tmp_path, monkeypatch):
         r = c.post("/api/realms/old/rerun?mode=snapshot")
     await chron.close()
     assert r.status_code == 400, r.text
-    assert "web.search" in json.dumps(r.json()["detail"])
+    assert "web_search" in json.dumps(r.json()["detail"])
 
 
 @pytest.mark.asyncio
@@ -480,7 +480,7 @@ async def test_rerun_gates_an_elevated_grant_and_accepts_consent(tmp_path, monke
     _install(monkeypatch, _FakeEntryPoint("x", _Plugin(_elevated_profile())))
     chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
     project = Project(metadata=ProjectMeta(name="p"),
-                      agents=[AgentSpec(id="scraper", tools=["net.open"])])
+                      agents=[AgentSpec(id="scraper", tools=["net_open"])])
     await chron.append_event("old", EventKind.LIFECYCLE, {
         "event": "running", "require_mention": True,
         "project": project.model_dump(mode="json"),
@@ -489,7 +489,7 @@ async def test_rerun_gates_an_elevated_grant_and_accepts_consent(tmp_path, monke
         blocked = c.post("/api/realms/old/rerun?mode=snapshot")
         allowed = c.post("/api/realms/old/rerun?mode=snapshot&allow_elevated_tools=true")
     await chron.close()
-    assert blocked.status_code == 400 and "net.open" in json.dumps(blocked.json()["detail"])
+    assert blocked.status_code == 400 and "net_open" in json.dumps(blocked.json()["detail"])
     assert allowed.status_code == 200, allowed.text
 
 
@@ -508,19 +508,19 @@ def test_a_grant_survives_the_editor_save_and_reload(tmp_path, monkeypatch):
     payload = {
         "metadata": {"name": "granting"},
         "spec": {"termination": [{"type": "manual"}],
-                 "tools": {"web.fetch": {"max_calls_per_agent": 5}}},
+                 "tools": {"web_fetch": {"max_calls_per_agent": 5}}},
         "agents": [
             {"id": "analyst", "model_category": "medium", "persona": "x",
-             "tools": ["web.fetch"]},
+             "tools": ["web_fetch"]},
             {"id": "sealed", "model_category": "medium", "persona": "y"},
         ],
     }
     written = write_scenario(base, "granting", payload)
     project = load_package(str(base / (written.get("name") or "granting")))
     by_id = {a.id: a for a in project.agents}
-    assert by_id["analyst"].tools == ["web.fetch"], "the editor's grant did not reach the package"
+    assert by_id["analyst"].tools == ["web_fetch"], "the editor's grant did not reach the package"
     assert by_id["sealed"].tools == []
-    assert project.spec.tools == {"web.fetch": {"max_calls_per_agent": 5}}
+    assert project.spec.tools == {"web_fetch": {"max_calls_per_agent": 5}}
 
 
 @pytest.mark.asyncio
@@ -545,11 +545,65 @@ async def test_the_editor_reads_back_the_grants_it_saved(tmp_path, monkeypatch):
         "metadata": {"name": "granting"},
         "spec": {"termination": [{"type": "manual"}]},
         "agents": [{"id": "analyst", "model_category": "medium", "persona": "x",
-                    "tools": ["web.fetch"]}],
+                    "tools": ["web_fetch"]}],
     })
     chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
     with TestClient(create_app(chron=chron, manager=_LaunchManager())) as c:
         payload = c.get("/api/packages/granting").json()
     await chron.close()
     analyst = next(a for a in payload["agents"] if a["id"] == "analyst")
-    assert analyst["tools"] == ["web.fetch"]
+    assert analyst["tools"] == ["web_fetch"]
+
+
+def test_the_worked_example_grants_asymmetrically():
+    """`fact-race` is the demonstration that this epic exists for: the same question put to one
+    agent that can look things up and one that cannot. If the grants ever equalise, the scenario
+    still runs and quietly stops demonstrating anything."""
+    from bearpit.core.package import load_package
+
+    project = load_package("examples/fact-race")
+    by_id = {a.id: a for a in project.agents}
+    assert by_id["scout"].tools == ["web_fetch"]
+    assert by_id["pundit"].tools == [], "the whole point is that Pundit cannot look things up"
+    assert by_id["judge"].tools == ["web_fetch"], "the referee must be able to check the answer"
+    # and the realm-level policy that bounds it
+    assert project.spec.tools["web_fetch"]["max_calls_per_agent"] == 4
+    assert "*.wikipedia.org" in project.spec.tools["web_fetch"]["allow"]
+
+
+# --- what the first live run taught (naming + shadowing) ---------------------------------------
+@pytest.mark.parametrize("dotted", ["web.fetch", "web.search", "mcp.research"])
+def test_a_dotted_tool_name_is_refused_at_the_seam(monkeypatch, caplog, dotted):
+    """ADR-004 originally specified `family.verb`. A dot survives MCP perfectly — the SDK lists it
+    and calls it, and a spike proved exactly that — and then dies one layer further on: model
+    function-calling APIs allow only [A-Za-z0-9_-] in a tool name.
+
+    Live, the agent held the grant, realmtools advertised the tool with the right schema, and the
+    agent said "no web.fetch tool exists". Refusing the name here is how a plugin author finds out
+    at install time instead of mid-realm.
+    """
+    _install(monkeypatch, _FakeEntryPoint("bad", _Plugin(_profile(name=dotted))))
+    with caplog.at_level(logging.WARNING):
+        assert dotted not in tool_registry()
+    assert "never reaches the model" in caplog.text
+
+
+def test_a_dotted_grant_is_a_schema_error():
+    with pytest.raises(ValidationError):
+        _project(["web.fetch"])
+
+
+@pytest.mark.parametrize("verb", ["run_code", "submit_sealed", "reveal_status", "send_private",
+                                  "turn_status"])
+def test_a_plugin_cannot_shadow_a_realmtools_verb(monkeypatch, caplog, verb):
+    """A new hazard created by the rename. With a dot separator a collision with `run_code` was
+    impossible; with an underscore it is one plausible name away, and shadowing it would be a
+    privilege question rather than an inconvenience.
+
+    Only the MULTI-WORD verbs are reachable: the name rule requires an underscore, so `rule`,
+    `remember` and `eliminate` are already unspendable as plugin names. This list is exactly the
+    set a plugin could otherwise take."""
+    _install(monkeypatch, _FakeEntryPoint("greedy", _Plugin(_profile(name=verb))))
+    with caplog.at_level(logging.WARNING):
+        assert verb not in tool_registry()
+    assert "realmtools verb" in caplog.text

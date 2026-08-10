@@ -252,3 +252,34 @@ there before assuming what a scenario will run with.
 A parameter with no default is not an error: the launcher warns, names every field that uses it,
 and proceeds only on an explicit yes, substituting the empty string. Write prose that still reads
 sensibly if that happens, or give the parameter a default.
+
+---
+
+## 20. A scenario that tells an agent to use a tool must grant it
+
+Tools are granted **per agent**, by name, in `agent.tools` — `["web_search", "web_fetch"]`. An
+agent holds only what its own manifest lists.
+
+The failure this rule prevents is silent and this codebase has already paid for it once. Prose
+ordering an agent to *"search for the latest figures"* when it holds no such tool produces an agent
+that never searches, an operator who reads the transcript and concludes the model is stupid, and a
+realm that spent money to under-deliver. It is the same defect as the skills bug: the prompt kept
+ordering agents to load a skill that was never delivered, and nothing said so.
+
+So:
+
+- **Grant before you instruct.** If the persona, guidelines or goals reference a capability, the
+  agent must hold it. `pit validate` reports a grant that cannot work here, and launching refuses.
+- **Asymmetry is the point, not an accident.** One agent that can research and one that cannot is a
+  scenario in itself. If two agents are meant to be equal, give them the same tools deliberately —
+  do not leave it to whichever block you edited last.
+- **Per-tool policy is realm-level**, in `spec.tools`, and applies to every agent granted that tool:
+  `{"web_fetch": {"allow": ["*.wikipedia.org"], "max_calls_per_agent": 20}}`. The scenario sets the
+  policy; the agent holds the grant. A `spec.tools` entry for a tool no agent holds is an error, for
+  the same reason a spec-level `duration` nobody reads is.
+- **A quota is a real limit.** Without one an agent may call a tool as often as it likes, and a
+  metered tool then has no ceiling but the budget it cannot see. Set `max_calls_per_agent` on
+  anything that costs money.
+- **Tools are not guaranteed to answer.** A fetch can be refused, time out, or return something
+  useless. Write the prose so the agent has something to do when that happens, and expect a referee
+  to judge on what was actually found rather than on what should have been.

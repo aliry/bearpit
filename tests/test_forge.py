@@ -475,7 +475,7 @@ async def test_forge_bakes_each_agents_tool_grants_into_its_own_token():
         metadata=ProjectMeta(name="p"),
         spec=ProjectSpec(mechanics=[{"kind": "sealed-submit"}]),
         agents=[
-            AgentSpec(id="analyst", model=_model(), persona="x", tools=["web.search", "web.fetch"]),
+            AgentSpec(id="analyst", model=_model(), persona="x", tools=["web_search", "web_fetch"]),
             AgentSpec(id="sealed", model=_model(), persona="y"),   # granted nothing
         ],
     )
@@ -497,5 +497,59 @@ async def test_forge_bakes_each_agents_tool_grants_into_its_own_token():
     analyst = verify_token(handles.agent_tokens["analyst"], "s" * 40)
     sealed = verify_token(handles.agent_tokens["sealed"], "s" * 40)
     assert analyst is not None and sealed is not None
-    assert analyst[4] == ("web.fetch", "web.search")
+    assert analyst[4] == ("web_fetch", "web_search")
     assert sealed[4] == (), "an agent granted nothing must not inherit a peer's tools"
+
+
+def test_a_granted_agent_is_told_what_its_tool_is_actually_called():
+    """The runtime namespaces MCP tools as `mcp_<server>_<tool>`, so the callable name is
+    `mcp_realmtools_web_fetch` while the scenario writes `web_fetch`.
+
+    Live, an agent held the grant, realmtools advertised it, the function reached the model under
+    its prefixed name — and the agent still reported that no such tool existed, because it was
+    looking for the literal name its persona used. Present and unreachable at the same time. The
+    scenario should not have to know how a runtime prefixes things, so the adapter says it.
+    """
+    from bearpit.core.schema import AgentSpec, ModelRef
+    from bearpit.forge.adapters.hermes.config import RealmtoolsCreds, render_hermes_home
+
+    agent = AgentSpec(id="scout", persona="Use web_fetch.", tools=["web_fetch"],
+                      model=ModelRef(provider="azure", model="m", api_key_ref="azure-main",
+                                     input_cost_per_token=1e-7, output_cost_per_token=1e-7))
+    files = render_hermes_home(
+        agent, _cred(), _mx("scout"), guidelines="x",
+        realmtools=RealmtoolsCreds(url="http://rt:9100/mcp", token="tok"),
+    )
+    blob = "\n".join(str(v) for v in files.values()) if isinstance(files, dict) else str(files)
+    assert "mcp_realmtools_web_fetch" in blob, "the agent is never told the callable name"
+    assert "web_fetch" in blob
+
+
+def test_an_agent_with_no_grants_is_told_nothing_about_tools():
+    """The block must be rare enough to mean something — every scenario shipped before this grants
+    nothing, and none of them should grow a paragraph about tools they do not have."""
+    from bearpit.core.schema import AgentSpec, ModelRef
+    from bearpit.forge.adapters.hermes.config import RealmtoolsCreds, render_hermes_home
+
+    agent = AgentSpec(id="pundit", persona="Answer from memory.",
+                      model=ModelRef(provider="azure", model="m", api_key_ref="azure-main",
+                                     input_cost_per_token=1e-7, output_cost_per_token=1e-7))
+    files = render_hermes_home(
+        agent, _cred(), _mx("pundit"), guidelines="x",
+        realmtools=RealmtoolsCreds(url="http://rt:9100/mcp", token="tok"),
+    )
+    blob = "\n".join(str(v) for v in files.values()) if isinstance(files, dict) else str(files)
+    assert "TOOLS GRANTED TO YOU" not in blob
+
+
+def _mx(agent_id: str):
+    from bearpit.herald.types import MatrixCreds
+
+    return MatrixCreds(homeserver="http://hs", user_id=f"@{agent_id}:realm.local",
+                       access_token="t", allowed_users=[], commons_room="!c")
+
+
+def _cred():
+    from bearpit.ledger import AgentCredential
+
+    return AgentCredential(virtual_key="k", model_name="m", proxy_url="http://p")

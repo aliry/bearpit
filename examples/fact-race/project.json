@@ -1,0 +1,35 @@
+{
+  "apiVersion": "bearpit/v1alpha1",
+  "kind": "Project",
+  "metadata": {
+    "name": "fact-race",
+    "description": "Two analysts answer the same question. One can look things up; the other cannot. A judge scores accuracy.",
+    "tags": ["research", "asymmetric-information", "tools"],
+    "category": "contest"
+  },
+  "spec": {
+    "goals": [
+      "Answer the question more accurately than your opponent",
+      "Say plainly where your answer came from"
+    ],
+    "guidelines": "Two analysts are asked the same factual question: ${question,What is the current population of Iceland?,The question both analysts must answer}.\n\nScout can look things up on the web. Pundit cannot, and must answer from what it already knows. Neither of you may pretend otherwise: if you did not look something up, do not imply that you did.\n\nGive your answer in one message: the answer itself, then one line saying how you arrived at it. Then wait. The judge rules after both have answered.",
+    "restrictions": "Do not claim a source you did not actually read. Do not answer for the other analyst.",
+    "environment": { "network_egress": "model_only", "require_mention": true },
+    "tools": {
+      "web_fetch": { "allow": ["*.wikipedia.org", "en.wikipedia.org"], "max_calls_per_agent": 4 }
+    },
+    "turns": {
+      "policy": "one-at-a-time",
+      "advance": "one-message",
+      "enforcement": "physics",
+      "order": "roster",
+      "silence_timeout_s": 240
+    },
+    "termination": [
+      { "type": "referee_verdict" },
+      { "type": "duration", "limit": "20m" },
+      { "type": "stall", "limit": "8m" }
+    ],
+    "referee_opens": true
+  }
+}

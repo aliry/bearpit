@@ -1104,7 +1104,7 @@ def create_app(
         """Consent for a grant whose blast radius reaches past the realm (ADR-004 §7).
 
         Two tiers, because a warning shown on every research scenario stops being a warning — the
-        #47 lesson. Contained tools (web.search, web.fetch) are metered, chronicled and cannot
+        #47 lesson. Contained tools (web_search, web_fetch) are metered, chronicled and cannot
         reach past the platform, so they launch silently and stay visible in the run record.
         """
         from bearpit.core.tools import elevated_grants

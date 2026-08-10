@@ -1,0 +1,10 @@
+{
+  "id": "scout",
+  "name": "Scout",
+  "role": "participant",
+  "model_category": "medium",
+  "budget": { "max_usd": 2 },
+  "skills": [],
+  "tools": ["web_fetch"],
+  "goals": ["Answer accurately, using what you can actually read"]
+}

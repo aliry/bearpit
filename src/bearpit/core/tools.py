@@ -1,6 +1,6 @@
 """Agent tool grants — the registry and the plugin contract (ADR-004).
 
-A *tool* is a capability an agent can be granted individually: `web.search`, `web.fetch`, and
+A *tool* is a capability an agent can be granted individually: `web_search`, `web_fetch`, and
 whatever an installed package contributes. Any package can contribute one by declaring an entry
 point in the `bearpit.tools` group, exactly as a provider plugin contributes a model pipeline
 through `bearpit.providers` — including that seam's load-bearing rule: **a plugin that fails to
@@ -14,7 +14,7 @@ manifest's internal consistency; this module validates *existence* — whether t
 installed, whether its config satisfies its own schema, whether its key is present. The split is
 the one `SkillRef` already uses, and it is not stylistic: existence depends on which packages
 happen to be installed on this machine, so folding it into the model would make a scenario that
-grants `web.search` fail to *load* wherever that plugin is absent — unviewable, uneditable and
+grants `web_search` fail to *load* wherever that plugin is absent — unviewable, uneditable and
 unexportable, not merely unlaunchable.
 
 **A name collision is refused, not resolved.** Provider profiles merge last-wins, which suits
@@ -41,9 +41,22 @@ if TYPE_CHECKING:  # avoid a circular import: schema imports nothing from here a
 
 TOOL_GROUP = "bearpit.tools"
 
-# `family.verb`, lowercase. Two segments exactly: it keeps a manifest predictable, and it stops a
-# plugin squatting a bare namespace — `mcp` is reserved for external MCP servers (ADR-004).
-TOOL_NAME_RE = re.compile(r"^[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$")
+# `family_verb`, lowercase, underscore-separated.
+#
+# NOT `family.verb`, which is what ADR-004 originally specified. A dot survives MCP perfectly well
+# — the SDK lists and calls it — and then dies one layer further on: model function-calling APIs
+# constrain a tool name to [A-Za-z0-9_-], so a dotted tool never reaches the model at all. Live,
+# the agent held the grant, the server advertised it, and the agent said no such tool existed.
+# All fifteen of the platform's own verbs were already underscore-named; this was the first dot.
+TOOL_NAME_RE = re.compile(r"^[a-z][a-z0-9]*_[a-z][a-z0-9_]*$")
+
+# The verbs realmtools itself serves. A plugin must not take one: with a dot separator a collision
+# was impossible, and with an underscore it is one typo away — and shadowing `run_code` or `rule`
+# would be a privilege question rather than an inconvenience.
+BUILTIN_VERBS = frozenset({
+    "submit_sealed", "reveal_status", "turn_status", "send_private", "run_code", "remember",
+    "recall", "reveal", "tally", "score", "penalize", "flag", "scoreboard", "eliminate", "rule",
+})
 
 log = logging.getLogger(__name__)
 
@@ -88,7 +101,7 @@ class ToolPlugin(Protocol):
         """The tool profiles this package contributes."""
 
 
-# Tools that ship with the platform, seeded first so a plugin can never shadow one. `web.fetch`
+# Tools that ship with the platform, seeded first so a plugin can never shadow one. `web_fetch`
 # needs no key and no third party, so the platform is useful without an install; a search backend
 # is a vendor choice with a vendor key and ships as a plugin instead (ADR-004 §2).
 BUILTIN_TOOLS: dict[str, ToolProfile] = {}
@@ -138,7 +151,12 @@ def _accept(into: dict[str, ToolProfile], profile: ToolProfile, origin: str) -> 
         return
     if not TOOL_NAME_RE.match(profile.name):
         log.warning("tool plugin %r contributed an invalid tool name %r — ignored "
-                    "(expected 'family.verb', lowercase)", origin, profile.name)
+                    "(expected 'family_verb', lowercase; a dot never reaches the model)",
+                    origin, profile.name)
+        return
+    if profile.name in BUILTIN_VERBS:
+        log.warning("tool plugin %r contributed %r, which is a realmtools verb — ignored",
+                    origin, profile.name)
         return
     if profile.name in into:
         log.warning("tool plugin %r contributed %r, which is already provided — ignored "
@@ -313,6 +331,7 @@ def _config_problems(name: str, config: dict[str, Any], schema: dict[str, Any]) 
 
 __all__ = [
     "BUILTIN_TOOLS",
+    "BUILTIN_VERBS",
     "TOOL_GROUP",
     "TOOL_NAME_RE",
     "ToolHandler",

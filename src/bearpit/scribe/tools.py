@@ -20,6 +20,7 @@ from pydantic import ValidationError
 
 from bearpit.core.package import PackageError
 from bearpit.core.schema import Project
+from bearpit.core.tools import check_grants, keystore_handles
 from bearpit.scribe.store import PackageStore
 from bearpit.scribe.types import ToolCall, ToolSpec
 from bearpit.scribe.validate import validate_scenario
@@ -104,9 +105,15 @@ def draft_problems(spec: dict[str, Any]) -> str | None:
     except ValidationError as exc:
         return _format_schema_errors(exc)
     result = validate_scenario(project)
-    if not result.ok:
+    problems = list(result.errors) if not result.ok else []
+    # A granted tool that does not exist here passes the schema — the name is well formed — and
+    # then does nothing at run time: the agent never sees it while the prose still tells it to
+    # look things up. Catching it at proposal time is the difference between a fixable draft and
+    # a realm that quietly under-delivers.
+    problems.extend(check_grants(project, key_refs=keystore_handles()))
+    if problems:
         return "Invalid — fix these problems and re-propose:\n" + "\n".join(
-            f"- {e}" for e in result.errors
+            f"- {e}" for e in problems
         )
     return None
 
@@ -135,6 +142,8 @@ class AuthoringTools:
             return self._validate_spec(args.get("spec") or {})
         if name == "list_skills":
             return self._list_skills()
+        if name == "list_tools":
+            return self._list_tools()
         if name == "read_skill":
             return self._read_skill(str(args.get("ref", "")))
         if name == "preview_changes":
@@ -214,6 +223,25 @@ class AuthoringTools:
             return _format_schema_errors(exc)
         return diff_projects(prior, after)
 
+    def _list_tools(self) -> str:
+        """What this platform can actually grant, so the assistant cannot invent a tool.
+
+        Readiness travels with each entry: a tool whose key is missing can still be granted — the
+        scenario is fine and the operator adds the key — but the user should be told, at the
+        moment they ask for it, rather than at launch.
+        """
+        from bearpit.core.tools import keystore_handles, tool_registry
+
+        have = keystore_handles()
+        return json.dumps([
+            {"name": p.name, "label": p.label, "description": p.description,
+             "risk": str(p.risk), "cost_per_call_usd": p.cost_per_call_usd,
+             "ready": not p.api_key_ref or p.api_key_ref in have,
+             "needs_key_ref": p.api_key_ref if p.api_key_ref and p.api_key_ref not in have
+             else None}
+            for p in sorted(tool_registry().values(), key=lambda x: x.name)
+        ], indent=2)
+
     def _list_skills(self) -> str:
         from bearpit.gatekeeper.scenarios import list_skills
 
@@ -285,6 +313,13 @@ TOOL_SPECS: list[ToolSpec] = [
     ToolSpec(
         name="list_skills",
         description="List the skills available to wire into agents (builtin + user library).",
+        parameters=_obj_schema({}),
+    ),
+    ToolSpec(
+        name="list_tools",
+        description="List the tools that can be granted to an agent on THIS platform, with what "
+                    "each does, whether its key is configured, and what a call costs. Grant only "
+                    "from this list — a tool that is not here does not exist.",
         parameters=_obj_schema({}),
     ),
     ToolSpec(

@@ -29,11 +29,11 @@ def test_grants_survive_the_round_trip_in_a_stable_order():
     always produces one token — a token that varied with dict order would be a nightmare to
     compare across runs."""
     a = mint_token("duel", "vela", is_referee=False, secret=SECRET,
-                   grants=["web.search", "web.fetch"])
+                   grants=["web_search", "web_fetch"])
     b = mint_token("duel", "vela", is_referee=False, secret=SECRET,
-                   grants=["web.fetch", "web.search"])
+                   grants=["web_fetch", "web_search"])
     assert a == b
-    assert verify_token(a, SECRET) == ("duel", "vela", False, (), ("web.fetch", "web.search"))
+    assert verify_token(a, SECRET) == ("duel", "vela", False, (), ("web_fetch", "web_search"))
 
 
 def test_a_token_minted_before_grants_existed_still_verifies():
@@ -56,10 +56,10 @@ def test_the_grants_field_cannot_be_edited_without_breaking_the_signature():
     suggestion rather than an authority, and every tool check downstream would be theatre."""
     import base64
 
-    honest = mint_token("duel", "vela", is_referee=False, secret=SECRET, grants=["web.fetch"])
+    honest = mint_token("duel", "vela", is_referee=False, secret=SECRET, grants=["web_fetch"])
     body, sig = honest.split(".", 1)
     payload = base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)).decode()
-    forged_payload = payload.replace("web.fetch", "net.open")
+    forged_payload = payload.replace("web_fetch", "net_open")
     forged_body = base64.urlsafe_b64encode(forged_payload.encode()).decode().rstrip("=")
     assert verify_token(f"{forged_body}.{sig}", SECRET) is None
 
@@ -322,7 +322,7 @@ def test_the_server_surfaces_grants_on_the_identity_it_resolves():
     from bearpit.realmtools.server import _identity
 
     token = mint_token("duel", "vela", is_referee=False, secret=SECRET,
-                       roster=["vela", "orin"], grants=["web.fetch", "web.search"])
+                       roster=["vela", "orin"], grants=["web_fetch", "web_search"])
     ctx = SimpleNamespace(request_context=SimpleNamespace(
         request=SimpleNamespace(headers={"authorization": f"Bearer {token}"})))
 
@@ -330,7 +330,7 @@ def test_the_server_surfaces_grants_on_the_identity_it_resolves():
     assert ident is not None
     assert ident.agent_id == "vela"
     assert ident.roster == ("vela", "orin")
-    assert ident.grants == ("web.fetch", "web.search")
+    assert ident.grants == ("web_fetch", "web_search")
 
 
 def test_an_unsigned_caller_gets_no_identity_and_therefore_no_grants():

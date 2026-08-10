@@ -1,4 +1,4 @@
-"""`web.fetch` — the built-in tool, and the defences that make host-brokering safe (ADR-004 §8).
+"""`web_fetch` — the built-in tool, and the defences that make host-brokering safe (ADR-004 §8).
 
 Brokering is what makes tool access safe from the *container's* point of view, and it is precisely
 what makes it dangerous from the *host's*. The host can reach the operator's LAN, the control plane
@@ -167,7 +167,7 @@ async def fetch(url: str, *, allow: list[str] | None = None,
 async def _handler(args: dict[str, Any], config: dict[str, Any], ctx: Any) -> Any:
     url = str(args.get("url") or "").strip()
     if not url:
-        return {"error": "web.fetch needs a url"}
+        return {"error": "web_fetch needs a url"}
     allow = config.get("allow")
     try:
         return await fetch(url, allow=list(allow) if isinstance(allow, list) else None)
@@ -180,7 +180,7 @@ async def _handler(args: dict[str, Any], config: dict[str, Any], ctx: Any) -> An
 
 
 WEB_FETCH = ToolProfile(
-    name="web.fetch",
+    name="web_fetch",
     label="Fetch a web page",
     description=(
         "Fetch a public web page or JSON document and read it as text. Give the full URL, "
