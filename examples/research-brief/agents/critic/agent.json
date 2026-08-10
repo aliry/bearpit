@@ -1,0 +1,3 @@
+{ "id": "critic", "name": "Critic", "role": "participant", "model_category": "medium",
+  "budget": { "max_usd": 2 }, "skills": [], "tools": ["web_fetch"],
+  "goals": ["Separate what was verified from what was remembered"] }
