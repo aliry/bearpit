@@ -62,27 +62,46 @@ finding, not a silent failure.
 - **Does the Editor's verdict match reality?** If the transcript is full of unsourced claims and the
   outcome is `published`, the referee is being generous with itself.
 
-## Two live runs, before and after the platform fix
+## What the live runs showed
 
-**Run 1 (`brief-1`)** — five agents, ~$2.70. **Zero `web_fetch` calls.** That turned out not to be
-the model's fault at all: the Forge never wired the Realmtools server for a grant, and the provider's
-tool allowlist excluded anything beyond the fifteen standing verbs. The tool could not be called by
-anyone (#73, fixed).
+Five runs, and each one moved the bottleneck somewhere more interesting.
 
-**Run 2 (`brief-2`)**, after the fix — **32 fetches, all successful**, by four of the five agents,
-against real sources: IEA electricity reports, an OWID page, a `science.org` DOI that answered a
-genuine 403. The plumbing works.
+**Run 1** — zero fetches. Not the model's fault: the Forge never wired the tools server for a
+grant, and the provider allowlist excluded the tool (#73). Fixed.
 
-**The editor still ruled `published — unverified`**, on the grounds that no figure in the brief was
-traceable to a page a researcher had actually read. That is now a *scenario* question rather than a
-platform one, and it is the interesting one: agents fetched, and then wrote their claims from
-memory anyway rather than from what came back. Some of it is real — the IEA pages are heavy and a
-403 is a 403 — and some of it is a citation habit the prompts have not yet instilled.
+**Run 2** — 32 successful fetches, and still `published — unverified`. Agents fetched and then
+wrote from memory anyway. That looked like a prompting problem and was mostly a tool problem: a
+fetched article arrived as ~64,000 tokens of raw HTML, truncated mid-document. Nobody can quote
+from that. `web_fetch` now returns prose, and `contains` returns just the passages around a phrase
+(~300 tokens) — see #77.
 
-So the mechanism did its job twice, for two different reasons. In run 1 it correctly reported a
-platform that could not fetch; in run 2 it correctly reported researchers who fetched and did not
-cite. A confident brief would have been wrong both times.
+**Run 3** — agents used `contains` and posted verbatim quotes; the Critic re-fetched and confirmed
+five of them. Then it ran out of calls mid-audit, because all four agents shared one quota and a
+verifier re-checks everyone else's sources. Quotas gained a per-agent override.
 
+**Run 4** — one claim confirmed verbatim and one citation **failed** re-fetch, which is the
+mechanism catching exactly what it exists to catch.
+
+**Run 5** — the Critic now reports coverage explicitly:
+
+    COVERAGE: checked 4 of 6 claims — unchecked: Context's IEA quote (no URL supplied to me),
+    Evidence's DOE/LBNL figure.
+
+so the editor can tell *"I checked and it failed"* from *"I never got to it"*, and a researcher who
+posts a claim with no URL is named for it.
+
+### Where it lands
+
+The verdict is still `published — unverified`, and that is now an accurate report rather than a
+failure: two claims re-confirmed, six carrying URLs and quotes that the Critic did not reach inside
+its turns. Full verification of every headline figure is not yet reliable — the researchers post
+faster than one verifier can re-check, and that is a finding about multi-agent review under a turn
+budget, not a broken scenario.
+
+What the scenario reliably delivers is the thing it was built for: **you always know which claims
+were checked, which failed, and which nobody got to.**
+
+## If nothing gets fetched
 ## If nothing gets fetched
 ## If nothing gets fetched
 
