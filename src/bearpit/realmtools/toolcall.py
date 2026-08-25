@@ -97,7 +97,13 @@ class ToolCallService:
             raise ValueError(f"arguments too long (max {MAX_ARGS_CHARS} chars)")
 
         policy = await self.policy(who.realm_id, tool)
+        # A per-agent override beats the shared cap. A verifier that re-checks everyone else's
+        # sources needs more calls than the agents producing them, and that asymmetry is inherent
+        # to any review-shaped scenario — a single number cannot express it (#77).
+        by_agent = policy.get("max_calls_by_agent")
         quota = policy.get("max_calls_per_agent")
+        if isinstance(by_agent, dict) and who.agent_id in by_agent:
+            quota = by_agent[who.agent_id]
         if isinstance(quota, int) and quota >= 0:
             used = await self.used(who.realm_id, who.agent_id, tool)
             if used >= quota:

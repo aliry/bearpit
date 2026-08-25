@@ -498,3 +498,52 @@ async def test_a_granted_tool_can_actually_be_CALLED_through_the_protocol(regist
         # the broker must have recorded the intent for the host to perform
         assert "did not answer in time" in text or "result" in text or "error" in text
     monkeypatch.undo()
+
+
+# --- a verifier needs a bigger budget than a producer (#77) ------------------------------------
+async def test_a_per_agent_quota_override_beats_the_shared_one(chron):
+    """A uniform quota starves the one role that needs the most calls.
+
+    Live: three researchers posted claims and a critic re-fetched each source to check the quote.
+    All four shared `max_calls_per_agent: 8`, so the critic ran out mid-audit — it had verified
+    five claims and could not finish. The producer/verifier asymmetry is inherent to any
+    review-shaped scenario, so the policy has to be able to express it.
+    """
+    await chron.append_event("r1", EventKind.TOOL_MANIFEST, {
+        "version": 1,
+        "tools": {"web_fetch": {"available": True, "description": "d", "params": {},
+                                "policy": {"max_calls_per_agent": 2,
+                                           "max_calls_by_agent": {"critic": 5}}}},
+        "grants": {},
+    })
+    svc = ToolCallService(chron)
+    for _ in range(3):
+        await chron.append_event("r1", EventKind.TOOL_CALL,
+                                 {"id": "x", "agent": "critic", "tool": "web_fetch"})
+        await chron.append_event("r1", EventKind.TOOL_CALL,
+                                 {"id": "x", "agent": "analyst", "tool": "web_fetch"})
+
+    analyst = Identity(realm_id="r1", agent_id="analyst", is_referee=False, grants=("web_fetch",))
+    critic = Identity(realm_id="r1", agent_id="critic", is_referee=False, grants=("web_fetch",))
+
+    spent = await svc.call(analyst, "web_fetch", {"url": "https://x/"})
+    assert spent["quota_exhausted"] is True and "3/2" in spent["error"]
+
+    # the critic is 3 into an allowance of 5, so it may still work
+    out = await _call_with_host(chron, svc, critic, "web_fetch", {"url": "https://x/"})
+    assert "result" in out, "the critic's override did not apply"
+
+
+async def test_an_agent_with_no_override_still_uses_the_shared_quota(chron):
+    await chron.append_event("r1", EventKind.TOOL_MANIFEST, {
+        "version": 1,
+        "tools": {"web_fetch": {"available": True, "description": "d", "params": {},
+                                "policy": {"max_calls_per_agent": 1,
+                                           "max_calls_by_agent": {"critic": 9}}}},
+        "grants": {},
+    })
+    svc = ToolCallService(chron)
+    await chron.append_event("r1", EventKind.TOOL_CALL,
+                             {"id": "x", "agent": "analyst", "tool": "web_fetch"})
+    who = Identity(realm_id="r1", agent_id="analyst", is_referee=False, grants=("web_fetch",))
+    assert (await svc.call(who, "web_fetch", {"url": "https://x/"}))["quota_exhausted"] is True
