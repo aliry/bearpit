@@ -275,3 +275,43 @@ async def test_a_relative_redirect_is_resolved_against_the_name_not_the_address(
     assert out["text"] == "otter"
     assert hosts == ["en.wikipedia.org", "en.wikipedia.org"]
     assert out["url"] == "http://en.wikipedia.org/wiki/Otter"
+
+
+# --- identifying ourselves ---------------------------------------------------------------------
+async def test_every_request_carries_a_descriptive_user_agent(dns):
+    """Not politeness — a requirement.
+
+    Wikimedia's robot policy answers 403 to a request whose User-Agent is a bare client default,
+    and that is what the HTTP client sends unless told otherwise. Live, an agent granted this tool
+    fetched Wikipedia three times, got three 403s, and diagnosed the cause itself. The scenario's
+    allowlist was `*.wikipedia.org`, so the one host it could reach was the one refusing us.
+    """
+    dns["en.wikipedia.org"] = ["93.184.216.34"]
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["ua"] = request.headers.get("user-agent", "")
+        return httpx.Response(200, text="ok", headers={"content-type": "text/plain"})
+
+    await fetch("https://en.wikipedia.org/wiki/Iceland", client=_client(handler))
+    ua = seen["ua"]
+    assert "Bearpit" in ua, f"no identifying User-Agent was sent: {ua!r}"
+    assert "http" in ua, "Wikimedia's policy asks for a URL or contact in the User-Agent"
+    assert "python-httpx" not in ua, "the client default is what gets 403'd"
+
+
+async def test_the_user_agent_survives_a_redirect(dns):
+    """Each hop is a fresh request built by hand, so the header has to be set on every one."""
+    dns["a.example"] = ["93.184.216.34"]
+    dns["b.example"] = ["93.184.216.34"]
+    agents: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        agents.append(request.headers.get("user-agent", ""))
+        if request.headers.get("host") == "a.example":
+            return httpx.Response(302, headers={"location": "http://b.example/final"})
+        return httpx.Response(200, text="ok", headers={"content-type": "text/plain"})
+
+    await fetch("http://a.example/start", client=_client(handler))
+    assert len(agents) == 2
+    assert all("Bearpit" in ua for ua in agents)

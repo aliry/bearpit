@@ -35,6 +35,16 @@ log = logging.getLogger(__name__)
 ALLOWED_SCHEMES = ("http", "https")
 MAX_REDIRECTS = 3
 TIMEOUT_S = 10.0
+# Identify the platform, with a URL someone can look up.
+#
+# Not politeness — a requirement. Wikimedia's robot policy returns 403 to a request whose
+# User-Agent is a bare client default, and the HTTP client's default is exactly that. Live, an
+# agent granted `web_fetch` fetched Wikipedia three times, got three 403s, and diagnosed the cause
+# itself: "Wikipedia's robot policy is blocking requests without a proper user-agent". A tool
+# whose most obvious research target refuses it is a tool that does not work.
+USER_AGENT = (
+    "Bearpit/0.1 (+https://github.com/aliry/bearpit; agent research tool; contact via repo)"
+)
 MAX_BYTES = 256 * 1024
 ALLOWED_CONTENT = ("text/", "application/json", "application/xml", "application/xhtml",
                    "+json", "+xml")
@@ -133,7 +143,12 @@ async def fetch(url: str, *, allow: list[str] | None = None,
             _ip, host, pinned = await _vet(current, allowed)
             hops.append(current)   # record what was ASKED for, not the address it resolved to
             response = await http.get(
-                pinned, headers={"Host": host, "Accept": "text/*, application/json;q=0.9"},
+                pinned,
+                headers={
+                    "Host": host,
+                    "Accept": "text/*, application/json;q=0.9",
+                    "User-Agent": USER_AGENT,
+                },
                 extensions={"sni_hostname": host},
             )
             if response.is_redirect:
@@ -209,5 +224,5 @@ WEB_FETCH = ToolProfile(
 )
 
 
-__all__ = ["ALLOWED_SCHEMES", "MAX_BYTES", "MAX_REDIRECTS", "TIMEOUT_S", "WEB_FETCH",
-           "FetchRefused", "fetch"]
+__all__ = ["ALLOWED_SCHEMES", "MAX_BYTES", "MAX_REDIRECTS", "TIMEOUT_S", "USER_AGENT",
+           "WEB_FETCH", "FetchRefused", "fetch"]
