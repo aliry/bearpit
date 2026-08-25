@@ -29,6 +29,31 @@ the manifest.
 - **Does the Judge verify?** It is the referee, and it holds the tool precisely so its ruling rests
   on something checked rather than remembered.
 
+## What happened when it ran
+
+Two runs, and the scenario earned its keep by failing usefully in the first one.
+
+**Run 1 (`factrace-4`).** Scout fetched three times — the article, the REST API,
+`simple.wikipedia.org` — and got **403 every time**. It diagnosed the cause itself: *"Wikipedia's
+robot policy is blocking requests without a proper user-agent."* The Judge then verified
+independently, tried four URLs of its own, hit the same wall, and ruled a **tie** on the grounds
+that this was *"a genuine lookup failure rather than a fabrication"*.
+
+The agents were right and the platform was wrong: `web_fetch` sent no User-Agent, so the one host
+this scenario allows was refusing it. Fixed.
+
+**Run 2 (`factrace-5`).** Every fetch returned 200.
+
+| | answer | how |
+|---|---|---|
+| **Scout** (holds `web_fetch`) | ~395,000 | fetched the article, quoted *"roughly 395,000 residents"*, cited the URL |
+| **Pundit** (no tools) | ~380,000 | from memory, flagged as *"could be outdated"* |
+| **Judge** (holds `web_fetch`) | — | verified against Wikipedia itself, ruled **scout** |
+
+Scout exact, Pundit off by ~15,000 (~4%), and honest about it. That is the asymmetry this scenario
+exists to show, observed rather than asserted — and a research advantage winning on accuracy while
+the agent without it loses gracefully rather than by inventing a number.
+
 ## Policy
 
 `spec.tools` caps `web_fetch` at four calls per agent and allows Wikipedia only, so the scenario is
