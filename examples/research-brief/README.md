@@ -22,9 +22,19 @@ question without editing the manifest.
 | **Critic** | which claims were actually sourced, and which were remembered |
 | **Editor** (referee) | commissions the work, publishes the brief, ends the realm |
 
-All five hold `web_fetch`, capped at eight calls each by `spec.tools`. There is no host allowlist,
+All five hold `web_fetch`. `spec.tools` gives each researcher twelve calls and the Critic thirty — a verifier that re-checks everyone else's sources needs several times what any one of them spends, and the first run starved it mid-audit on a shared cap of eight.
 so any public page is reachable — private, loopback and cloud-metadata addresses are refused by the
 tool itself, and every fetch is chronicled with its redirect chain.
+
+## How a claim gets made
+
+Every factual claim carries **two** things: the URL, and a **verbatim quote** from what the tool
+returned. The Critic then re-fetches that URL with `contains` set to the quote — if the words come
+back, the claim is supported; if they do not, it is unsupported whatever URL it carries.
+
+That is deliberate. A URL is cheap to write from memory; a quote is not, because you cannot produce
+one without the page in front of you. And `web_fetch`'s `contains` argument makes checking it a
+single call.
 
 ## The design problem this scenario is built around
 

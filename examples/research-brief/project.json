@@ -4,7 +4,13 @@
   "metadata": {
     "name": "research-brief",
     "description": "Three researchers take different angles on one topic, a critic checks every claim against a real source, and an editor writes the brief.",
-    "tags": ["research", "tools", "web", "review", "report"],
+    "tags": [
+      "research",
+      "tools",
+      "web",
+      "review",
+      "report"
+    ],
     "category": "collaborative"
   },
   "spec": {
@@ -13,11 +19,19 @@
       "Ground every factual claim in a source someone actually fetched",
       "Say plainly what is uncertain or contested"
     ],
-    "guidelines": "TOPIC: ${topic,How much electricity do data centres use?,The research question the brief must answer}\n\nAUDIENCE: ${audience,an informed general reader,Who the brief is written for — it sets the tone and how much is assumed}\n\nFour of you research and check; the editor writes the brief and ends the realm.\n\nEach researcher takes a different angle and works it properly. You each hold `web_fetch`, which reads a public web page or JSON document as text. Use it. A claim you looked up and cited is worth more than three you remembered.\n\nEvery factual claim you post must carry the URL you actually fetched it from. If you did not fetch it, say 'from memory, unverified' — that is an acceptable answer and a false citation is not.\n\nThe critic reads everything and flags any claim with no fetched source. The editor writes the brief from what survives.",
-    "restrictions": "Never cite a URL you did not fetch. Never present a remembered figure as a looked-up one. Do not research another agent's angle for them — take yours and go deep.",
-    "environment": { "network_egress": "model_only", "require_mention": false },
+    "guidelines": "TOPIC: ${topic,How much electricity do data centres use?,The research question the brief must answer}\n\nAUDIENCE: ${audience,an informed general reader,Who the brief is written for \u2014 it sets the tone and how much is assumed}\n\nFour of you research and check; the editor writes the brief and ends the realm.\n\nEach researcher takes a different angle and works it properly. You each hold `web_fetch`, which reads a public web page as prose. Pass `contains` with a phrase you expect on the page and it returns just the passages around it \u2014 use that to find a figure instead of reading the whole article.\n\nEVERY factual claim you post must carry TWO things: the URL you fetched, and a short VERBATIM QUOTE from what came back. Not a paraphrase \u2014 the words. If you cannot quote it, you did not read it, and you must write 'from memory, unverified' instead. That is an acceptable answer; a citation you cannot quote from is not.\n\nThe critic re-fetches your sources and checks that your quote is actually on the page. The editor writes the brief from what survives.",
+    "restrictions": "Never cite a URL you did not fetch. Never present a quote you did not receive from the tool \u2014 the critic re-fetches and checks. Never present a remembered figure as a looked-up one. Do not research another agent's angle for them.",
+    "environment": {
+      "network_egress": "model_only",
+      "require_mention": false
+    },
     "tools": {
-      "web_fetch": { "max_calls_per_agent": 8 }
+      "web_fetch": {
+        "max_calls_per_agent": 12,
+        "max_calls_by_agent": {
+          "critic": 30
+        }
+      }
     },
     "turns": {
       "policy": "one-at-a-time",
@@ -28,9 +42,17 @@
       "min_rounds_before_verdict": 2
     },
     "termination": [
-      { "type": "referee_verdict" },
-      { "type": "duration", "limit": "45m" },
-      { "type": "stall", "limit": "10m" }
+      {
+        "type": "referee_verdict"
+      },
+      {
+        "type": "duration",
+        "limit": "45m"
+      },
+      {
+        "type": "stall",
+        "limit": "10m"
+      }
     ],
     "referee_opens": true
   }

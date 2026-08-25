@@ -21,8 +21,10 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import logging
+import re
 import socket
 from fnmatch import fnmatch
+from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
@@ -45,9 +47,96 @@ TIMEOUT_S = 10.0
 USER_AGENT = (
     "Bearpit/0.1 (+https://github.com/aliry/bearpit; agent research tool; contact via repo)"
 )
-MAX_BYTES = 256 * 1024
+MAX_BYTES = 4 * 1024 * 1024   # what we will read off the wire; mostly markup, and cheap
+# What the AGENT actually reads, applied AFTER extraction. The old code capped raw bytes at 256 KB,
+# so a 1.5 MB article arrived as 256 KB of truncated markup — ~64k tokens of tags with the content
+# cut off. Extracting first means this budget is spent on prose (#77).
+MAX_TEXT_CHARS = 40_000
+CONTEXT_CHARS = 600           # how much of a passage `contains` returns around each hit
+MAX_MATCHES = 8
 ALLOWED_CONTENT = ("text/", "application/json", "application/xml", "application/xhtml",
                    "+json", "+xml")
+
+
+class _TextExtractor(HTMLParser):
+    """HTML -> the prose a reader would see.
+
+    Stdlib rather than a parsing library: this runs on the host against pages an agent chose, so
+    the smaller its dependency surface the better, and "drop the tags, keep the words" needs no
+    more than this. It is not a renderer and does not try to be.
+    """
+
+    _SKIP = {"script", "style", "noscript", "template", "svg", "head"}
+    _BREAK = {"p", "div", "br", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6",
+              "section", "article", "header", "footer", "table", "blockquote"}
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._parts: list[str] = []
+        self._skipping = 0
+
+    def handle_starttag(self, tag: str, attrs: Any) -> None:
+        if tag in self._SKIP:
+            self._skipping += 1
+        elif tag in self._BREAK:
+            self._parts.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in self._SKIP and self._skipping:
+            self._skipping -= 1
+        elif tag in self._BREAK:
+            self._parts.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        if not self._skipping and data.strip():
+            self._parts.append(data)
+
+    def text(self) -> str:
+        joined = "".join(self._parts)
+        # collapse runs of spaces within a line, and runs of blank lines between them
+        joined = re.sub(r"[ \t\r\f\v]+", " ", joined)
+        joined = re.sub(r"\n\s*\n+", "\n\n", joined)
+        return joined.strip()
+
+
+def extract_text(html: str) -> str:
+    """Prose from HTML. Returns the input unchanged if it cannot be parsed at all."""
+    parser = _TextExtractor()
+    try:
+        parser.feed(html)
+        parser.close()
+    except Exception:  # noqa: BLE001 - a malformed page must degrade, never raise
+        log.warning("could not parse a fetched page as HTML; returning it raw")
+        return html
+    return parser.text() or html
+
+
+def find_passages(text: str, needle: str) -> tuple[str, int]:
+    """The passages around each occurrence of `needle`, and how many there were.
+
+    Exists so an agent can locate a figure rather than scan tens of thousands of tokens — and so
+    what comes back is short enough to quote verbatim, which is what turns a fetch into a citation.
+    """
+    hay, want = text.lower(), needle.lower().strip()
+    if not want:
+        return text, 0
+    spans: list[tuple[int, int]] = []
+    start = 0
+    while len(spans) < MAX_MATCHES:
+        hit = hay.find(want, start)
+        if hit < 0:
+            break
+        spans.append((max(0, hit - CONTEXT_CHARS), min(len(text), hit + len(want) + CONTEXT_CHARS)))
+        start = hit + len(want)
+    if not spans:
+        return text, 0
+    merged: list[list[int]] = []
+    for lo, hi in spans:
+        if merged and lo <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], hi)
+        else:
+            merged.append([lo, hi])
+    return "\n\n…\n\n".join(text[lo:hi].strip() for lo, hi in merged), len(spans)
 
 
 class FetchRefused(Exception):
@@ -126,9 +215,13 @@ async def _vet(url: str, allow: list[str]) -> tuple[str, str, str]:
     return addresses[0], host, pinned
 
 
-async def fetch(url: str, *, allow: list[str] | None = None,
+async def fetch(url: str, *, allow: list[str] | None = None, contains: str | None = None,
                 client: httpx.AsyncClient | None = None) -> dict[str, Any]:
-    """Fetch a public URL as text, following redirects manually so each hop is re-validated."""
+    """Fetch a public URL as readable text, re-validating every redirect hop.
+
+    HTML comes back as prose, not markup, and `contains` narrows it to the passages around a
+    match — both so that what an agent receives is something it can quote (#77).
+    """
     allowed = list(allow or [])
     hops: list[str] = []
     current = url
@@ -167,11 +260,32 @@ async def fetch(url: str, *, allow: list[str] | None = None,
                     f"that URL returned {content_type or 'an unknown type'}; only text, JSON and "
                     f"XML can be read"
                 )
-            body = response.content[:MAX_BYTES].decode(response.encoding or "utf-8", "replace")
+            raw = response.content[:MAX_BYTES].decode(response.encoding or "utf-8", "replace")
+            is_html = ("html" in content_type
+                       or raw.lstrip()[:14].lower().startswith("<!doctype html"))
+            body = extract_text(raw) if is_html else raw
+
+            note = ""
+            matched = 0
+            if contains:
+                narrowed, matched = find_passages(body, contains)
+                if matched:
+                    body = narrowed
+                else:
+                    # Distinguishable from a page nobody searched, and the page still comes back
+                    # so the turn is not spent on nothing.
+                    note = (f"{contains!r} was not found on this page — showing the page instead; "
+                            f"the wording may differ, or the figure may be elsewhere")
+
+            full = len(body)
+            if full > MAX_TEXT_CHARS:
+                body = body[:MAX_TEXT_CHARS]
             return {
                 "url": hops[-1], "status": response.status_code, "redirects": hops[:-1],
-                "bytes": len(response.content), "truncated": len(response.content) > MAX_BYTES,
-                "content_type": content_type, "text": body,
+                "bytes": len(response.content),
+                "truncated": full > MAX_TEXT_CHARS or len(response.content) > MAX_BYTES,
+                "content_type": content_type, "extracted": is_html,
+                "matched": matched, "note": note, "text": body,
             }
         raise FetchRefused(f"that URL redirected more than {MAX_REDIRECTS} times")
     finally:
@@ -184,8 +298,10 @@ async def _handler(args: dict[str, Any], config: dict[str, Any], ctx: Any) -> An
     if not url:
         return {"error": "web_fetch needs a url"}
     allow = config.get("allow")
+    contains = str(args.get("contains") or "").strip() or None
     try:
-        return await fetch(url, allow=list(allow) if isinstance(allow, list) else None)
+        return await fetch(url, allow=list(allow) if isinstance(allow, list) else None,
+                           contains=contains)
     except FetchRefused as exc:
         # Readable, and deliberately specific: the agent should be able to choose a different URL
         # rather than retry the same one.
@@ -199,12 +315,21 @@ WEB_FETCH = ToolProfile(
     label="Fetch a web page",
     description=(
         "Fetch a public web page or JSON document and read it as text. Give the full URL, "
-        "including https://. Only public internet addresses can be reached, and only text, JSON "
-        "or XML is returned."
+        "including https://. HTML is returned as readable prose, not markup. Pass `contains` with "
+        "a word or phrase you expect on the page and only the passages around it come back — use "
+        "it to find a figure, and quote what it returns. Only public internet addresses can be "
+        "reached, and only text, JSON or XML is returned."
     ),
     params={
         "type": "object",
-        "properties": {"url": {"type": "string", "description": "The full URL to fetch."}},
+        "properties": {
+            "url": {"type": "string", "description": "The full URL to fetch."},
+            "contains": {
+                "type": "string",
+                "description": "Optional. A word or phrase to locate on the page; only the "
+                               "passages around it are returned, short enough to quote.",
+            },
+        },
         "required": ["url"],
     },
     config_schema={
@@ -215,6 +340,11 @@ WEB_FETCH = ToolProfile(
                 "description": "Host patterns this scenario permits, e.g. '*.wikipedia.org'.",
             },
             "max_calls_per_agent": {"type": "integer", "minimum": 0},
+            "max_calls_by_agent": {
+                "type": "object", "additionalProperties": {"type": "integer", "minimum": 0},
+                "description": "Per-agent overrides, e.g. {'critic': 24} — a verifier that "
+                               "re-checks others' sources needs more calls than they do.",
+            },
         },
         "additionalProperties": False,
     },
@@ -224,5 +354,5 @@ WEB_FETCH = ToolProfile(
 )
 
 
-__all__ = ["ALLOWED_SCHEMES", "MAX_BYTES", "MAX_REDIRECTS", "TIMEOUT_S", "USER_AGENT",
-           "WEB_FETCH", "FetchRefused", "fetch"]
+__all__ = ["ALLOWED_SCHEMES", "MAX_BYTES", "MAX_REDIRECTS", "MAX_TEXT_CHARS", "TIMEOUT_S",
+           "USER_AGENT", "WEB_FETCH", "FetchRefused", "extract_text", "fetch", "find_passages"]

@@ -182,8 +182,9 @@ async def test_a_huge_response_is_truncated_and_says_so(dns):
     """An agent's context is finite and the chronicle is append-only. A 50 MB page must cost
     neither."""
     dns["a.example"] = ["93.184.216.34"]
-    out = await fetch("http://a.example/x", client=_client(_ok("x" * (webfetch.MAX_BYTES * 2))))
-    assert len(out["text"]) == webfetch.MAX_BYTES
+    out = await fetch("http://a.example/x",
+                      client=_client(_ok("x " * webfetch.MAX_TEXT_CHARS, "text/plain")))
+    assert len(out["text"]) == webfetch.MAX_TEXT_CHARS
     assert out["truncated"] is True
 
 
@@ -315,3 +316,105 @@ async def test_the_user_agent_survives_a_redirect(dns):
     await fetch("http://a.example/start", client=_client(handler))
     assert len(agents) == 2
     assert all("Bearpit" in ua for ua in agents)
+
+
+# --- what comes back must be readable, not excavated (#77) -------------------------------------
+_PAGE = """<!DOCTYPE html>
+<html><head><title>Iceland</title>
+<script>var tracking = {a:1}; document.write("noise");</script>
+<style>.vector-header { display: none; }</style>
+</head><body>
+<nav>Main page  Contents  Random article</nav>
+<p>Reykjavik is home to about 35% of the country's roughly <b>395,000</b> residents.</p>
+<p>PADDING. """ + ("Filler sentence that stands between the two facts. " * 40) + """</p>
+<p>The island is volcanically active.</p>
+<!-- a comment nobody needs -->
+</body></html>"""
+
+
+async def test_html_comes_back_as_prose_not_markup(dns):
+    """The root cause of #77. An agent fetching an article received 256 KB of raw HTML — ~64k
+    tokens, 4,677 tags — and reasonably went on writing from memory instead. Content a model has
+    to excavate is not content it can quote."""
+    dns["en.wikipedia.org"] = ["93.184.216.34"]
+    out = await fetch("https://en.wikipedia.org/wiki/Iceland",
+                      client=_client(_ok(_PAGE, "text/html")))
+    text = out["text"]
+    assert "<p>" not in text and "<html" not in text, "markup reached the agent"
+    assert "var tracking" not in text, "script bodies are not content"
+    assert "display: none" not in text, "stylesheets are not content"
+    assert "a comment nobody needs" not in text
+    assert "roughly 395,000 residents" in text, "the actual fact must survive extraction"
+    assert out["extracted"] is True
+
+
+async def test_json_and_plain_text_are_left_exactly_alone(dns):
+    """An API response is already the good case — parsing it as HTML would corrupt it."""
+    dns["api.example"] = ["93.184.216.34"]
+    raw = '{"population": 395000, "note": "a < b && c > d"}'
+    out = await fetch("https://api.example/x", client=_client(_ok(raw, "application/json")))
+    assert out["text"] == raw
+    assert out["extracted"] is False
+
+
+async def test_the_TEXT_is_what_gets_truncated_not_the_raw_bytes(dns):
+    """1.5 MB of markup cut to 256 KB of markup can discard the whole article and keep the nav.
+    Extract first, then bound what the agent actually reads."""
+    dns["big.example"] = ["93.184.216.34"]
+    filler = "<div class='x'><span>" + ("padding " * 400) + "</span></div>"
+    page = "<html><body>" + (filler * 400) + "<p>THE FIGURE IS 395,000</p></body></html>"
+    out = await fetch("https://big.example/x", client=_client(_ok(page, "text/html")))
+    assert out["bytes"] > webfetch.MAX_TEXT_CHARS, "this page needs to be big enough to matter"
+    assert len(out["text"]) <= webfetch.MAX_TEXT_CHARS
+    assert out["truncated"] is True
+
+
+async def test_contains_returns_the_passages_around_a_match(dns):
+    """So an agent can find a figure instead of scanning tens of thousands of tokens — and what
+    comes back is short enough to quote verbatim, which is the behaviour #77 wants."""
+    dns["en.wikipedia.org"] = ["93.184.216.34"]
+    out = await fetch("https://en.wikipedia.org/wiki/Iceland", contains="395,000",
+                      client=_client(_ok(_PAGE, "text/html")))
+    assert "roughly 395,000 residents" in out["text"]
+    assert "volcanically active" not in out["text"], "only the matching passages come back"
+    assert out["matched"] == 1
+
+
+async def test_contains_says_so_when_it_finds_nothing(dns):
+    """Silence would read as 'the page does not say that'. It has to be distinguishable from a
+    page that was never searched."""
+    dns["en.wikipedia.org"] = ["93.184.216.34"]
+    out = await fetch("https://en.wikipedia.org/wiki/Iceland", contains="banana",
+                      client=_client(_ok(_PAGE, "text/html")))
+    assert out["matched"] == 0
+    assert "banana" in out["note"] and "not found" in out["note"]
+    assert "395,000" in out["text"], "fall back to the page, so the turn is not wasted"
+
+
+async def test_contains_is_case_insensitive_and_matches_across_whitespace(dns):
+    """Extraction collapses whitespace, and a model types a phrase the way it reads, not the way
+    the markup happened to break lines."""
+    dns["en.wikipedia.org"] = ["93.184.216.34"]
+    out = await fetch("https://en.wikipedia.org/wiki/Iceland", contains="REYKJAVIK IS HOME",
+                      client=_client(_ok(_PAGE, "text/html")))
+    assert out["matched"] == 1
+
+
+async def test_the_handler_passes_contains_through(monkeypatch):
+    """The tool declares `contains`, and what the agent sends has to reach `fetch` — a parameter
+    advertised and then dropped is worse than one never offered."""
+    seen: dict[str, Any] = {}
+
+    async def spy(url: str, **kw: Any) -> dict[str, Any]:
+        seen.update({"url": url, **kw})
+        return {"text": "ok", "matched": 1}
+
+    monkeypatch.setattr(webfetch, "fetch", spy)
+    await WEB_FETCH.handler(
+        {"url": "https://en.wikipedia.org/wiki/Iceland", "contains": "395,000"}, {}, None)
+    assert "contains" in WEB_FETCH.params["properties"], "the agent is never told it exists"
+    assert seen["contains"] == "395,000"
+
+    seen.clear()
+    await WEB_FETCH.handler({"url": "https://en.wikipedia.org/wiki/Iceland"}, {}, None)
+    assert seen["contains"] is None, "an omitted argument must not become an empty search"
