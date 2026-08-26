@@ -11,3 +11,4 @@ Format: **Context** (the situation and constraints) · **Decision** (what we cho
 | [002](002-platform-is-an-apparatus-not-a-scenario-engine.md) | The platform is an apparatus, not a scenario engine | Accepted |
 | [003](003-scenario-parameters.md) | Scenario parameters, bound before the run snapshot | Accepted |
 | [004](004-agent-tool-grants.md) | Agent tool grants from an extensible registry | Proposed |
+| [005](005-realm-outputs.md) | Realm outputs — a scenario declares the files its run produces | Proposed |
