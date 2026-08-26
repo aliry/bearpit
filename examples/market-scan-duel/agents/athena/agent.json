@@ -19,6 +19,9 @@
     }
   ],
   "goals": [
-    "Write the sharpest, best-structured market scan to /realm/shared/athena/report.md — and be FINAL first."
+    "Write the sharpest, best-structured market scan to /realm/shared/athena/report.md \u2014 and be FINAL first."
+  ],
+  "tools": [
+    "web_fetch"
   ]
 }

@@ -126,3 +126,54 @@ def test_the_invariant_count_in_the_docs_matches_the_contract() -> None:
             assert int(quoted) == actual, (
                 f"{name} says {quoted} invariants; docs/scenario-contract.md has {actual}"
             )
+
+
+@pytest.mark.parametrize("name", PACKAGES)
+def test_a_placeholder_is_not_spliced_between_a_determiner_and_its_noun(name: str) -> None:
+    """`a crisp ${system}` + a default of `a URL shortener` renders "a crisp a URL shortener".
+
+    Checking the RENDERED text for two adjacent articles does not find this — an adjective sits
+    between them — and loosening the regex to skip words then flags "the design for a rate
+    limiter", which is correct English. So this inspects the TEMPLATE instead, which states the
+    bug exactly: prose that supplies a determiner in front of a placeholder whose value supplies
+    one too. A preposition in between resets the noun phrase and is fine.
+
+    The fix is always to move the placeholder where a whole noun phrase belongs:
+    "a crisp design for ${system}".
+    """
+    import re
+
+    from bearpit.core.package import load_package
+    from bearpit.core.params import resolve_values, scan
+
+    project = load_package(str(EXAMPLES / name))
+    found = scan(project)
+    if not found:
+        pytest.skip(f"{name} has no parameters")
+    values = resolve_values(found, {})
+
+    texts = {"spec.guidelines": project.spec.guidelines or "",
+             "spec.restrictions": project.spec.restrictions or ""}
+    for i, g in enumerate(project.spec.goals or []):
+        texts[f"spec.goals[{i}]"] = g
+    for a in project.agents:
+        texts[f"{a.id}.persona"] = a.persona or ""
+        texts[f"{a.id}.rubric"] = a.rubric or ""
+
+    # a determiner, then at most two words that are NOT prepositions/conjunctions, then the
+    # placeholder — i.e. the placeholder is completing a noun phrase already begun
+    RESET = {"for", "of", "on", "in", "to", "with", "about", "and", "or", "as", "into", "from"}
+    lead = re.compile(r"\b(a|an|the|one)\s+((?:\w+\s+){0,2})\$\{(\w+)", re.I)
+
+    for where, text in texts.items():
+        for m in lead.finditer(text or ""):
+            between = [w.lower() for w in m.group(2).split()]
+            if any(w in RESET for w in between):
+                continue
+            value = str(values.get(m.group(3), ""))
+            if re.match(r"^\s*(a|an|the)\b", value, re.I):
+                raise AssertionError(
+                    f"{name}: {where} says {m.group(0)!r} and ${{{m.group(3)}}} defaults to "
+                    f"{value!r} — that renders a double determiner. Put the placeholder where a "
+                    f"noun phrase belongs instead."
+                )

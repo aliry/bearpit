@@ -16,10 +16,10 @@
   },
   "spec": {
     "goals": [
-      "Analysts (athena, loki): each write a market scan of 'Open-source vector databases, 2026' \u2014 ~400 words, from your OWN knowledge (you have NO internet access and no search tool) \u2014 to the file '/realm/shared/<your-id>/report.md', with exactly these four sections: Landscape / Key players / Second-order risks / Verdict.",
-      "Judge: read both report files, score each on the rubric, and rule the winner. Only the judge's verdict decides this duel."
+      "Analysts (athena, loki): each write a market scan of '${topic,Open-source vector databases in 2026,The market the two analysts must scan}' \u2014 ~400 words \u2014 to the file '/realm/shared/<your-id>/report.md', with exactly these four sections: Landscape / Key players / Second-order risks / Verdict.",
+      "Judge: read both report files, check what you can, score each on the rubric, and rule the winner. Only the judge's verdict decides this duel."
     ],
-    "guidelines": "You are competing. Work independently; you may read the commons, but nothing you post there is your report.\n\nYOUR REPORT IS A FILE, and the ONLY way to write a file is the `run_code` tool. Write it to EXACTLY /realm/shared/<your-id>/report.md \u2014 your subfolder does not exist yet, so create it in the same call:\n  run_code(code=\"import os; os.makedirs('/realm/shared/<your-id>', exist_ok=True); open('/realm/shared/<your-id>/report.md','w').write('STATUS: FINAL\\n\\n# ...your report...')\")\nThe FIRST line of the file must be exactly 'STATUS: FINAL'. Read the file back with run_code to confirm it is really there. Posting the report in chat does not count \u2014 only the file counts.\n\nWhen your file is written and verified, post exactly '\ud83c\udfc1 FINAL' in the commons so the judge knows to come and read it. Then stop \u2014 the file you leave behind is what gets judged.\n\nYou have NO internet access, no browser and no search tool: write from your own knowledge, and say plainly where you are uncertain. Speed is only the tiebreaker \u2014 if the judge scores both reports equal, the one that was FINAL first wins. The judge alone ends this realm.",
+    "guidelines": "You are competing. Work independently; you may read the commons, but nothing you post there is your report.\n\nYOUR REPORT IS A FILE, and the ONLY way to write a file is the `run_code` tool. Write it to EXACTLY /realm/shared/<your-id>/report.md \u2014 your subfolder does not exist yet, so create it in the same call:\n  run_code(code=\"import os; os.makedirs('/realm/shared/<your-id>', exist_ok=True); open('/realm/shared/<your-id>/report.md','w').write('STATUS: FINAL\\n\\n# ...your report...')\")\nThe FIRST line of the file must be exactly 'STATUS: FINAL'. Read the file back with run_code to confirm it is really there. Posting the report in chat does not count \u2014 only the file counts.\n\nWhen your file is written and verified, post exactly '\ud83c\udfc1 FINAL' in the commons so the judge knows to come and read it. Then stop \u2014 the file you leave behind is what gets judged.\n\nTHE TWO OF YOU ARE NOT EQUIPPED THE SAME. Athena holds `web_fetch` and can read public pages; Loki does not and writes from its own knowledge. That is the experiment, and both of you must be straight about it: Athena cites what it actually read, Loki says plainly where it is uncertain and never implies a source it does not have. The Judge holds `web_fetch` too and checks. Speed is only the tiebreaker \u2014 if the judge scores both reports equal, the one that was FINAL first wins. The judge alone ends this realm.",
     "environment": {
       "network_egress": "model_only",
       "require_mention": false,
@@ -48,6 +48,14 @@
       }
     ],
     "stall_nudge": true,
-    "provide_tools": true
+    "provide_tools": true,
+    "tools": {
+      "web_fetch": {
+        "max_calls_per_agent": 10,
+        "max_calls_by_agent": {
+          "judge": 16
+        }
+      }
+    }
   }
 }

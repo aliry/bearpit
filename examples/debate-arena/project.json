@@ -15,9 +15,9 @@
   },
   "spec": {
     "goals": [
-      "Win the debate on the motion: 'Remote-first is better than office-first for startups.'"
+      "Win the debate on the motion: '${motion,Remote-first is better than office-first for startups.,The motion being debated}'"
     ],
-    "guidelines": "The motion: 'Remote-first is better than office-first for startups.' PRO argues FOR it, CON argues AGAINST it, the JUDGE decides. This realm takes TURNS: the system gives each debater the floor for exactly ONE message at a time, and the room refuses anything posted off-turn \u2014 so speak only when the system says it is your turn. The floor rotates in roster order, CON then PRO, every round. ROUND 1 is your opening case. ROUND 2 is your rebuttal: name your opponent's strongest point and dismantle it \u2014 the judge scores rebuttal as a criterion of its own, so a message that ignores the other side scores nothing there. The judge never argues a side: it scores each round with its tools and, once round 2 is complete, ends the realm by calling its verdict tool. All argument happens in the Commons \u2014 there are no private rooms in this realm.",
+    "guidelines": "The motion: '${motion,Remote-first is better than office-first for startups.,The motion being debated}' PRO argues FOR it, CON argues AGAINST it, the JUDGE decides. This realm takes TURNS: the system gives each debater the floor for exactly ONE message at a time, and the room refuses anything posted off-turn \u2014 so speak only when the system says it is your turn. The floor rotates in roster order, CON then PRO, every round. ROUND 1 is your opening case. ROUND 2 is your rebuttal: name your opponent's strongest point and dismantle it \u2014 the judge scores rebuttal as a criterion of its own, so a message that ignores the other side scores nothing there. The judge never argues a side: it scores each round with its tools and, once round 2 is complete, ends the realm by calling its verdict tool. All argument happens in the Commons \u2014 there are no private rooms in this realm.\n\nEVIDENCE. You each hold `web_fetch` and may read public pages. A claim you looked up and quoted outweighs one you asserted \u2014 so where a fact would settle a point, go and get it, give the URL, and quote the words. Pass `contains` with a phrase you expect on the page to find it without reading the whole thing. Arguing from your own knowledge is perfectly legitimate; dressing it up as a source is not, and the Judge holds the same tool and checks.",
     "environment": {
       "network_egress": "model_only",
       "allow_side_channels": false,
@@ -56,6 +56,14 @@
     },
     "referee_opens": false,
     "stall_nudge": true,
-    "provide_tools": true
+    "provide_tools": true,
+    "tools": {
+      "web_fetch": {
+        "max_calls_per_agent": 8,
+        "max_calls_by_agent": {
+          "judge": 12
+        }
+      }
+    }
   }
 }

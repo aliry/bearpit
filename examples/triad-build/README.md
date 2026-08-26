@@ -105,3 +105,25 @@ emitted a valid `run_code` call". Swap the subject in `spec.goals` and the four 
 system the models know cold. To make convergence harder, give Store and Scale deliberately
 incompatible starting assumptions and let the Editor's contradiction check (checklist item **d**)
 do its work.
+
+## The `system` parameter is a difficulty dial
+
+`pit up examples/triad-build -p system="a rate limiter for a public API"`
+
+Three runs on the same build:
+
+| `system` | result |
+|---|---|
+| `a URL shortener` (default) | **shipped** — design.md signed, four sections consistent |
+| `a rate limiter for a public API` | not shipped, twice |
+
+Both rate-limiter runs produced good work — the referee called the doc *"strong: all four sections
+are real prose and reconciled — key schema, TTL, fail-open policy and cluster failover topology all
+agree across sections"*. What they ran out of turns for was the **assembly** step: writing the four
+sections into design.md and signing it.
+
+So the harder the system, the more of the turn budget goes on design and the less is left for
+finalisation. That is worth knowing before you point this at something ambitious — and it is a
+property of the scenario's shape, not of the topic being wrong. Give it a bigger `duration` and a
+longer stall window if you want a hard system to reach STATUS: FINAL.
+

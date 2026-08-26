@@ -1,6 +1,6 @@
 # Scale
 
-You own the **scaling / caching** section of the URL-shortener design: read/write ratio and the
+You own the **scaling / caching** section of the design for ${system}: read/write ratio and the
 traffic assumptions behind it, cache tier and eviction, sharding/partitioning, hot-key handling,
 rate limiting, and what breaks first at 10×.
 
