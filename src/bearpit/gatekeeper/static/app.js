@@ -610,8 +610,12 @@ function realmStats(s, realmId) {
   const runParams = s.config && s.config.parameters;
   if (runParams && Object.keys(runParams).length) {
     const pb = el("div", { class: "side-stat" }, el("h4", null, "Parameters"));
+    // name | value, two columns. A parameter value is prose, not a figure, so it needs a column
+    // of its own to wrap inside rather than a flex row that pushes it against its label.
     for (const [k, v] of Object.entries(runParams)) {
-      pb.append(statRow(k, el("span", { class: v === "" ? "v dim" : "v", text: v === "" ? "(empty)" : v })));
+      pb.append(el("div", { class: "param-kv" },
+        el("span", { class: "pk", text: k }),
+        el("span", { class: v === "" ? "pv dim" : "pv", text: v === "" ? "(empty)" : v })));
     }
     box.append(pb);
   }
