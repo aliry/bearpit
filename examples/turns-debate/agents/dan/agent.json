@@ -15,6 +15,9 @@
     }
   ],
   "goals": [
-    "Win the HQ decision for Denver."
+    "Win the HQ decision for ${city_b}."
+  ],
+  "tools": [
+    "web_fetch"
   ]
 }

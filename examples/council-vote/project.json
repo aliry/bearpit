@@ -16,9 +16,9 @@
   },
   "spec": {
     "goals": [
-      "Decide where the HQ goes: argue your case in the open, then cast a secret ballot for exactly one city \u2014 austin, denver, or miami."
+      "Decide where the HQ goes: argue your case in the open, then cast a secret ballot for exactly one city \u2014 ${city_a,austin,The first candidate city}, ${city_b,denver,The second candidate city}, or ${city_c,miami,The third candidate city}."
     ],
-    "guidelines": "You sit on a five-seat city council choosing the site of the new HQ. The candidates are austin, denver and miami \u2014 nothing else is on the table. The four councillors debate in the open and vote in SECRET; the Chair does not vote \u2014 the Chair reveals the ballots, counts them, and rules.\n\nThis realm takes TURNS: the system gives each councillor the floor for exactly ONE message, in order. ON YOUR TURN, do BOTH of these:\n(1) POST your argument in the commons \u2014 one short, concrete paragraph. Answer the councillor who spoke before you.\n(2) CALL submit_sealed(round='ballot', payload='austin').\n    - `round` is the literal string 'ballot' \u2014 never anything else.\n    - `payload` must be EXACTLY one of austin | denver | miami: lowercase, one word, no punctuation, no reasoning. 'Austin', 'AUSTIN' and 'austin \u2014 for the talent pool' are all DIFFERENT ballots and would split the count. Your argument goes in the chat message, never in the payload.\n\nA tool call is free and never uses up your turn \u2014 only your posted message does. Seal on your FIRST turn: a ballot cannot be changed once sealed, and every ballot is revealed at the same moment, so there is no bandwagon to join. Never state in the commons which way you sealed.\n\nOnly the Chair's tools decide anything: the Chair reveals the ballots and ends the council with a verdict. Announcing a winner in chat decides nothing.",
+    "guidelines": "You sit on a five-seat city council choosing the site of the new HQ. The candidates are ${city_a}, ${city_b} and ${city_c} \u2014 nothing else is on the table. The four councillors debate in the open and vote in SECRET; the Chair does not vote \u2014 the Chair reveals the ballots, counts them, and rules.\n\nThis realm takes TURNS: the system gives each councillor the floor for exactly ONE message, in order. ON YOUR TURN, do BOTH of these:\n(1) POST your argument in the commons \u2014 one short, concrete paragraph. Answer the councillor who spoke before you.\n(2) CALL submit_sealed(round='ballot', payload='${city_a}').\n    - `round` is the literal string 'ballot' \u2014 never anything else.\n    - `payload` must be EXACTLY one of ${city_a} | ${city_b} | ${city_c}: lowercase, one word, no punctuation, no reasoning. 'Austin', 'AUSTIN' and '${city_a} \u2014 for the talent pool' are all DIFFERENT ballots and would split the count. Your argument goes in the chat message, never in the payload.\n\nA tool call is free and never uses up your turn \u2014 only your posted message does. Seal on your FIRST turn: a ballot cannot be changed once sealed, and every ballot is revealed at the same moment, so there is no bandwagon to join. Never state in the commons which way you sealed.\n\nOnly the Chair's tools decide anything: the Chair reveals the ballots and ends the council with a verdict. Announcing a winner in chat decides nothing.\n\nEVIDENCE. You hold `web_fetch` and may read public pages. A claim you looked up and quoted outweighs one you asserted, so where a fact would settle a point \u2014 a cost, a tax rate, a population, a published ranking \u2014 go and get it, give the URL, and quote the words. Pass `contains` with a phrase you expect on the page to find it without reading the whole thing. Arguing from your own knowledge is legitimate; dressing it up as a source is not, and the chair holds the same tool.",
     "environment": {
       "network_egress": "model_only",
       "allow_side_channels": false,
@@ -64,6 +64,14 @@
       "min_rounds_before_verdict": 1,
       "silence_timeout_s": 240,
       "retire_after_misses": 2
+    },
+    "tools": {
+      "web_fetch": {
+        "max_calls_per_agent": 6,
+        "max_calls_by_agent": {
+          "chair": 10
+        }
+      }
     }
   }
 }

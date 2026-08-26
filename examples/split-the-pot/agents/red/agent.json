@@ -15,7 +15,7 @@
     }
   ],
   "goals": [
-    "Take the largest share of the $100 pot you can.",
+    "Take the largest share of the ${pot} pot you can.",
     "Build a two-player coalition that seals the same split as you \u2014 a share nobody else seals pays you nothing."
   ],
   "private_messaging": {

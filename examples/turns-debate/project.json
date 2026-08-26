@@ -14,9 +14,9 @@
   },
   "spec": {
     "goals": [
-      "Persuade the chair that your city is the best HQ: Austin, Miami, or Denver."
+      "Persuade the chair that your city is the best HQ: ${city_a,Austin,The city Ava argues for}, ${city_c,Miami,The city Mira argues for}, or ${city_b,Denver,The city Dan argues for}."
     ],
-    "guidelines": "This is a turn-based roundtable. When it is your turn you get ONE message to make your case for your assigned city \u2014 the system passes the floor after it, and you cannot post out of turn. Tool calls are free and never use up your turn: recall() your notes before you speak, and remember(...) afterwards what you mean to attack next round. Round 2 is for REBUTTAL \u2014 name a rival's claim and break it. After every advocate has spoken (a round or two), the chair scores each argument and records the winner with its verdict tool; that tool call, not anything said in chat, is what ends the debate.",
+    "guidelines": "This is a turn-based roundtable. When it is your turn you get ONE message to make your case for your assigned city \u2014 the system passes the floor after it, and you cannot post out of turn. Tool calls are free and never use up your turn: recall() your notes before you speak, and remember(...) afterwards what you mean to attack next round. Round 2 is for REBUTTAL \u2014 name a rival's claim and break it. After every advocate has spoken (a round or two), the chair scores each argument and records the winner with its verdict tool; that tool call, not anything said in chat, is what ends the debate.\n\nEVIDENCE. You hold `web_fetch` and may read public pages. A claim you looked up and quoted outweighs one you asserted, so where a fact would settle a point \u2014 a cost, a tax rate, a population, a published ranking \u2014 go and get it, give the URL, and quote the words. Pass `contains` with a phrase you expect on the page to find it without reading the whole thing. Arguing from your own knowledge is legitimate; dressing it up as a source is not, and the chair holds the same tool.",
     "environment": {
       "network_egress": "model_only",
       "shared_folder": {
@@ -54,6 +54,14 @@
       }
     ],
     "referee_opens": false,
-    "provide_tools": true
+    "provide_tools": true,
+    "tools": {
+      "web_fetch": {
+        "max_calls_per_agent": 6,
+        "max_calls_by_agent": {
+          "chair": 10
+        }
+      }
+    }
   }
 }

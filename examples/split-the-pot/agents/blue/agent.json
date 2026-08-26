@@ -15,7 +15,7 @@
     }
   ],
   "goals": [
-    "Take the largest share of the $100 pot you can.",
+    "Take the largest share of the ${pot} pot you can.",
     "Never be the excluded third \u2014 get into a sealed pair, even on a modest share."
   ],
   "private_messaging": {
