@@ -241,3 +241,45 @@ def test_up_does_not_say_it_twice(tmp_path: Path) -> None:
     result = runner.invoke(app, ["up", str(_param_manifest(tmp_path)), "-p", "team_name=X"],
                            input="n\n")
     assert result.output.count("its provider plugin is not installed") == 1
+
+
+def test_up_honours_the_scenario_s_own_require_mention(tmp_path: Path, monkeypatch) -> None:
+    """`pit up` computed `require_mention=not free_response`, ignoring the manifest entirely.
+
+    The API has always read `spec.environment.require_mention`; the CLI never did. So a scenario
+    that opts into free response — which is how a referee gets to SEE what it judges, since
+    `referee_sees_all` is false whenever turns are on and mentions are required — ran mention-gated
+    from the CLI and the referee saw nothing.
+
+    Live, turns-debate's three advocates each posted a substantive argument and the chair ruled
+    "no advocate's argument reached the judge". Eight shipped scenarios set this flag, six of them
+    with referees.
+    """
+    import json
+
+    seen: dict[str, object] = {}
+
+    async def spy(realm_id, project, *, require_mention, parameters=None, **kw):
+        seen["require_mention"] = require_mention
+        return "done"
+
+    monkeypatch.setattr("bearpit.cli.main._run_realm", spy)
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "project.json").write_text(json.dumps({
+        "metadata": {"name": "freeform"},
+        "spec": {"termination": [{"type": "manual"}],
+                 "environment": {"require_mention": False}},
+        "agents": [{"id": "a", "model": {"provider": "azure", "model": "m",
+                                         "api_key_ref": "azure-main"}},
+                   {"id": "b", "model": {"provider": "azure", "model": "m",
+                                         "api_key_ref": "azure-main"}}],
+    }))
+
+    result = runner.invoke(app, ["up", str(pkg), "-y"])
+    assert result.exit_code == 0, result.output
+    assert seen["require_mention"] is False, (
+        "the CLI overrode the scenario's own environment policy"
+    )
