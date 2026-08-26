@@ -112,30 +112,21 @@ def build_app(
     manifests = ManifestReader(chronicle)
     granted = ToolCallService(chronicle, manifests=manifests)
 
-    lifespan = None
-    if chronicle is None and db_url is not None:
-        @asynccontextmanager
-        async def lifespan(_server: FastMCP) -> AsyncIterator[dict[str, Any]]:
-            # connect the Chronicle INSIDE the serving loop so its async engine binds correctly
-            chron = await Chronicle.connect(db_url, create=True)
-            service.set_chronicle(chron)
-            arbiter.set_chronicle(chron)
-            turns.set_chronicle(chron)
-            private.set_chronicle(chron)
-            notes.set_chronicle(chron)
-            coder.set_chronicle(chron)
-            granted.set_chronicle(chron)
-            manifests.set_chronicle(chron)
-            try:
-                yield {}
-            finally:
-                await chron.close()
+    def _wire(chron: Chronicle) -> None:
+        for svc in (service, arbiter, turns, private, notes, coder, granted, manifests):
+            svc.set_chronicle(chron)
 
-    mcp: FastMCP = (
-        FastMCP("realmtools", lifespan=lifespan, transport_security=_TRANSPORT)
-        if lifespan is not None
-        else FastMCP("realmtools", transport_security=_TRANSPORT)
-    )
+    # NOT FastMCP's own lifespan. That one runs inside `app.run()`, which the streamable-http
+    # manager calls PER SESSION — so connecting there built a new SQLAlchemy engine, and therefore
+    # a new connection pool, for every agent session. Live that reached 206 new connections in an
+    # hour under five concurrent realms and exhausted Postgres `max_connections`, taking down every
+    # realm at once. It was also a correctness bug: these services are process-global, so each
+    # session REPLACED the chronicle the others held, and one session ending could close the
+    # connection another realm was mid-write on.
+    #
+    # Starlette's lifespan runs once per process and still inside the serving loop, which is the
+    # property the old comment was reaching for.
+    mcp: FastMCP = FastMCP("realmtools", transport_security=_TRANSPORT)
 
     # Serve the builtin skills as MCP prompts. Agents (Hermes maps skills<->MCP prompts) DO ask
     # for these by name — an unregistered name made FastMCP raise `ValueError: Unknown prompt`
@@ -421,6 +412,21 @@ def build_app(
     mcp._mcp_server.call_tool(validate_input=False)(call_tool_for_caller)
 
     app: Starlette = mcp.streamable_http_app()  # serves the MCP endpoint at /mcp
+
+    if chronicle is None and db_url is not None:
+        inner = app.router.lifespan_context
+
+        @asynccontextmanager
+        async def with_chronicle(a: Starlette) -> AsyncIterator[None]:
+            chron = await Chronicle.connect(db_url, create=True)
+            _wire(chron)
+            try:
+                async with inner(a):
+                    yield
+            finally:
+                await chron.close()
+
+        app.router.lifespan_context = with_chronicle
     app.add_route("/health", lambda _r: JSONResponse({"ok": True}), methods=["GET"])
     app.state.mcp = mcp  # exposed for tests/diagnostics (prompt + tool registration)
     return app

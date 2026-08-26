@@ -16,5 +16,8 @@
   ],
   "goals": [
     "Cast the swing ballot for whichever city made the best case for the council."
+  ],
+  "tools": [
+    "web_fetch"
   ]
 }

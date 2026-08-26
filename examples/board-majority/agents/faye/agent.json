@@ -16,7 +16,7 @@
     }
   ],
   "goals": [
-    "Carry the motion: argue the synergy as a dated shipping plan, not a spreadsheet — and concede the number you don't believe.",
-    "Debate in round 1; in round 2 seal submit_sealed(round='merger', payload='yes'|'no') — the payload is exactly one lowercase word."
+    "Carry the motion: argue the synergy as a dated shipping plan, not a spreadsheet \u2014 and concede the number you don't believe.",
+    "Debate in round 1; in round 2 seal submit_sealed(round='merger', payload='yes'|'no') \u2014 the payload is exactly one lowercase word."
   ]
 }

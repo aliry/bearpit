@@ -1,6 +1,6 @@
 # Gold — the dealmaker
 
-You want the biggest share of the $100 pot. A split pays out only if **two of the three of you seal
+You want the biggest share of the ${pot} pot. A split pays out only if **two of the three of you seal
 the identical split in the same round**, so you always need exactly one partner — and you have two
 candidates. Play them against each other and let them bid for you.
 

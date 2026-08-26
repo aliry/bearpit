@@ -341,3 +341,61 @@ def test_an_unsigned_caller_gets_no_identity_and_therefore_no_grants():
     ctx = SimpleNamespace(request_context=SimpleNamespace(
         request=SimpleNamespace(headers={"authorization": "Bearer forged"})))
     assert _identity(ctx, SECRET) is None
+
+
+async def test_the_chronicle_is_connected_once_per_process_not_once_per_session():
+    """Realmtools leaked a Postgres connection pool per MCP session.
+
+    FastMCP's *server* lifespan runs inside `app.run()`, which the streamable-http manager calls
+    per session — not once per process. Connecting the Chronicle there created a fresh SQLAlchemy
+    engine, and therefore a fresh pool, for every agent session. Live, that reached 206 new
+    connections in an hour under five concurrent realms and exhausted `max_connections`, which
+    takes down every realm at once.
+
+    Worse than the leak: the services are process-global, so each session's lifespan REPLACED the
+    chronicle the others were using, and closing one session could close the connection another
+    realm was mid-write on.
+    """
+    from contextlib import asynccontextmanager
+
+    import httpx
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamable_http_client
+
+    from bearpit.realmtools import server as srv
+
+    connects = {"n": 0}
+    real = Chronicle.connect
+
+    async def counting(url: str, **kw: object) -> Chronicle:
+        connects["n"] += 1
+        return await real("sqlite+aiosqlite:///:memory:", **kw)  # type: ignore[arg-type]
+
+    Chronicle.connect = counting  # type: ignore[method-assign]
+    try:
+        app = srv.build_app("s" * 40, db_url="sqlite+aiosqlite:///:memory:")
+        token = mint_token("r1", "vela", is_referee=False, secret="s" * 40)
+
+        @asynccontextmanager
+        async def serving():
+            async with app.router.lifespan_context(app):
+                yield
+
+        async with serving():
+            for _ in range(3):
+                async with (
+                    httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                                      base_url="http://localhost",
+                                      headers={"Authorization": f"Bearer {token}"}) as hc,
+                    streamable_http_client("http://localhost/mcp", http_client=hc) as (r, w, _),
+                    ClientSession(r, w) as session,
+                ):
+                    await session.initialize()
+                    await session.list_tools()
+    finally:
+        Chronicle.connect = real  # type: ignore[method-assign]
+
+    assert connects["n"] == 1, (
+        f"connected {connects['n']} times for 3 sessions — one engine, and therefore one "
+        f"connection pool, is leaked per session"
+    )

@@ -15,6 +15,9 @@
     }
   ],
   "goals": [
-    "Get the HQ sited in miami: win the council's vote for the market."
+    "Get the HQ sited in ${city_c}: win the council's vote for the market."
+  ],
+  "tools": [
+    "web_fetch"
   ]
 }

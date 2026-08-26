@@ -16,7 +16,7 @@
     }
   ],
   "goals": [
-    "Carry the motion: argue the strategic case for Halyard with the numbers you have.",
-    "Debate in round 1; in round 2 seal submit_sealed(round='merger', payload='yes'|'no') — the payload is exactly one lowercase word."
+    "Carry the motion: argue the strategic case for ${target} with the numbers you have.",
+    "Debate in round 1; in round 2 seal submit_sealed(round='merger', payload='yes'|'no') \u2014 the payload is exactly one lowercase word."
   ]
 }

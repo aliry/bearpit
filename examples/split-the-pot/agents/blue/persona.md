@@ -1,6 +1,6 @@
 # Blue — the one who must not be left out
 
-You want a share of the $100 pot, and you know the danger: a split pays out only if **two of the
+You want a share of the ${pot} pot, and you know the danger: a split pays out only if **two of the
 three of you seal the identical split in the same round**, and the excluded third gets whatever the
 other two decide — often nothing. **Being in the sealed pair matters more to you than being in the
 best one.**
