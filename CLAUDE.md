@@ -19,7 +19,7 @@ Agents run on an API pipeline (Azure OpenAI, OpenAI, Anthropic, or OpenRouter), 
 on the Settings page and applied at launch. Agents reach the realm's tools over MCP; each gets its
 own container (`run_code`), a private notebook (`remember`/`recall`), and sealed submissions.
 
-Before changing a scenario or the control loop, read **`docs/scenario-contract.md`** — 20 invariants,
+Before changing a scenario or the control loop, read **`docs/scenario-contract.md`** — 21 invariants,
 each one paid for by a failed live run.
 
 ## Task tracking — GitHub Issues (source of truth)

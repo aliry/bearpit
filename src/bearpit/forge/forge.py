@@ -14,6 +14,7 @@ from collections.abc import Collection
 from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
 
 from bearpit.core.interfaces import AgentHandle, RealmContext
 from bearpit.core.plugins import hooks_for
@@ -21,6 +22,7 @@ from bearpit.core.schema import EgressTier, Project
 from bearpit.forge.adapters.hermes.adapter import HermesAdapter
 from bearpit.forge.adapters.hermes.config import MatrixCreds, RealmtoolsCreds
 from bearpit.forge.container import ContainerRuntime
+from bearpit.forge.outputs import capture_outputs
 from bearpit.ledger import Ledger
 from bearpit.realmtools.tokens import mint_token
 
@@ -56,6 +58,9 @@ class RealmHandles:
     # it — and it is the credential that calls eliminate()/tally() and reads sealed submissions AS
     # that agent, which makes it the worst of the three to let reach an append-only log.
     agent_tokens: dict[str, str] = field(default_factory=dict)
+    # the scenario's `spec.outputs` globs, carried here so teardown can capture them without
+    # needing the project back (ADR-005)
+    outputs: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -79,6 +84,8 @@ class Forge:
         # where teardown archives each agent container's log tail (the flight recorder);
         # None = archival off (the platform wiring passes ~/.bearpit/realms)
         self._flight_logs_dir = flight_logs_dir
+        # what the most recent teardown captured, for the caller that owns the chronicle
+        self.captured_outputs: list[dict[str, Any]] = []
 
     async def provision_realm(
         self,
@@ -236,7 +243,8 @@ class Forge:
             #                             already exists and teardown must be able to reach it
             adapter.start(handle)
 
-        return RealmHandles(realm_id, network, shared_volume, handles, tokens)
+        return RealmHandles(realm_id, network, shared_volume, handles, tokens,
+                            outputs=tuple(project.spec.outputs))
 
     async def teardown_realm(
         self, handles: RealmHandles, *, grace: timedelta = timedelta(seconds=10)
@@ -259,6 +267,14 @@ class Forge:
                 self._runtime.remove_volume(handle.home_volume)  # already best-effort
         with contextlib.suppress(Exception):
             await self._ledger.teardown(handles.realm_id)
+        # LAST read of the shared folder — the flight recorder's placement, for the same reason:
+        # after this line the deliverable does not exist anywhere (ADR-005).
+        if handles.shared_volume and handles.outputs and self._flight_logs_dir is not None:
+            with contextlib.suppress(Exception):
+                self.captured_outputs = capture_outputs(
+                    self._runtime, handles.realm_id, handles.shared_volume,
+                    list(handles.outputs), self._flight_logs_dir,
+                )
         if handles.shared_volume:
             self._runtime.remove_volume(handles.shared_volume)
         self._runtime.remove_network(f"realm-{handles.realm_id}")

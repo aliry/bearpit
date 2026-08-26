@@ -54,6 +54,10 @@ class EventKind(StrEnum):
     # and the only internet route — performs the call and answers with TOOL_RESULT
     # {id, agent, tool, ok, result|error, cost_usd}. Both are chronicled, so what an agent looked
     # up (and what it cost) is part of the permanent record from day one.
+    # a file the run produced {path, bytes, sha256} — or {path, missing: true} for a declared
+    # deliverable that was never written (ADR-005). Metadata only: the bytes live beside the
+    # flight logs, because an append-only store should not grow by the size of every artifact.
+    OUTPUT = "output"
     TOOL_CALL = "tool_call"
     TOOL_RESULT = "tool_result"
     # what agents were SHOWN: {version, tools:{name:{description,params,policy,...}}, grants}.

@@ -812,6 +812,24 @@ class ProjectSpec(_Base):
         "the scenario needs it. Set false for a purely message-based scenario (open votes, "
         "message-termination) so idle tools can't tempt agents into misusing them.",
     )
+    outputs: list[ShortText] = Field(
+        default_factory=list, max_length=20,
+        description="Files this run produces, as glob patterns relative to the shared folder — "
+        "e.g. ['brief.md', 'sections/*.md'] (ADR-005). Captured before the volume is destroyed. "
+        "Empty (the default) means the run produces no files.",
+    )
+
+    @field_validator("outputs")
+    @classmethod
+    def _outputs_stay_inside_the_shared_folder(cls, v: list[str]) -> list[str]:
+        for pattern in v:
+            if pattern.startswith("/") or ".." in pattern.split("/"):
+                raise ValueError(
+                    f"output pattern {pattern!r} must be relative to the shared folder and may "
+                    f"not climb out of it"
+                )
+        return v
+
     tools: dict[ToolName, dict[str, Any]] = Field(
         default_factory=dict,
         description="Per-tool policy for every agent granted it, keyed by tool name (ADR-004) — "

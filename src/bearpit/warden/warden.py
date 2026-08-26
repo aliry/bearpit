@@ -9,6 +9,7 @@ is not enough; the platform must stop containers) → archive → generate the f
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -79,6 +80,11 @@ class Warden:
             await self._chron.append_event(
                 realm_id, EventKind.LIFECYCLE, {"event": "teardown_error", "detail": str(exc)}
             )
+        # What the run produced, recorded before the realm is archived so the report and the
+        # console can both see it. Metadata only — the bytes are beside the flight logs (ADR-005).
+        for record in getattr(self._forge, "captured_outputs", []) or []:
+            with contextlib.suppress(Exception):
+                await self._chron.append_event(realm_id, EventKind.OUTPUT, record)
         await self._chron.append_event(realm_id, EventKind.LIFECYCLE, {"event": "archived"})
         report = await self._chron.final_report(realm_id, title=f"Realm {realm_id}")
         return ConcludeResult(fired=fired, report=report)

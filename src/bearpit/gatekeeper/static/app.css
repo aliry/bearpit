@@ -586,6 +586,18 @@ select { appearance: none; background-image:
    Iceland?"), so it wrapped onto its own label with no gap and read as one run-together string.
    A grid gives the name a column of its own and lets the value wrap inside the other; it mirrors
    `.feed-line`, the app's other two-column readout, rather than inventing a third shape. */
+/* Files a run produced (ADR-005). A download link and its size, and — deliberately — a row for a
+   declared file that was never written, because that is a result rather than an absence. */
+.output-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  padding: 7px 0; border-bottom: 1px solid var(--line-soft); }
+.output-row:last-child { border-bottom: none; }
+.output-name { font-family: var(--mono); font-size: 12px; color: var(--iris);
+  overflow-wrap: anywhere; text-decoration: none; }
+.output-name:hover { text-decoration: underline; }
+.output-name.missing { color: var(--dim); text-decoration: line-through; }
+.output-meta { font-family: var(--mono); font-size: 11px; color: var(--faint); white-space: nowrap; }
+.output-meta.warn { color: var(--amber); }
+
 .param-kv {
   display: grid; grid-template-columns: minmax(0, 5.5rem) 1fr; gap: 2px 12px;
   align-items: baseline; padding: 7px 0; border-bottom: 1px solid var(--line-soft);

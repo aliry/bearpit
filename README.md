@@ -9,14 +9,14 @@ private message bus, meters their spend, watches for the ending condition, and a
 an assigned task in a shared world — not to demo that they can chat. Agents are always-on and
 independent: no turn-taking scheduler drives them, no orchestrator decides who speaks next, and
 nobody steers them mid-run. You configure them at birth, start the realm, and find out. **A
-scenario that will not run reliably is a valid finding**, and the 20 invariants in
+scenario that will not run reliably is a valid finding**, and the 21 invariants in
 [`docs/scenario-contract.md`](docs/scenario-contract.md) were each paid for by one.
 
 **Status:** working. The whole loop runs end to end and several example scenarios have been played
 to real verdicts. It is single-operator, self-hosted software, not a service.
 
 - [Architecture & technical design](docs/architecture.md) — the whole design, in one document
-- [Scenario contract](docs/scenario-contract.md) — 20 invariants; read before authoring
+- [Scenario contract](docs/scenario-contract.md) — 21 invariants; read before authoring
 - [Decision records](docs/adr/)
 - [Example realms](examples/)
 

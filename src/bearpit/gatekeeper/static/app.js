@@ -607,6 +607,9 @@ function realmStats(s, realmId) {
   // reading a value back out of finished prose is guesswork — and comparing two runs of one
   // scenario is the whole point of parameters. An empty string is shown as "(empty)" rather than
   // omitted, because "ran with it blank" and "not a parameter here" are different facts.
+  // Files the run produced (ADR-005). The deliverable of a scenario like beacon-brief IS the
+  // file, so it goes at the top of the rail — a run whose brief you cannot open has not delivered.
+  outputsCard(realmId).then((card) => { if (card) box.insertBefore(card, box.firstChild); });
   const runParams = s.config && s.config.parameters;
   if (runParams && Object.keys(runParams).length) {
     const pb = el("div", { class: "side-stat" }, el("h4", null, "Parameters"));
@@ -673,6 +676,44 @@ const statRowWide = (k, v) => el("div", { class: "stat-row stacked" },
 // too-tight budget cap — so a scenario asking for "large / 120s / $2" may well have run as
 // a large-tier model / 240s / $25. Every question you ask a finished run ("was it mention-gated?
 // which model was the referee on? why did the floor pass so fast?") is about the RESOLVED values.
+// The files a run produced, from its OUTPUT events. Async because it is a second endpoint and
+// must not delay the rest of the rail; a realm that produced nothing renders nothing at all.
+async function outputsCard(realmId) {
+  let files = [];
+  try {
+    const r = await api(`/api/realms/${encodeURIComponent(realmId)}/outputs`);
+    files = r.outputs || [];
+  } catch { return null; }
+  if (!files.length) return null;
+
+  const card = el("div", { class: "side-stat" }, el("h4", null, "Output files"));
+  for (const f of files) {
+    const href = `/api/realms/${encodeURIComponent(realmId)}/outputs/`
+      + f.path.split("/").map(encodeURIComponent).join("/");
+    const row = el("div", { class: "output-row" });
+    if (f.available) {
+      row.append(
+        el("a", { class: "output-name", href, download: f.path.split("/").pop(),
+                  title: `Download ${f.path}` }, f.path),
+        el("span", { class: "output-meta", text: fmtBytes(f.bytes) }));
+    } else {
+      // A declared deliverable the run never wrote. Saying so IS the point — triad-build has ended
+      // with four good sections and no assembled doc, and that is a result, not a blank.
+      row.append(
+        el("span", { class: "output-name missing", text: f.path }),
+        el("span", { class: "output-meta warn", text: "never written" }));
+    }
+    card.append(row);
+  }
+  return card;
+}
+
+function fmtBytes(n) {
+  if (n === undefined || n === null) return "";
+  return n < 1024 ? `${n} B`
+    : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`;
+}
+
 function realmConfig(c, realmId) {
   if (!c || !c.agents) return null;               // a run from before this was captured
   const cards = [];

@@ -661,7 +661,20 @@ async def _archive(realm_id: str, out: str) -> None:
     (out_dir / "transcript.txt").write_text(await chron.transcript(realm_id))
     report = await chron.final_report(realm_id, title=f"Realm {realm_id}")
     (out_dir / "report.md").write_text(report)
-    typer.secho(f"archived to {out_dir}/", fg=typer.colors.GREEN)
+    # the files the run produced, if any were captured (ADR-005) — without these `archive` is
+    # "everything except the deliverable"
+    src = Path.home() / ".bearpit" / "realms" / realm_id / "outputs"
+    n = 0
+    if src.is_dir():
+        import shutil
+        for f in sorted(src.rglob("*")):
+            if f.is_file():
+                dest = out_dir / "outputs" / f.relative_to(src)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(f, dest)
+                n += 1
+    typer.secho(f"archived to {out_dir}/" + (f" (+{n} output file(s))" if n else ""),
+                fg=typer.colors.GREEN)
     await chron.close()
 
 
