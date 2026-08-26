@@ -63,6 +63,9 @@
       "web_fetch": {
         "max_calls_per_agent": 8
       }
-    }
+    },
+    "outputs": [
+      "brief.md"
+    ]
   }
 }

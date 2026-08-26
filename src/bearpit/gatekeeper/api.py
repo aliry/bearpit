@@ -1228,6 +1228,53 @@ def create_app(
             {"ts": e.ts_ms, "kind": e.kind, "payload": e.payload} for e in evs[-limit:]
         ]}
 
+    def _outputs_dir(realm_id: str) -> Path:
+        return Path.home() / ".bearpit" / "realms" / realm_id / "outputs"
+
+    @app.get("/api/realms/{realm_id}/outputs")
+    async def realm_outputs(realm_id: str) -> dict[str, Any]:
+        """The files this run produced (ADR-005) — metadata from the chronicle, presence from disk.
+
+        Both, because they answer different questions: the chronicle says what the run was supposed
+        to produce and what it did, including a declared file that was never written; the disk says
+        what can actually be downloaded now.
+        """
+        out_dir = _outputs_dir(realm_id)
+        files: list[dict[str, Any]] = []
+        for ev in await get_chron().events(realm_id, kind=EventKind.OUTPUT):
+            rec = dict(ev.payload)
+            path = str(rec.get("path") or "")
+            rec["available"] = bool(path) and (out_dir / path).is_file() \
+                and not rec.get("missing")
+            files.append(rec)
+        return {"realm_id": realm_id, "outputs": files}
+
+    @app.get("/api/realms/{realm_id}/outputs/{path:path}")
+    async def realm_output_file(realm_id: str, path: str) -> Response:
+        """One captured file, as a download.
+
+        `path` comes from a URL, so it is resolved and then checked to be INSIDE the realm's own
+        outputs directory — a `..` that survives the router must not read the operator's disk.
+        """
+        base = _outputs_dir(realm_id).resolve()
+        try:
+            target = (base / path).resolve()
+            target.relative_to(base)
+        except (ValueError, OSError) as exc:
+            raise HTTPException(
+                status_code=400, detail="that is not a path inside this realm"
+            ) from exc
+        if not target.is_file():
+            raise HTTPException(status_code=404, detail=f"no captured output {path!r}")
+        name = target.name
+        return Response(
+            target.read_bytes(),
+            media_type="text/markdown; charset=utf-8" if name.endswith(".md")
+            else "text/plain; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{name}"',
+                     "X-Content-Type-Options": "nosniff"},
+        )
+
     @app.get("/api/realms/{realm_id}/report")
     async def report(realm_id: str) -> Response:
         """The final report as Markdown — deliberately NOT text/html.

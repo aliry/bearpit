@@ -56,6 +56,10 @@
           "review": 12
         }
       }
-    }
+    },
+    "outputs": [
+      "design.md",
+      "sections/*.md"
+    ]
   }
 }

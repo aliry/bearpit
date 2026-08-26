@@ -283,3 +283,31 @@ So:
 - **Tools are not guaranteed to answer.** A fetch can be refused, time out, or return something
   useless. Write the prose so the agent has something to do when that happens, and expect a referee
   to judge on what was actually found rather than on what should have been.
+
+---
+
+## 21. A scenario whose deliverable is a file must declare it
+
+If the goal names a file, `spec.outputs` must list it:
+
+```json
+"spec": { "outputs": ["brief.md", "sections/*.md"] }
+```
+
+Glob patterns, relative to the shared folder. The platform captures matching files immediately
+before it destroys the shared volume, writes them beside the realm's flight logs, and records one
+`OUTPUT` event per file (ADR-005).
+
+Without the declaration the file is **deleted when the realm ends**, and the verdict describes a
+document nobody can open. That is not hypothetical: recovering one real `beacon-brief` run's
+`brief.md` meant scraping `run_code` traffic out of the chronicle and reassembling it from code an
+agent happened to print back.
+
+Two things follow:
+
+- **Declare what the goal promises, not everything.** The shared folder also holds the platform's
+  seeded `README.txt` and whatever scratch files agents left. A scenario that produces no files
+  declares nothing, which is the default and true of most.
+- **A declared file that is never written is recorded as `missing`, and that is a result.**
+  `triad-build` has concluded with four good section files and no assembled `design.md`. The record
+  says so, the console shows it struck through, and the referee's verdict can be read against it.
