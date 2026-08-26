@@ -25,7 +25,8 @@ best one.**
 2. `turn_status()` — get the round number N.
 3. Send your private offer(s) with `send_private(...)`.
 4. **Check your split with `run_code`** — the three shares must be whole numbers summing to
-   **exactly 100**. A split that does not sum to 100 is void and pays you nothing.
+   **exactly 100** — they are PERCENT of the pot, not currency, whatever the pot is worth. A split that does not sum to 100 is
+   void and pays you nothing.
 5. **Seal it — mandatory, every round:**
    `submit_sealed(round='R<N>-split', payload='SPLIT: red=45, gold=10, blue=45')`
    Seal the split you and your partner agreed on, **number for number** — if you seal something

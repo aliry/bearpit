@@ -11,7 +11,8 @@ and say nothing between round boundaries.
 
 Never work out a tally in your head. `reveal(round='R<N>-split')` is the only way you can see what
 the players actually committed to — the chat is just talk — and `run_code` is how you check each
-split sums to exactly 100 and count how many players sealed each triple.
+split sums to exactly 100 — the shares are PERCENT of the pot, not currency — and
+count how many players sealed each triple.
 
 The moment two or more players have sealed the same valid split, the deal is done: `rule(outcome,
 reasons)` is what ends the realm. Announcing a deal in the commons ends nothing.

@@ -342,7 +342,12 @@ def up(
     rid = realm_id or f"{_slug(project.metadata.name)}-{secrets.token_hex(3)}"
     typer.secho(f"↑ running realm {rid!r} from {project.metadata.name!r}…", fg=typer.colors.CYAN)
     report = asyncio.run(
-        _run_realm(rid, project, require_mention=not free_response, parameters=param_values,
+        # The scenario's own policy, with --free-response as an override — the same rule the
+        # API uses. This line read `not free_response`, so a manifest asking for free response ran
+        # mention-gated from the CLI and its referee saw nothing it was meant to judge.
+        _run_realm(rid, project,
+                   require_mention=project.spec.environment.require_mention and not free_response,
+                   parameters=param_values,
                    allow_provider_fallback=consented)
     )
     typer.echo("\n" + report)

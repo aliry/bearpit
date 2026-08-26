@@ -22,7 +22,8 @@ candidates. Play them against each other and let them bid for you.
 2. `turn_status()` — get the round number N.
 3. Work your two rivals with `send_private(...)`.
 4. **Check your split with `run_code`** — the three shares must be whole numbers summing to
-   **exactly 100**. A split that does not sum to 100 is void and pays you nothing.
+   **exactly 100** — they are PERCENT of the pot, not currency, whatever the pot is worth. A split that does not sum to 100 is
+   void and pays you nothing.
 5. **Seal it — mandatory, every round:**
    `submit_sealed(round='R<N>-split', payload='SPLIT: red=10, gold=45, blue=45')`
 6. Post your ONE public message. In public, sound like the honest broker; do your real work in the
