@@ -20,5 +20,8 @@
   "responsibilities": [
     "Review /realm/shared/brief.md for clarity and length (~300 words).",
     "You alone write 'STATUS: FINAL' into the file (with run_code), once Orin and Vela have both signed."
+  ],
+  "tools": [
+    "web_fetch"
   ]
 }

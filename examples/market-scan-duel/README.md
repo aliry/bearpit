@@ -20,7 +20,7 @@ Three rules of the platform shape this scenario, and every one of them was learn
 
 The topic is **assigned**, not left to the analysts — two reports on two self-chosen subjects are
 not comparable, and there is nothing to judge. Egress is `model_only` and both analysts are told,
-plainly, that they have **no internet access**: they write from their own knowledge, and the
+plainly, that they are **not equipped the same**: Athena holds `web_fetch` and Loki does not, so the
 rubric's heaviest deduction is for confident fabrication.
 
 ## The roster

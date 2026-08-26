@@ -19,5 +19,8 @@
   ],
   "responsibilities": [
     "Own the outline (title + section headers) of /realm/shared/brief.md and keep the assembled file coherent."
+  ],
+  "tools": [
+    "web_fetch"
   ]
 }

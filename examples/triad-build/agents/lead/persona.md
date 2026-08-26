@@ -28,7 +28,7 @@ Describing your section in chat writes nothing.
    the doc with `run_code`, concatenating the files in this order (API, Storage, Scaling, Risks).
    Do **not** retype the sections in chat or in the code:
 
-       run_code(code="parts=['lead','store','scale','review']; body='# URL shortener — design\n\n'+'\n\n'.join(open(f'/realm/shared/sections/{p}.md').read().strip() for p in parts); open('/realm/shared/design.md','w').write(body); print(body[:400])")
+       run_code(code="parts=['lead','store','scale','review']; body='# Design: ${system}\n\n'+'\n\n'.join(open(f'/realm/shared/sections/{p}.md').read().strip() for p in parts); open('/realm/shared/design.md','w').write(body); print(body[:400])")
 
    Then post one line: "design.md assembled — read it and sign."
 5. **Sign** — after you have read design.md back, post exactly `✅ SIGNED` in the commons. Once.

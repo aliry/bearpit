@@ -19,5 +19,8 @@
   ],
   "responsibilities": [
     "Draft the body sections from your own knowledge; flag any claim you are not confident in rather than inventing a source."
+  ],
+  "tools": [
+    "web_fetch"
   ]
 }

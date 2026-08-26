@@ -20,5 +20,8 @@
   ],
   "goals": [
     "Write the API section to /realm/shared/sections/lead.md with run_code, then assemble /realm/shared/design.md from all four section files."
+  ],
+  "tools": [
+    "web_fetch"
   ]
 }

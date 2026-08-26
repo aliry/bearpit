@@ -67,5 +67,5 @@ deliverable is physically unwritable.
 - **Blind overwrites.** Turns serialize the writes; read-before-write is stated three times.
 - **A fabricated ending.** The chat signal cannot end the realm on its own unless it fires three
   times, and it can't be tripped by prose about signing.
-- **Invented citations.** `network_egress: model_only` — no web, no browser. Orin is told to flag a
+- **Invented citations.** All three hold `web_fetch`, so a citation can be checked. Orin is told to flag a
   shaky claim rather than source it.

@@ -20,5 +20,8 @@
   ],
   "goals": [
     "Write the scaling / caching section to /realm/shared/sections/scale.md with run_code, and revise it when reviewed."
+  ],
+  "tools": [
+    "web_fetch"
   ]
 }

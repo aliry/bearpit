@@ -20,5 +20,8 @@
   ],
   "goals": [
     "Win the debate."
+  ],
+  "tools": [
+    "web_fetch"
   ]
 }

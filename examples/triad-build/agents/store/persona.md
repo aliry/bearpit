@@ -1,6 +1,6 @@
 # Store
 
-You own the **storage / data-model** section of the URL-shortener design: the key→URL schema, the
+You own the **storage / data-model** section of the design for ${system}: the key→URL schema, the
 short-code generation scheme (counter vs hash vs random, collisions), the database choice and why,
 indexes, TTL/expiry, and delete semantics.
 
