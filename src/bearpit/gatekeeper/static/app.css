@@ -580,6 +580,26 @@ select { appearance: none; background-image:
   background: var(--panel-2); border: 1px solid var(--line-soft);
   font-family: var(--mono); font-size: 11.5px; color: var(--iris); overflow-x: auto;
 }
+/* Run parameters in the realm rail: a two-column table, name | value.
+   These were `.stat-row`s, which are flex + space-between — right for `judge | $0.0103`, wrong
+   here. A parameter value is prose an operator typed ("What is the current population of
+   Iceland?"), so it wrapped onto its own label with no gap and read as one run-together string.
+   A grid gives the name a column of its own and lets the value wrap inside the other; it mirrors
+   `.feed-line`, the app's other two-column readout, rather than inventing a third shape. */
+.param-kv {
+  display: grid; grid-template-columns: minmax(0, 5.5rem) 1fr; gap: 2px 12px;
+  align-items: baseline; padding: 7px 0; border-bottom: 1px solid var(--line-soft);
+}
+.param-kv:last-child { border-bottom: none; }
+.param-kv .pk {
+  font-family: var(--mono); font-size: 11.5px; color: var(--dim); overflow-wrap: anywhere;
+}
+.param-kv .pv { font-size: 12.5px; color: var(--text); line-height: 1.45; overflow-wrap: anywhere; }
+.param-kv .pv.dim { color: var(--faint); font-style: italic; }
+/* No stacking breakpoint on purpose: below 900px `.realm-layout` collapses to one column, so the
+   rail gets WIDER, not narrower. A long name is handled by the `minmax(0, …)` cap above — it
+   wraps inside its own column instead of pushing the value out. */
+
 .param-row { padding: 9px 0; border-top: 1px solid var(--line-soft); }
 .param-row:first-of-type { border-top: 0; }
 .param-name { font-family: var(--mono); font-size: 12px; color: var(--text); font-weight: 600; }
@@ -661,11 +681,8 @@ select { appearance: none; background-image:
 @media (max-width: 900px) { .param-bar-hint { display: none; } }
 
 /* ---------- the parameters report (read-only) ---------- */
-.param-eg {
-  display: block; margin: 8px 0; padding: 8px 10px; border-radius: var(--r);
-  background: var(--panel-2); border: 1px solid var(--line-soft);
-  font-family: var(--mono); font-size: 11.5px; color: var(--iris); overflow-x: auto;
-}
+/* `.param-eg` is defined once, above. A second copy lived here with a different margin and
+   silently won, so the editor's example block was not the size its own rule said. */
 .param-table-row { padding: 11px 0; border-top: 1px solid var(--line-soft); }
 .param-table-row:first-child { border-top: 0; }
 .ptr-head { display: flex; align-items: baseline; gap: 10px; }
