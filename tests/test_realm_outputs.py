@@ -153,3 +153,39 @@ async def test_the_api_lists_outputs_and_serves_one_for_download(tmp_path, monke
     assert "attachment" in got.headers["content-disposition"]
     assert escape.status_code in (400, 404), "a traversal reached outside the realm"
     assert absent.status_code == 404
+
+
+# --- the console rail ---------------------------------------------------------------------------
+def _app_js() -> str:
+    return (Path(__file__).resolve().parents[1]
+            / "src/bearpit/gatekeeper/static/app.js").read_text()
+
+
+def test_the_outputs_card_is_built_synchronously() -> None:
+    """The realm rail is destroyed and rebuilt every 2 seconds by `poll(tick, 2000)`.
+
+    The first version of this card fetched its own data and inserted itself when the promise
+    resolved — so every poll rendered a rail WITHOUT the card, then pushed everything down when
+    it arrived. Measured live against a 120ms response: the rail jumped 107px, twice a second,
+    forever. It is invisible on a fast localhost response and obvious on a real one, which is
+    why it reached an operator before it was noticed.
+
+    The rule this encodes: whatever the rail renders, `tick` must already hold before it renders.
+    """
+    js = _app_js()
+    assert "function outputsCard(realmId, files)" in js, (
+        "outputsCard must take its data — if it fetches its own, it can only insert late"
+    )
+    assert "async function outputsCard" not in js
+    assert "outputsCard(realmId).then" not in js, (
+        "an async insert into the polled rail makes the whole rail jump on every tick"
+    )
+
+
+def test_outputs_are_fetched_once_and_only_after_the_realm_stops() -> None:
+    """Outputs are captured at teardown, so there is nothing to fetch while a realm runs — and
+    once captured they never change. Fetching per tick cost a redundant request every 2s for as
+    long as the page stayed open."""
+    js = _app_js()
+    assert "outputs === null && FINISHED.has(status.state)" in js
+    assert 'const FINISHED = new Set(["archived", "failed"])' in js

@@ -142,6 +142,8 @@ function ago(ms) {
   if (s < 86400) return Math.floor(s / 3600) + "h ago";
   return Math.floor(s / 86400) + "d ago";
 }
+// Outputs are captured at teardown, so they exist only once a realm has stopped.
+const FINISHED = new Set(["archived", "failed"]);
 const stateChip = (st) => el("span", { class: `chip state-${st}` }, el("span", { class: "dot" }), st || "—");
 
 /* ---------- toasts ---------- */
@@ -488,7 +490,10 @@ route(/^\/realm\/(.+)$/, async (id) => {
       el("span", { class: "mono", text: id })),
     head, banner, layout);
 
-  let seen = 0, lastState = null, lastOutcome = null;
+  // Fetched at most once per visit, and deliberately BEFORE the rail is rendered: realmStats
+  // rebuilds the entire rail every 2s, so a card inserted asynchronously AFTER that render
+  // made the whole rail jump on every single poll.
+  let seen = 0, lastState = null, lastOutcome = null, outputs = null;
   async function tick() {
     let status, tr;
     try { [status, tr] = await Promise.all([api(`/api/realms/${encodeURIComponent(id)}`),
@@ -509,7 +514,11 @@ route(/^\/realm\/(.+)$/, async (id) => {
           el("div", { class: "outcome-text", text: status.outcome }))));
     }
     // side stats
-    clear(stats); stats.append(realmStats(status, id));
+    if (outputs === null && FINISHED.has(status.state)) {
+      try { outputs = (await api(`/api/realms/${encodeURIComponent(id)}/outputs`)).outputs || []; }
+      catch { outputs = []; }   // a realm that cannot list outputs still renders its rail
+    }
+    clear(stats); stats.append(realmStats(status, id, outputs || []));
     // feed: append only new lines
     const msgs = tr.messages || [];
     if (seen === 0 && !msgs.length) {
@@ -593,8 +602,10 @@ function realmHead(id, s, referee) {
     actions);
 }
 
-function realmStats(s, realmId) {
+function realmStats(s, realmId, outputs) {
   const box = el("div");
+  // The deliverable of a scenario like beacon-brief IS the file, so it leads the rail.
+  if (outputs && outputs.length) box.append(outputsCard(realmId, outputs));
   const gen = el("div", { class: "side-stat" },
     el("h4", null, "Status"),
     statRow("State", stateChip(s.state)),
@@ -607,9 +618,6 @@ function realmStats(s, realmId) {
   // reading a value back out of finished prose is guesswork — and comparing two runs of one
   // scenario is the whole point of parameters. An empty string is shown as "(empty)" rather than
   // omitted, because "ran with it blank" and "not a parameter here" are different facts.
-  // Files the run produced (ADR-005). The deliverable of a scenario like beacon-brief IS the
-  // file, so it goes at the top of the rail — a run whose brief you cannot open has not delivered.
-  outputsCard(realmId).then((card) => { if (card) box.insertBefore(card, box.firstChild); });
   const runParams = s.config && s.config.parameters;
   if (runParams && Object.keys(runParams).length) {
     const pb = el("div", { class: "side-stat" }, el("h4", null, "Parameters"));
@@ -671,21 +679,10 @@ const statRow = (k, v) => el("div", { class: "stat-row" }, el("span", { class: "
 const statRowWide = (k, v) => el("div", { class: "stat-row stacked" },
   el("span", { class: "k", text: k }), v);
 
-// The configuration the run ACTUALLY used. Not the scenario file: the platform resolves each
-// agent's model from its tier, raises the turn floor for a slow pipeline, and lifts a
-// too-tight budget cap — so a scenario asking for "large / 120s / $2" may well have run as
-// a large-tier model / 240s / $25. Every question you ask a finished run ("was it mention-gated?
-// which model was the referee on? why did the floor pass so fast?") is about the RESOLVED values.
-// The files a run produced, from its OUTPUT events. Async because it is a second endpoint and
-// must not delay the rest of the rail; a realm that produced nothing renders nothing at all.
-async function outputsCard(realmId) {
-  let files = [];
-  try {
-    const r = await api(`/api/realms/${encodeURIComponent(realmId)}/outputs`);
-    files = r.outputs || [];
-  } catch { return null; }
-  if (!files.length) return null;
-
+// The files a run produced, from its OUTPUT events. Synchronous, and handed its data: the caller
+// fetches before it renders, so this card is part of the rail's single build rather than an
+// insert arriving after it — which is what made the whole rail jump on every poll.
+function outputsCard(realmId, files) {
   const card = el("div", { class: "side-stat" }, el("h4", null, "Output files"));
   for (const f of files) {
     const href = `/api/realms/${encodeURIComponent(realmId)}/outputs/`
@@ -714,6 +711,11 @@ function fmtBytes(n) {
     : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`;
 }
 
+// The configuration the run ACTUALLY used. Not the scenario file: the platform resolves each
+// agent's model from its tier, raises the turn floor for a slow pipeline, and lifts a
+// too-tight budget cap — so a scenario asking for "large / 120s / $2" may well have run as
+// a large-tier model / 240s / $25. Every question you ask a finished run ("was it mention-gated?
+// which model was the referee on? why did the floor pass so fast?") is about the RESOLVED values.
 function realmConfig(c, realmId) {
   if (!c || !c.agents) return null;               // a run from before this was captured
   const cards = [];
