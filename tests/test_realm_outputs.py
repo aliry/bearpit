@@ -189,3 +189,70 @@ def test_outputs_are_fetched_once_and_only_after_the_realm_stops() -> None:
     js = _app_js()
     assert "outputs === null && FINISHED.has(status.state)" in js
     assert 'const FINISHED = new Set(["archived", "failed"])' in js
+
+
+# --- one Forge, many realms ---------------------------------------------------------------------
+async def test_a_realm_that_declares_no_outputs_inherits_none_from_the_realm_before_it(
+    tmp_path,
+) -> None:
+    """The bug that reached an operator, and the reason teardown returns its captures.
+
+    `pit serve` holds ONE Forge for the life of the process. The captured records used to live on
+    it as an attribute, assigned only when a scenario declared outputs — so a realm declaring none
+    never cleared it, and the Warden chronicled the previous realm's files under the new realm's
+    id. A live among-us run was recorded as having produced a beacon-brief's `brief.md`, identical
+    byte count and identical sha256, in an append-only log.
+
+    Every existing test here drove `capture_outputs` directly, one realm at a time, so none of them
+    could see it. The leak needs a SECOND realm on the SAME Forge.
+    """
+    from bearpit.forge.forge import Forge, RealmHandles
+
+    class _R:
+        def __init__(self) -> None:
+            self.volumes = {"realm-a-shared": {"brief.md": "the deliverable"},
+                            "realm-b-shared": {"chat.txt": "no deliverable here"}}
+
+        def read_volume(self, name: str) -> dict[str, str]:
+            return dict(self.volumes.get(name, {}))
+
+        def remove_volume(self, name: str) -> None:
+            self.volumes.pop(name, None)
+
+        def remove_network(self, name: str) -> None:
+            pass
+
+    runtime = _R()
+    forge = Forge.__new__(Forge)              # only teardown's collaborators are needed
+    forge._runtime = runtime                  # type: ignore[attr-defined]
+    forge._flight_logs_dir = tmp_path         # type: ignore[attr-defined]
+    forge._ledger = None                      # type: ignore[attr-defined]
+
+    def _handles(realm_id: str, outputs: tuple[str, ...]) -> RealmHandles:
+        return RealmHandles(realm_id=realm_id, network=f"realm-{realm_id}", agents={},
+                            shared_volume=f"realm-{realm_id}-shared", outputs=outputs)
+
+    first = await forge.teardown_realm(_handles("a", ("brief.md",)))
+    assert [r["path"] for r in first] == ["brief.md"]
+    assert first[0]["bytes"] == len("the deliverable")
+
+    # the realm the operator actually hit: declares nothing, so it must produce nothing
+    second = await forge.teardown_realm(_handles("b", ()))
+    assert second == [], f"realm 'b' declared no outputs but teardown handed back {second}"
+
+    # and nothing was written under its name
+    assert not (tmp_path / "b" / "outputs").exists()
+
+
+async def test_the_warden_chronicles_exactly_what_teardown_returned(tmp_path) -> None:
+    """The other half of the same seam: the Warden must read the return value, not the Forge."""
+    import bearpit.warden.warden as wardenmod
+
+    assert "captured_outputs" not in wardenmod.__dict__.get("__doc__", "")
+    src = (Path(__file__).resolve().parents[1] / "src/bearpit/warden/warden.py").read_text()
+    assert "getattr(self._forge, \"captured_outputs\"" not in src, (
+        "reading state off the Forge is what leaked one realm's outputs into the next"
+    )
+    assert "captured = await self._forge.teardown_realm(handles, grace=grace) or []" in src
+    forge_src = (Path(__file__).resolve().parents[1] / "src/bearpit/forge/forge.py").read_text()
+    assert "self.captured_outputs" not in forge_src
