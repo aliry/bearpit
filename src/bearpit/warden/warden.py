@@ -14,6 +14,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import Any
 
 from bearpit.chronicle import Chronicle, EventKind
 from bearpit.core.schema import TerminationCondition, TerminationKind
@@ -74,15 +75,16 @@ class Warden:
         # Warden actively stops the agents — announcing the end is not enough (POC finding).
         # Teardown is best-effort; the archive + report must happen regardless (the run's value
         # is in the Chronicle, not the containers).
+        captured: list[dict[str, Any]] = []
         try:
-            await self._forge.teardown_realm(handles, grace=grace)
+            captured = await self._forge.teardown_realm(handles, grace=grace) or []
         except Exception as exc:  # never lose the report to a cleanup failure
             await self._chron.append_event(
                 realm_id, EventKind.LIFECYCLE, {"event": "teardown_error", "detail": str(exc)}
             )
         # What the run produced, recorded before the realm is archived so the report and the
         # console can both see it. Metadata only — the bytes are beside the flight logs (ADR-005).
-        for record in getattr(self._forge, "captured_outputs", []) or []:
+        for record in captured:
             with contextlib.suppress(Exception):
                 await self._chron.append_event(realm_id, EventKind.OUTPUT, record)
         await self._chron.append_event(realm_id, EventKind.LIFECYCLE, {"event": "archived"})

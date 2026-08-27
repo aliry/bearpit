@@ -85,7 +85,6 @@ class Forge:
         # None = archival off (the platform wiring passes ~/.bearpit/realms)
         self._flight_logs_dir = flight_logs_dir
         # what the most recent teardown captured, for the caller that owns the chronicle
-        self.captured_outputs: list[dict[str, Any]] = []
 
     async def provision_realm(
         self,
@@ -248,7 +247,15 @@ class Forge:
 
     async def teardown_realm(
         self, handles: RealmHandles, *, grace: timedelta = timedelta(seconds=10)
-    ) -> None:
+    ) -> list[dict[str, Any]]:
+        """Stop the realm and return whatever outputs it produced (ADR-005), newest read last.
+
+        The captured records are RETURNED rather than stored on the Forge. They were an instance
+        attribute once, assigned only when a scenario declared outputs — so a realm that declared
+        none left the previous realm's records in place, and the Warden chronicled them under the
+        new realm's id. An among-us run was recorded as having produced a beacon-brief's
+        `brief.md`, byte-for-byte, in an append-only log.
+        """
         # Cleanup is best-effort: a hiccup removing one resource must not strand the others,
         # nor abort the caller's conclude/archive sequence. Stopping agents is what matters.
         adapter = HermesAdapter(self._runtime)
@@ -269,15 +276,17 @@ class Forge:
             await self._ledger.teardown(handles.realm_id)
         # LAST read of the shared folder — the flight recorder's placement, for the same reason:
         # after this line the deliverable does not exist anywhere (ADR-005).
+        captured: list[dict[str, Any]] = []
         if handles.shared_volume and handles.outputs and self._flight_logs_dir is not None:
             with contextlib.suppress(Exception):
-                self.captured_outputs = capture_outputs(
+                captured = capture_outputs(
                     self._runtime, handles.realm_id, handles.shared_volume,
                     list(handles.outputs), self._flight_logs_dir,
                 )
         if handles.shared_volume:
             self._runtime.remove_volume(handles.shared_volume)
         self._runtime.remove_network(f"realm-{handles.realm_id}")
+        return captured
 
     def reap_orphans(self, active: Collection[str]) -> list[str]:
         """Destroy every agent container (and its volume/network) whose realm is NOT active.

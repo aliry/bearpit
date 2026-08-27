@@ -86,11 +86,13 @@ def test_verdict_and_manual_always_available():
 
 # --- conclude / watch orchestration -----------------------------------------
 class FakeForge:
-    def __init__(self):
+    def __init__(self, outputs=None):
         self.torn_down = False
+        self.outputs = outputs or []
 
     async def teardown_realm(self, handles, *, grace):
         self.torn_down = True
+        return self.outputs
 
 
 class FakeHerald:
