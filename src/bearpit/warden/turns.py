@@ -466,14 +466,19 @@ class TurnManager:
                 f"It is now {self.current}'s turn (round {self._round})."
             )
         elif self._cue == "round" and completed_round is not None:
+            # Hand the round's discussion to the referee IN the cue, so a mention-gated referee
+            # (which never ingests un-@-mentioned player messages) can actually see what it is
+            # being asked to judge. This is true of EVERY referee, not just a driving one —
+            # `_drives` decides how directive the rest of the cue is, never whether the referee
+            # can see. A reactive judge without this scores by guessing and says so: "round-2
+            # rebuttal content was not available in my judging context, so both sides received
+            # equal rebuttal credit" (debate-fix-check2, on two rebuttals it never received).
+            lines = "\n".join(
+                f"[{_short_name(s, self._realm)}] {b}" for s, b in self._round_msgs
+            ) or "(none)"
             if self._drives:
-                # hand the round's discussion to the referee IN the cue, so a mention-gated host
-                # (which never ingests un-@-mentioned player messages) still has the votes to tally.
                 # Also list who is STILL IN the rotation — it shrinks as agents retire, so the host
                 # knows exactly who is live (don't act on anyone not listed).
-                lines = "\n".join(
-                    f"[{_short_name(s, self._realm)}] {b}" for s, b in self._round_msgs
-                ) or "(none)"
                 alive = ", ".join(_short_name(p, self._realm) for p in self._order) or "(none)"
                 # The cue is sent to EVERY driving referee — a game master, an auction clerk, a
                 # debate chair, an editor certifying a document. It must therefore say what the
@@ -503,7 +508,8 @@ class TurnManager:
             else:
                 await self._bus.notify_referee(
                     f"Round {completed_round} is complete — every participant has now had the "
-                    "floor. You can act now (e.g. judge/score) or let another round run."
+                    f"floor. This round's messages:\n{lines}\n\nYou can act now (e.g. "
+                    "judge/score) or let another round run."
                 )
 
     def _recent_context(self) -> str:
