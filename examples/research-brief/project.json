@@ -23,7 +23,7 @@
     "restrictions": "Never cite a URL you did not fetch. Never present a quote you did not receive from the tool \u2014 the critic re-fetches and checks. Never present a remembered figure as a looked-up one. Do not research another agent's angle for them.",
     "environment": {
       "network_egress": "model_only",
-      "require_mention": false
+      "require_mention": true
     },
     "tools": {
       "web_fetch": {

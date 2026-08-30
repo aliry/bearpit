@@ -21,7 +21,7 @@
     "environment": {
       "network_egress": "model_only",
       "allow_side_channels": false,
-      "require_mention": false,
+      "require_mention": true,
       "shared_folder": {
         "enabled": false
       }

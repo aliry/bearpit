@@ -134,10 +134,31 @@ because a judge that cannot see the debate cannot judge it.
 You do NOT need to work around this in a scenario, and you must not "fix" it by setting
 `require_mention: false` realm-wide unless you actually want every agent to react to every message.
 
+**A realm with `turns` must leave the gate closed** (`require_mention: true`, the default). This is
+enforced by a test over every example. Herald narrows the exemption with
+`gated = require_mention and not (aid == ref_id and ref_sees_all)` — so a `false` `require_mention`
+ungates *everyone*, referee included, and the narrowing term never runs.
+
 > Found by adversarial review of every example: in a free-for-all realm nobody @mentions the judge,
 > so debate-arena / pitch-contest / market-scan-duel / relay-story had a referee that never received
 > a single thing it was supposed to score. Turns realms hid it — the TurnManager hands the referee
 > the round transcript in its cue.
+
+> The claim above — that the cue carries the round transcript — was only true of a **driving**
+> referee (`referee_opens: true`). A reactive one got a bare "Round N is complete" and, being
+> mention-gated like everyone else, therefore saw *nothing at all* of the round it was scoring. That
+> is the defect `require_mention: false` was reached for. Both referees now get the round's messages;
+> `referee_opens` decides only how directive the rest of the cue is.
+
+> Then five turns realms were "fixed" with `require_mention: false` anyway, and debate-arena-6947dc
+> ran the consequence to completion. The referee is exempt from the floor mute, so once ungated it
+> answered every message; each answer woke the floor-holder mid-inference, whose runtime aborted and
+> posted "⚡ Interrupting current task" — itself a new message that woke the referee again. 36 of 141
+> messages were interrupt notices, the judge posted 65 "I'll wait for the round-complete cue"
+> replies, and **neither debater ever landed a single argument**. The judge scored two rounds it had
+> never seen ("rebuttal content not visible in transcript to me" — 4 points awarded regardless) and
+> declared a winner. A realm can fail this way while every container stays healthy and the run
+> reports success.
 
 ## 13. Budget the clock: stall must not fire during normal play
 

@@ -22,7 +22,7 @@
       "shared_folder": {
         "enabled": false
       },
-      "require_mention": false
+      "require_mention": true
     },
     "turns": {
       "policy": "one-at-a-time",
