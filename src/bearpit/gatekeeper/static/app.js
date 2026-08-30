@@ -550,7 +550,10 @@ function msgKind(m) {
   const s = m.sender || "", b = m.body || "";
   if (/^\s*\[operator/i.test(b)) return "operator";
   if (/(^|@)system/i.test(s)) return "system";
-  if (/^[*\s>]*(📚|⚙️?|🛠️?|🔧|⏳|🔌|📖|🗂️?|↻)/u.test(b)) return "activity";
+  // ⚡ leads the runtime's interruption line and was the one marker missing here, so
+  // "⚡ Interrupting current task…" — the most frequent narration of all — rendered as agent
+  // speech. warden/turns.py already treats ⚡ as a runtime marker.
+  if (/^[*\s>]*(📚|⚙️?|🛠️?|🔧|⏳|⚡|🔌|📖|🗂️?|↻)/u.test(b)) return "activity";
   if (/^[*\s>]*(Reading skill|mcp[_-]|Working\s*[—–-]|Interrupting current task|Operation interrupted)/i
     .test(b)) return "activity";
   return "chat";
@@ -1254,7 +1257,10 @@ function detailToState(d) {
         require_mention: e.require_mention !== false, allow_side_channels: !!e.allow_side_channels },
       referee_opens: !!d.referee_opens, provide_tools: d.provide_tools !== false,
       stall_nudge: !!d.stall_nudge,
-      turns: d.turns ? { silence_timeout_s: d.turns.silence_timeout_s ?? 90,
+      // Same rule as `parameters` above: policy/advance/enforcement/order have no field in this
+      // editor, so they must be carried through rather than dropped — rebuilding the object from
+      // the four edited fields silently reverted them to their schema defaults.
+      turns: d.turns ? { ...d.turns, silence_timeout_s: d.turns.silence_timeout_s ?? 90,
         referee_cue: d.turns.referee_cue || "round",
         min_rounds_before_verdict: d.turns.min_rounds_before_verdict ?? 0,
         retire_after_misses: d.turns.retire_after_misses ?? 0 } : null,
