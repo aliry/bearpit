@@ -306,8 +306,11 @@ class LiveSnapshot:
         self._delivered_private: set[int] = set()  # PRIVATE event ids already delivered to Matrix
         # agent_id -> max private messages it may SEND per round (0/absent = unlimited)
         self._dm_quota = dm_quota or {}
-        self._dm_sent: dict[tuple[str, int], int] = {}  # (agent, round) -> delivered so far
+        self._dm_sent: dict[tuple[str, int], int] = {}  # (agent, round) -> sent so far
         self._dm_warned: set[tuple[str, int]] = set()  # (agent, round) already told it is spent
+        self._dm_counted: set[str] = set()  # DM-room message keys already counted toward a quota
+        self._dm_muted: set[tuple[str, int]] = set()  # (agent, round) already gated at the bus
+        self._dm_round = 0  # the round the gates above belong to; a rollover lifts them
         # agent_id -> its OWN container. The map is the security boundary for `run_code`: the agent
         # is taken from the caller's verified token, never from a tool argument, so an agent can
         # only ever execute inside its own sandbox.
@@ -349,6 +352,7 @@ class LiveSnapshot:
         # captured into the Chronicle just like the commons (they carry their own room-id channel).
         for room in self._side_channels:
             await self._herald.mirror(self._realm, room, self._chron)
+        await self._enforce_dm_quota()
         # Label commons messages "commons" (termination conditions use that, not the room id),
         # and EXCLUDE the platform's own @system posts: the kickoff quotes the guidelines, which
         # mention the termination phrase (e.g. "post VERDICT:") — matching that would end the
@@ -604,6 +608,53 @@ class LiveSnapshot:
                 self._realm, EventKind.SYSTEM,
                 {"event": "agent_stop_failed", "agent": agent, "detail": str(exc)},
             )
+
+    async def _enforce_dm_quota(self) -> None:
+        """Count what agents post DIRECTLY in their DM rooms toward the same per-round quota, and
+        gate the room at the bus once an agent is spent.
+
+        The quota used to bind only `send_private`, so an agent could simply post in the room with
+        its own client — which the room's own welcome message invites it to do. That is the loop the
+        quota exists to stop: in camp-border-states round 1 one agent sent its 4 allowed private
+        messages, had 4 more correctly blocked, then posted 6 restatements of the same pact
+        straight into the rooms.
+
+        Chronicling is untouched — Herald mirrors every message either way. Only the ABILITY to
+        post more is withdrawn, and at the bus, so it binds any client.
+        """
+        if not self._dm_quota or not self._side_channels:
+            return
+        rnd = self._turns.round if self._turns is not None else 0
+        if rnd != self._dm_round:  # a new round returns everyone's allowance
+            self._dm_round = rnd
+            for room in self._side_channels:
+                if any(a for (a, r) in self._dm_muted if r != rnd):
+                    await self._herald.unmute_room(room)
+            self._dm_muted = {(a, r) for (a, r) in self._dm_muted if r == rnd}
+        by_user = {c.user_id: aid for aid, c in self._creds.items()}
+        for room in self._side_channels:
+            for m in await self._chron.messages(self._realm, room):
+                key = f"{room}:{m.id}"
+                if key in self._dm_counted:
+                    continue
+                self._dm_counted.add(key)
+                aid = by_user.get(m.sender)
+                if aid is None:  # @system's own room notices are not the agent's traffic
+                    continue
+                self._dm_sent[(aid, rnd)] = self._dm_sent.get((aid, rnd), 0) + 1
+        for aid, quota in self._dm_quota.items():
+            if not quota or (aid, rnd) in self._dm_muted:
+                continue
+            if self._dm_sent.get((aid, rnd), 0) < quota:
+                continue
+            cred = self._creds.get(aid)
+            if cred is None:
+                continue
+            self._dm_muted.add((aid, rnd))
+            for room, info in self._side_channels.items():
+                members = info.get("members")
+                if isinstance(members, list) and cred.user_id in members:
+                    await self._herald.mute_in_room(room, cred.user_id)
 
     async def _deliver_private(self) -> None:
         """Drain new PRIVATE events into their DM rooms. Each is posted AS the sender (so the mirror

@@ -217,6 +217,27 @@ class Herald:
         # events_default=0 + no explicit gates = everyone may post again (system stays implicit).
         await self._c.set_power_levels(self._system_token, room_id, {}, events_default=0)
 
+    async def mute_in_room(self, room_id: str, user_id: str) -> None:
+        """Refuse further posts from ONE member of a side room, at the bus.
+
+        The commons has floor control; a DM room had none, so a per-round message quota enforced
+        in the host's delivery loop only bound the `send_private` path — an agent posting directly
+        with its own client was unlimited (#96). A power level below `events_default` makes the
+        homeserver 403 the post whatever client sends it, which is the same physics `grant_floor`
+        uses. The record is untouched: the mirror still chronicles everything that does land.
+        """
+        if self._system_token is None:
+            raise RuntimeError("system account not initialised")
+        await self._c.set_power_levels(
+            self._system_token, room_id, {user_id: -1}, events_default=0
+        )
+
+    async def unmute_room(self, room_id: str) -> None:
+        """Lift a side-room gate — every member may post again (used when the round rolls over)."""
+        if self._system_token is None:
+            raise RuntimeError("system account not initialised")
+        await self._c.set_power_levels(self._system_token, room_id, {}, events_default=0)
+
     async def announce(
         self, room_id: str, body: str, mentions: list[str] | None = None
     ) -> str:
