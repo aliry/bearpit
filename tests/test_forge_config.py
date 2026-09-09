@@ -271,3 +271,24 @@ def test_a_shared_folder_realm_tells_the_agent_the_folder_exists_and_how_to_use_
         agent, cred, matrix, realmtools=rt, shared_folder=False)["config.yaml"]
     )["agent"]["system_prompt"]
     assert "/realm/shared" not in without
+
+
+def test_a_busy_agent_queues_its_messages_instead_of_abandoning_its_work():
+    """Hermes defaults `busy_input_mode` to `interrupt`: a message arriving mid-inference ABORTS
+    the in-flight call and restarts. In a chat client that is right — the human wants an answer to
+    what they just said. In an always-on realm it is a starvation bug.
+
+    debate-fix-check3's judge needed 150s+ to compose a verdict. Both debaters had rested and were
+    posting only short "I rest my case" notes, but each @-mentions the judge, and each one threw
+    away the partial verdict. 11 of its 24 messages were "⚡ Interrupting current task"; the realm
+    ran to ROUND 10 for a scenario whose rubric expects 2, and only concluded when a gap in the
+    mentions happened to let one inference through.
+
+    `queue` finishes the current task and then takes the backlog in arrival order (Hermes caps it
+    at 32 pending per session, so it cannot grow unbounded). The spend already incurred on a
+    partial answer is kept rather than discarded, which is also why this is not merely cosmetic.
+    """
+    env = _render()[".env"]
+    assert "HERMES_GATEWAY_BUSY_INPUT_MODE=queue" in env, (
+        "an interrupted agent restarts from scratch and can be starved indefinitely"
+    )
