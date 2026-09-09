@@ -187,11 +187,21 @@ class Runner:
                 await self.herald.nudge(bus)
 
         on_conclude = turn_manager.open_all if turn_manager is not None else None
+
+        async def _final_spend() -> None:
+            """One last reading once the containers are down, so the run's cost is complete.
+
+            The tick is the only other sampler, and the proxy aggregates a few seconds behind the
+            call — so a realm ending inside that window chronicled nothing at all and its virtual
+            keys are revoked at teardown, putting the number permanently out of reach (#98).
+            """
+            await self.ledger.poll_spend(realm_id, self.chronicle)
+
         return await self.warden.watch(
             realm_id, handles, bus.commons_room, project.effective_termination, snapshot,
             interval_s=interval_s, max_ticks=max_ticks, grace=grace,
             nudge=_nudge if project.spec.stall_nudge else None,  # per-project opt-out
-            on_conclude=on_conclude,
+            on_conclude=on_conclude, reconcile_spend=_final_spend,
         )
 
     def _build_turn_manager(
