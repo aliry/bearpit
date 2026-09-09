@@ -263,6 +263,13 @@ def render_hermes_home(
         f"MATRIX_TOOLS_ALLOW_INVITES={'true' if allow_side_channels else 'false'}",
         "HERMES_YOLO_MODE=1",  # C14: no human-approval gate for autonomous agents
         "HERMES_EXEC_ASK=false",  # C14
+        # Hermes defaults this to `interrupt` — a message arriving mid-inference ABORTS the call
+        # and restarts. Correct for a chat client, a starvation bug for an always-on realm agent:
+        # a frequently-addressed agent never finishes, and every abort discards spend already
+        # incurred on a partial answer. `queue` finishes the turn, then drains the backlog in
+        # arrival order (Hermes caps pending at 32/session). See #91 — a judge needing 150s to
+        # compose a verdict was interrupted 11 times and dragged a 2-round scenario to round 10.
+        "HERMES_GATEWAY_BUSY_INPUT_MODE=queue",
     ]
     if matrix.require_mention:
         env += ["MATRIX_REQUIRE_MENTION=true", "MATRIX_THREAD_REQUIRE_MENTION=true"]  # C3 anti-loop
