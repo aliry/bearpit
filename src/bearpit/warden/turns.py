@@ -171,6 +171,14 @@ class TurnManager:
         self._cue = referee_cue
         # a DRIVING referee (game master) must resolve every round; a reactive one (a judge) may
         # wait — so the cue is directive vs optional accordingly.
+        #
+        # THE LINE THIS FLAG DOES NOT CROSS: it governs whether play WAITS on the referee and how
+        # directive its cue is. It must never govern what the referee can SEE or KNOW. Three
+        # defects came from crossing it — the round transcript rode only in the driving cue, and
+        # the `round_complete` event that `turn_status.last_completed_round` reads was written only
+        # in the driving branch — each leaving a reactive judge scoring rounds it had no way to
+        # observe. A reactive referee judges the same realm on the same evidence; it simply does
+        # not hold up the queue.
         self._drives = referee_drives
         self._min_rounds = min_rounds_before_verdict  # carried in TURN events for the Arbiter guard
         # Re-prompt a slow floor-holder before skipping it (a single mention is easily missed).
@@ -434,21 +442,31 @@ class TurnManager:
             return
         completed_round = self._roll_round_if_wrapped()
         self._turn_start = now
-        if completed_round is not None and self._drives and self._referee_id is not None:
-            # round boundary under a driving referee: hold the floor (players muted) until the
-            # resolution posts — the next round must not outrun the tally/elimination.
-            self._awaiting = "round"
-            self._last_announce = now
-            # Chronicle the boundary BEFORE cueing: the Arbiter's min_rounds guard reads the
-            # latest TURN event's round, and during the pause no grant has written the incremented
-            # one — so a referee cued to resolve round N had its verdict REJECTED as "too early"
-            # even though round N was complete (toolcheck-c5: rule() bounced twice at min_rounds=1).
+        if completed_round is not None:
+            # Chronicle the boundary for EVERY referee, driving or not. `turn_status`
+            # derives `last_completed_round` from this event, and it used to be written only in
+            # the driving branch — so a reactive referee was told 0 rounds had finished no matter
+            # how many had, concluded there was nothing to resolve, and waited while the rotation
+            # kept opening rounds (q91-check: round 7 for a 2-round rubric, its judge reporting
+            # "nothing new completed to score (last_completed_round=0)").
+            #
+            # It goes in BEFORE any grant or cue. The Arbiter's min_rounds guard reads the latest
+            # TURN event's round, and under a driving referee no grant writes the incremented one
+            # during the pause — so a referee cued to resolve round N had its verdict REJECTED as
+            # "too early" even though N was complete (toolcheck-c5: rule() bounced twice at
+            # min_rounds=1). Writing it AFTER the grant would also make it the latest event, and
+            # `read_turn_status` reads `current` from there — reporting a realm with an empty floor.
             await self._chron.append_event(
                 self._realm, EventKind.TURN,
                 {"event": "round_complete", "completed": completed_round, "round": self._round,
                  "order": self._order, "position": self._position, "current": None,
                  "min_rounds": self._min_rounds},
             )
+        if completed_round is not None and self._drives and self._referee_id is not None:
+            # round boundary under a driving referee: hold the floor (players muted) until the
+            # resolution posts — the next round must not outrun the tally/elimination.
+            self._awaiting = "round"
+            self._last_announce = now
             await self._bus.mute_all()
             await self._cue_referee(completed_round)
             self._round_msgs = []
