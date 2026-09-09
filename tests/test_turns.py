@@ -599,3 +599,33 @@ async def test_eliminating_the_tail_holder_mid_round_completes_the_round(chron):
     assert mgr.status()["round"] == 2
     evs = [e.payload for e in await chron.events("r", kind=EventKind.TURN)]
     assert any(e.get("event") == "round_complete" and e.get("completed") == 1 for e in evs)
+
+
+async def test_a_reactive_referee_can_actually_see_the_round_it_is_asked_to_judge(chron):
+    """A NON-driving referee is mention-gated like everyone else, so the only player messages it
+    ever ingests are the ones the platform hands it. Its cue handed it none — just "Round N is
+    complete — every participant has now had the floor."
+
+    So it scored blind. debate-fix-check2's judge received exactly three things in a whole realm:
+    the kickoff and two 160-char round announcements. It awarded 4/4 then 6/6 and said why in its
+    own verdict: "round-2 rebuttal content was not available in my judging context, so both sides
+    received equal rebuttal credit rather than a differentiated read." Two real, well-argued
+    rebuttals had been posted; the judge simply never saw them.
+
+    This is the defect that `require_mention: false` was reached for as a workaround — which
+    ungated everyone and produced the interrupt storm instead. `_drives` may decide how DIRECTIVE
+    the cue is; it must not decide whether the referee can see.
+    """
+    mgr, bus, _ = _mgr(chron, drives=False)
+    await mgr.start()
+    r1 = [("pro", "Remote-first scales: GitLab IPO'd all-remote."),
+          ("con", "Survivorship bias — Microsoft's own study shows 25% less cross-group time.")]
+    await mgr.observe(r1[:1])
+    await mgr.observe(r1)  # round 1 done
+    cue = bus.cues[0]
+    assert "GitLab" in cue and "Microsoft" in cue, (
+        "a referee that never sees the round can only score it by guessing"
+    )
+    # it is still the REACTIVE cue — seeing the round must not turn it into a game master
+    assert "let another round run" in cue
+    assert "Resolve the round NOW" not in cue

@@ -614,3 +614,44 @@ def test_editing_a_scenario_preserves_its_parameter_metadata(seeded, tmp_path, m
         )
         assert after["parameters"]["target"]["default"] == "99"
         assert after["parameters"]["target"]["max"] == 100
+
+
+def test_the_turns_override_keeps_everything_the_scenario_declared():
+    """The launch modal offers exactly two knobs — on/off and the silence timeout — but the
+    endpoint rebuilt `Turns()` from that one field, so every OTHER setting the scenario declared
+    silently reverted to its schema default.
+
+    debate-arena declares `min_rounds_before_verdict: 2` precisely so its judge cannot call a
+    winner before both rounds finish. Launching it from the UI reset that to 0, and the run
+    (debate-arena-6947dc) recorded `min_rounds: 0` in every TURN event. The judge duly ended the
+    realm on scores for rounds it had never seen.
+
+    policy/advance/enforcement/order happen to share their defaults with debate-arena, which is
+    why this stayed invisible; a scenario that sets any of them non-default loses it outright.
+    """
+    from bearpit.core.schema import Turns
+    from bearpit.gatekeeper.api import TurnsConfig, apply_turns_override
+
+    declared = Turns(
+        min_rounds_before_verdict=2, referee_cue="turn", retire_after_misses=3,
+        silence_timeout_s=240,
+    )
+    merged = apply_turns_override(declared, TurnsConfig(enabled=True, silence_timeout_s=120))
+
+    assert merged is not None
+    assert merged.silence_timeout_s == 120, "the UI's own knob must still win"
+    assert merged.min_rounds_before_verdict == 2, "the verdict guard was silently dropped"
+    assert merged.referee_cue == declared.referee_cue
+    assert merged.retire_after_misses == 3
+
+
+def test_the_turns_override_can_still_turn_turns_off_and_on():
+    from bearpit.core.schema import Turns
+    from bearpit.gatekeeper.api import TurnsConfig, apply_turns_override
+
+    declared = Turns(min_rounds_before_verdict=2)
+    assert apply_turns_override(declared, TurnsConfig(enabled=False)) is None
+    # a scenario with NO turns, switched on from the UI, gets the schema defaults + the knob
+    fresh = apply_turns_override(None, TurnsConfig(enabled=True, silence_timeout_s=45))
+    assert fresh is not None and fresh.silence_timeout_s == 45
+    assert fresh.min_rounds_before_verdict == 0

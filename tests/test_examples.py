@@ -177,3 +177,29 @@ def test_a_placeholder_is_not_spliced_between_a_determiner_and_its_noun(name: st
                     f"{value!r} — that renders a double determiner. Put the placeholder where a "
                     f"noun phrase belongs instead."
                 )
+
+
+@pytest.mark.parametrize("name", PACKAGES)
+def test_a_turns_realm_never_opens_the_mention_gate(name: str) -> None:
+    """`require_mention: false` in a TURNS realm re-opens the exact hole Herald's `ref_sees_all`
+    was written to close, because `gated = require_mention and not (...)` — a false
+    `require_mention` ungates everyone, referee included, and the narrowing term never runs.
+
+    The referee is then woken by every message, and since physics exempts it from the floor mute
+    it answers each one. Every answer wakes the floor-holder mid-inference, whose runtime aborts
+    and posts "⚡ Interrupting current task" — itself a new message that wakes the referee again.
+
+    debate-arena-6947dc ran this loop to completion: 36 of 141 messages were interrupt notices,
+    the judge posted 65 "I'll wait for the round-complete cue" replies, and NEITHER debater ever
+    landed a single argument. The judge then scored two rounds it had never seen ("rebuttal
+    content not visible in transcript to me" — and credited 4 points anyway) and declared a
+    winner. A turns realm does not need the gate open: the TurnManager hands the referee the
+    round transcript in its cue.
+    """
+    project = load_package(EXAMPLES / name)
+    if project.spec.turns is None:
+        return  # a free-for-all realm may legitimately want everyone reacting to everything
+    assert project.spec.environment.require_mention, (
+        f"examples/{name} runs turns but sets require_mention: false — every agent wakes on "
+        f"every message and the referee's replies interrupt the floor-holder into silence"
+    )

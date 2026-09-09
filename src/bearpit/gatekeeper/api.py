@@ -88,6 +88,24 @@ class TurnsConfig(BaseModel):
     silence_timeout_s: float = 90.0
 
 
+def apply_turns_override(declared: Turns | None, override: TurnsConfig) -> Turns | None:
+    """Apply the launch UI's turn override on top of what the scenario declared.
+
+    The modal exposes exactly two knobs — on/off and the silence timeout — so those are the only
+    two things it may change. Everything else (min_rounds_before_verdict, referee_cue,
+    retire_after_misses, policy/advance/enforcement/order) is the scenario author's decision and
+    must survive the round-trip.
+
+    This used to build a fresh `Turns(silence_timeout_s=...)`, which reset every other field to
+    its schema default. debate-arena's `min_rounds_before_verdict: 2` — the guard that stops its
+    judge calling a winner before both rounds finish — became 0 on every UI launch.
+    """
+    if not override.enabled:
+        return None
+    base = declared if declared is not None else Turns()
+    return base.model_copy(update={"silence_timeout_s": override.silence_timeout_s})
+
+
 class CreateRealm(BaseModel):
     package: str  # path to a project package or flat manifest
     realm_id: str | None = None
@@ -1158,10 +1176,7 @@ def create_app(
         _check_tools(project)
         _check_elevated(project, req.allow_elevated_tools)
         if req.turns is not None:  # UI override: enable/disable turns for this run
-            turns = (
-                Turns(silence_timeout_s=req.turns.silence_timeout_s)
-                if req.turns.enabled else None
-            )
+            turns = apply_turns_override(project.spec.turns, req.turns)
             project = project.model_copy(
                 update={"spec": project.spec.model_copy(update={"turns": turns})}
             )
