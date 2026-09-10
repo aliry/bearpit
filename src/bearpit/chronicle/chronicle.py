@@ -48,6 +48,8 @@ class EventKind(StrEnum):
     # (deliberately — a socket there would turn any bug in it into host root); the HOST executes it,
     # exactly as it already brokers PRIVATE messages, and answers with EXEC_RESULT {id, exit, out}.
     EXEC = "exec"
+    MACHINE = "machine"  # a realm's game-state-machine declaration + host-resolved role bindings
+    GAME = "game"  # one machine transition/write/reject {op, transition|key, caller, ..., wake}
     EXEC_RESULT = "exec_result"
     # an agent invoked a granted tool {id, agent, tool, args} (ADR-004). Same broker shape as EXEC
     # and for the same reason: realmtools holds no API keys, so the HOST — which holds the keystore
