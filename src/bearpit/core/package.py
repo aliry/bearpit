@@ -97,11 +97,16 @@ def _contained(path: Path, root: Path) -> bool:
 
 
 def _discover_files(folder: Path) -> list[str]:
+    """The NAME list the birth prompt reads out to the agent. `_read_files` is what actually rides
+    into the container, and it skips anything non-UTF-8 — so a compiled cache listed here would be
+    announced as a reference file the agent then could not find. Any package whose resources are
+    importable Python grows a `__pycache__` the first time something imports them."""
     if not folder.is_dir():
         return []
     return sorted(
         str(p.relative_to(folder.parent)) for p in folder.rglob("*")
         if p.is_file() and not p.is_symlink() and _contained(p, folder)
+        and "__pycache__" not in p.parts
     )
 
 
