@@ -149,3 +149,40 @@ def test_a_folded_seat_never_sees_another_seats_cards(defn, bindings):
     shown = eng.view(defn, bindings, s, "lyra")["data"]["hole"]
     assert shown.get("vega") == "Ah Kh", "a live hand is turned face up for the whole table"
     assert "mira" not in shown, "a mucked hand stays the folder's own business"
+
+
+def test_a_seat_that_folded_before_a_raise_does_not_hold_the_street_open(defn, bindings):
+    """The `minus: [out, all_in]` on every street-closing guard is load-bearing, and nothing else
+    in this file exercises it: a fold normally lands the folder back in `acted` via its own
+    effect, so the guard would close anyway. But a raise RESETS `acted`, and a seat that folded
+    before that raise can never re-enter it. Without the `minus` clause the expected set would
+    keep naming that seat for ever and the street could never close — a permanent deadlock, in a
+    live hand, with no error to read."""
+    s = _open_hand(defn, bindings)
+    s = _act(defn, bindings, s, "lyra", "fold")
+    assert s.sets["out"] == {"lyra"} and "lyra" in s.sets["acted"]
+
+    s = _act(defn, bindings, s, "rigel", "raise", to="60")
+    assert s.sets["acted"] == {"rigel"}, "the raise cleared the fold out of `acted`"
+    assert s.sets["out"] == {"lyra"}, "...but not out of `out` — the fold still stands"
+
+    for seat in ("mira", "nova", "vega", "orion"):
+        s = _act(defn, bindings, s, seat, "call", to="60")
+    assert s.actor is None, "every seat that can act has acted, so the pointer parks"
+
+    # the guard the dealer is woken by, evaluated exactly as the declaration writes it
+    s = _act(defn, bindings, s, "pitboss", "advance", first="rigel")
+    assert s.state == "flop", "the street closed with a pre-raise folder still in `out`"
+
+
+def test_every_seat_fired_transition_carries_both_of_its_guards(defn, bindings):
+    """`caller_is_actor` and `caller_not_in: acted` are defence in depth for each other — today
+    the pointer's `skip` set means an acted seat can never be the actor, so a behavioural test
+    cannot tell the two apart and dropping either guard would leave the suite green. Pin them
+    structurally instead: a seat may act only when the pointer is on it AND it has not already
+    acted at this price."""
+    seat_fired = [n for n, t in defn.transitions.items() if t.by == "player"]
+    assert sorted(seat_fired) == ["all_in", "call", "check", "fold", "raise"]
+    for name in seat_fired:
+        guards = {g.name for g in defn.transitions[name].guard}
+        assert guards == {"caller_is_actor", "caller_not_in"}, f"{name} lost a guard"
