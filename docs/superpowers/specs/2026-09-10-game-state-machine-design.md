@@ -103,8 +103,9 @@ validated at runtime to be members of the relevant role.
   edge-triggered**: effects are applied to a scratch copy, each rule is evaluated on old and new
   state, it fires on false→true only (and only while `unless` is false), targets are deduplicated
   per event, and the result is stamped on the GAME event as `wake: [agent ids]`. `role: actor`
-  fires when the pointer moves to a non-null actor. Within one tick the pointer may move twice;
-  the actor-wake is delivered only to the actor as of the latest event.
+  fires when the pointer moves to a non-null actor. For `role: actor`, `when` and `unless` are
+  level filters on the new state — the pointer move is the edge. Within one tick the pointer may
+  move twice; the actor-wake is delivered only to the actor as of the latest event.
 - `{role: <role>, after_s: N}` — the **only host-evaluated kind**, because only the host has a
   clock: "no GAME event for N seconds" (so a referee's own `game_set`s keep it quiet). It nudges;
   it never acts. Default and floor: **240 s** (scenario-contract §13 — a resolver `run_code` may
@@ -126,7 +127,9 @@ non-set key; `unset` on a set key; a participant transition with a non-opt-in ef
 hidden-role transition with `log: public`; a public-log transition whose guard reads a
 `referee`-visibility key or a hidden set (the rejection text would leak it); a wake rule
 targeting a hidden role; wake rules in a realm that also sets `turns` (one attention system);
-`members: [ids]` naming an agent not on the roster; `members_count` with a non-literal N.
+`members: [ids]` naming an agent not on the roster; `members_count` with a non-literal N; a wake
+rule for a role with neither `when` nor `after_s` (only `actor` may be bare); a `set` effect on an
+owner-visibility key (owner values are written with `game_set(owner=)`).
 
 ## 3. Tool surface
 

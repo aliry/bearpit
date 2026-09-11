@@ -170,11 +170,13 @@ def test_membership_guards():
 def test_data_equals_present_and_set_empty():
     s = _s()
     assert not check_guard(_g("data_present", "pot"), POKERISH, B, s, _ctx())
+    assert not check_guard(_g("data_present", "actor"), POKERISH, B, s, _ctx())  # parked
     s.data["pot"] = 0
     assert check_guard(_g("data_present", "pot"), POKERISH, B, s, _ctx())
     assert check_guard(_g("data_equals", {"key": "pot", "value": 0}), POKERISH, B, s, _ctx())
     # values resolve: a guard may compare a key to an arg
     set_actor(POKERISH, B, s, "c", 1)
+    assert check_guard(_g("data_present", "actor"), POKERISH, B, s, _ctx())  # has an actor now
     assert check_guard(_g("data_equals", {"key": "actor", "value": "$args.player"}),
                        POKERISH, B, s, _ctx(args={"player": "c"}))
     assert check_guard(_g("data_set_empty", "out"), POKERISH, B, s, _ctx())
@@ -332,9 +334,9 @@ def test_wake_is_edge_triggered_across_referee_writes():
     for who in "abcd":
         s = act(POKERISH, B, s, who, "call", {}, {}, 1).state
     assert s.actor is None
-    out = set_value(POKERISH, B, s, "dealer", "pot", 105, None, 2)
+    out = set_value(POKERISH, B, s, "dealer", "pot", 105, None, {}, 2)
     assert isinstance(out, Outcome) and out.payload["wake"] == []
-    out = set_value(POKERISH, B, out.state, "dealer", "pot", 106, None, 3)
+    out = set_value(POKERISH, B, out.state, "dealer", "pot", 106, None, {}, 3)
     assert out.payload["wake"] == []
 
 
@@ -354,6 +356,20 @@ def test_no_actor_wake_on_a_parked_pointer_and_targets_are_deduped():
     assert compute_wakes(hu, B, old, new, {}) == ["a", "b", "c", "d"]
 
 
+def test_an_actor_wake_honours_when_as_a_level_filter():
+    """`when`/`unless` on `role: actor` are level filters on the new state — the pointer move
+    itself is the edge (review I2)."""
+    m = MachineDef.model_validate({**POKERISH.model_dump(by_alias=True), "wake": [
+        {"role": "actor", "when": [{"data_present": "pot"}]}]})
+    s = _s()
+    old = s.copy()
+    new = s.copy()
+    new.actor = "c"
+    assert compute_wakes(m, B, old, new, {}) == []
+    new.data["pot"] = 1
+    assert compute_wakes(m, B, old, new, {}) == ["c"]
+
+
 def test_unless_suppresses_a_wake():
     unless = [{"members_count": {"over": "player", "minus": ["out"], "equals": 1}}]
     m = MachineDef.model_validate({**POKERISH.model_dump(by_alias=True),
@@ -368,16 +384,18 @@ def test_unless_suppresses_a_wake():
 
 def test_set_value_authority_and_owner_handling():
     s = _s()
-    assert isinstance(set_value(POKERISH, B, s, "a", "pot", 1, None, 1), Rejection)
-    r = set_value(POKERISH, B, s, "dealer", "hole", "AhKh", None, 1)
+    assert isinstance(set_value(POKERISH, B, s, "a", "pot", 1, None, {}, 1), Rejection)
+    r = set_value(POKERISH, B, s, "dealer", "hole", "AhKh", None, {}, 1)
     assert isinstance(r, Rejection) and "owner" in r.detail
-    out = set_value(POKERISH, B, s, "dealer", "hole", "AhKh", "a", 1)
+    out = set_value(POKERISH, B, s, "dealer", "hole", "AhKh", "a", {}, 1)
     assert isinstance(out, Outcome) and out.state.owner_data["hole"]["a"] == "AhKh"
     assert out.payload == {"op": "set", "key": "hole", "owner": "a", "value": "AhKh",
                            "caller": "dealer", "log": "owner", "wake": []}
-    r = set_value(POKERISH, B, s, "dealer", "pot", 1, "a", 1)
+    r = set_value(POKERISH, B, s, "dealer", "pot", 1, "a", {}, 1)
     assert isinstance(r, Rejection) and "forbidden" in r.detail
-    r = set_value(POKERISH, B, s, "dealer", "nope", 1, None, 1)
+    r = set_value(POKERISH, B, s, "dealer", "nope", 1, None, {}, 1)
     assert isinstance(r, Rejection) and r.check == "key"
-    r = set_value(POKERISH, B, s, "dealer", "out", ["a"], None, 1)
+    r = set_value(POKERISH, B, s, "dealer", "out", ["a"], None, {}, 1)
     assert isinstance(r, Rejection) and "transition" in r.detail
+    r = set_value(POKERISH, B, s, "dealer", "hole", "x", "zed", {}, 1)
+    assert isinstance(r, Rejection) and r.check == "owner" and "zed" in r.detail

@@ -233,9 +233,11 @@ def test_participant_effects_opt_in_lifts_the_default():
     assert m.participant_effects == ["reset"]
 
 
-def test_after_s_defaults_to_the_floor():
-    always = [{"members_count": {"over": "player", "at_least": 0}}]
-    m = MachineDef.model_validate(_with(wake=[{"role": "ref", "when": always, "after_s": None}]))
-    assert m.wake[0].after_s is None  # None = not a time rule; the floor applies to a set value
-    m2 = MachineDef.model_validate(_with(wake=[{"role": "ref", "after_s": 600}]))
-    assert m2.wake[0].after_s == 600
+def test_after_s_is_absent_by_default_and_the_floor_applies_only_to_a_set_value():
+    from bearpit.core.machine import AFTER_S_FLOOR
+    m = MachineDef.model_validate(_with(
+        data={"pot": {"visibility": "public"}},
+        wake=[{"role": "ref", "when": [{"data_present": "pot"}]}]))
+    assert m.wake[0].after_s is None  # omitted → not a time rule
+    m2 = MachineDef.model_validate(_with(wake=[{"role": "ref", "after_s": AFTER_S_FLOOR}]))
+    assert m2.wake[0].after_s == AFTER_S_FLOOR  # the floor itself is accepted

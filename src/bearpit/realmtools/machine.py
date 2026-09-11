@@ -155,7 +155,7 @@ def check_guard(
     if g.name == "caller_not_in":
         return ctx.caller not in state.sets.get(str(g.arg), set())
     if g.name == "data_present":
-        return str(g.arg) in state.data
+        return state.actor is not None if g.arg == "actor" else str(g.arg) in state.data
     if g.name == "data_equals":
         key = a.get("key")
         current = state.actor if key == "actor" else state.data.get(str(key))
@@ -272,8 +272,9 @@ def compute_wakes(
         if w.after_s is not None:
             continue  # the host's clock rule — never evaluated here
         if w.role == "actor":
-            unblocked = not w.unless or not guards_hold(w.unless, defn, bindings, new, ctx)[0]
-            if new.actor is not None and new.actor != old.actor and unblocked:
+            if new.actor is not None and new.actor != old.actor and guards_hold(
+                    w.when, defn, bindings, new, ctx)[0] and not (
+                    w.unless and guards_hold(w.unless, defn, bindings, new, ctx)[0]):
                 targets.add(new.actor)
             continue
         now_true = guards_hold(w.when, defn, bindings, new, ctx)[0]
@@ -315,8 +316,11 @@ def act(
 
 def set_value(
     defn: MachineDef, bindings: Bindings, state: MachineState, caller: str, key: str,
-    value: Any, owner: str | None, now_ms: int,
+    value: Any, owner: str | None, escrow: dict[str, set[str]], now_ms: int,
 ) -> Outcome | Rejection:
+    """`escrow` is the service's pre-fetched sealed-round map — the same one `act` takes — so a
+    `game_set` can wake a role whose wake rule reads `escrow_complete`, without the engine ever
+    touching IO itself."""
     if not any(defn.is_referee_role(r) for r in roles_of(defn, bindings, caller)):
         return Rejection("authority", "game_set is referee-only")
     d = defn.data.get(key)
@@ -328,6 +332,8 @@ def set_value(
         return Rejection("owner", f"{key!r} is an owner key: `owner` is required")
     if d.visibility != "owner" and owner is not None:
         return Rejection("owner", f"{key!r} is not an owner key: `owner` is forbidden")
+    if owner is not None and (bad := _member_or_reason(defn, bindings, owner)) is not None:
+        return Rejection("owner", bad)
     new = state.copy()
     if owner is not None:
         new.owner_data.setdefault(key, {})[owner] = value
@@ -335,7 +341,7 @@ def set_value(
         new.data[key] = value
     payload = {
         "op": "set", "key": key, "owner": owner, "value": value, "caller": caller,
-        "log": d.visibility, "wake": compute_wakes(defn, bindings, state, new, {}),
+        "log": d.visibility, "wake": compute_wakes(defn, bindings, state, new, escrow),
     }
     return Outcome(new, payload)
 
