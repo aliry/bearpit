@@ -20,6 +20,8 @@ from bearpit.realmtools import machine as eng
 from bearpit.realmtools.machine import ReplayError
 from bearpit.realmtools.service import Identity
 
+# Must not hang: it is awaited while the realm lock is held, so a stuck lookup blocks every act
+# on the realm. The injection site owns the timeout.
 EscrowLookup = Callable[[str, str], Awaitable[set[str]]]
 MACHINE_VERSION = 1
 
@@ -30,7 +32,6 @@ class _Live:
     bindings: eng.Bindings
     state: eng.MachineState
     machine_event_id: int
-    last_event_id: int  # the newest GAME event folded into `state`
 
 
 class MachineService:
@@ -74,15 +75,21 @@ class MachineService:
             # A corrupt chronicle must fail the realm loudly with a clear message, not a stack
             # trace: `eng.replay` raises a bare KeyError on a row missing caller/key/transition.
             raise ReplayError(f"realm {realm_id!r}: {exc}") from exc
-        return _Live(defn, bindings, state, head.id, games[-1][2] if games else head.id)
+        return _Live(defn, bindings, state, head.id)
 
     async def _get(self, realm_id: str) -> _Live | None:
         live = self._live.get(realm_id)
-        if live is None:
-            live = await self._load(realm_id)
-            if live is not None:
-                self._live[realm_id] = live
-        return live
+        if live is not None:
+            return live
+        loaded = await self._load(realm_id)
+        if loaded is None:
+            return None
+        # A writer caches BEFORE it appends, so if an entry appeared while we were loading it is
+        # at least as new as our snapshot — never overwrite it with an older one. `act`/`set`
+        # cannot take the realm lock here (it is not reentrant and they already hold it), so a
+        # cold `state()`/`declaration()` load racing a concurrent `act` must lose gracefully
+        # instead of clobbering the applied state with a pre-append snapshot.
+        return self._live.setdefault(realm_id, loaded)
 
     def _lock(self, realm_id: str) -> asyncio.Lock:
         return self._locks.setdefault(realm_id, asyncio.Lock())
@@ -106,6 +113,10 @@ class MachineService:
         out: dict[str, set[str]] = {}
         for g in guards:
             if g.name == "escrow_complete" and isinstance(g.arg, dict):
+                # Resolved with the CALLER's ctx; compute_wakes evaluates wake guards with an
+                # empty ctx against the new state, so a wake round keyed on $caller/$args/a
+                # rewritten $data key may be pre-fetched under a different id. Fails closed (a
+                # missed wake, never a spurious one).
                 rid = str(eng.resolve(g.arg.get("round"), ctx, live.state))
                 if rid not in out:
                     out[rid] = await self._escrow_lookup(realm_id, rid)
@@ -118,17 +129,30 @@ class MachineService:
         live = await self._get(who.realm_id)
         if live is None or self._chron is None:
             return {"error": "no machine declared"}
+        # Fetch the log BEFORE the view: the view must be at least as new as the log, never
+        # older — reading `live.state` after this await has returned can only see a state at
+        # least this fresh (it may have advanced further while the query was in flight, but it
+        # can never be behind what the log below already reflects).
+        events = await self._chron.events(who.realm_id, kind=EventKind.GAME)
         v = eng.view(live.defn, live.bindings, live.state, who.agent_id)
         rows: list[dict[str, Any]] = []
         last = since if since is not None else live.machine_event_id
-        for e in await self._chron.events(who.realm_id, kind=EventKind.GAME):
+        for e in events:
             if e.id <= last or e.id <= live.machine_event_id:
                 continue
             last = e.id
             row = eng.log_row(live.defn, live.bindings, e.payload, who.agent_id)
             if row is not None:
                 rows.append({**row, "id": e.id})
-        rows = rows[-log_limit:]
+                # Paging forward: cap the SCAN, not the result, so `last` stops at the id of
+                # the event that filled this page and the next call resumes exactly there —
+                # otherwise a page boundary silently drops the rows between it and the next
+                # visible one. The first (unpaged) call keeps scanning everything and returns
+                # only the tail, matching the "give me the recent log" use.
+                if since is not None and len(rows) == log_limit:
+                    break
+        if since is None:
+            rows = rows[-log_limit:]
         return {**v, "log": rows, "next_since": last}
 
     async def act(
@@ -148,9 +172,9 @@ class MachineService:
                                              t.log if t else "public")
                 await self._chron.append_event(who.realm_id, EventKind.GAME, payload)
                 return {"error": "rejected", "check": out.check, "detail": out.detail}
-            eid = await self._chron.append_event(who.realm_id, EventKind.GAME, out.payload)
-            live.state, live.last_event_id = out.state, eid  # apply AFTER the append landed
-        return eng.view(live.defn, live.bindings, live.state, who.agent_id)
+            await self._chron.append_event(who.realm_id, EventKind.GAME, out.payload)
+            live.state = out.state  # apply AFTER the append landed
+            return eng.view(live.defn, live.bindings, live.state, who.agent_id)
 
     async def set(
         self, who: Identity, key: str, value: Any, owner: str | None = None
@@ -164,10 +188,17 @@ class MachineService:
             out = eng.set_value(live.defn, live.bindings, live.state, who.agent_id, key, value,
                                 owner, escrow, self._clock())
             if isinstance(out, eng.Rejection):
+                # A refused write is still an event — chronicled referee-only so a participant's
+                # attempted (and refused) write never leaks into their own log.
+                reject: dict[str, Any] = {
+                    "op": "reject", "key": key, "owner": owner, "caller": who.agent_id,
+                    "check": out.check, "detail": out.detail, "log": "referee", "wake": [],
+                }
+                await self._chron.append_event(who.realm_id, EventKind.GAME, reject)
                 return {"error": "rejected", "check": out.check, "detail": out.detail}
-            eid = await self._chron.append_event(who.realm_id, EventKind.GAME, out.payload)
-            live.state, live.last_event_id = out.state, eid
-        return eng.view(live.defn, live.bindings, live.state, who.agent_id)
+            await self._chron.append_event(who.realm_id, EventKind.GAME, out.payload)
+            live.state = out.state
+            return eng.view(live.defn, live.bindings, live.state, who.agent_id)
 
     async def declaration(self, who: Identity) -> dict[str, Any]:
         live = await self._get(who.realm_id)

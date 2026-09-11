@@ -85,6 +85,9 @@ async def test_rejections_are_chronicled_and_named(chron):
 async def test_set_is_referee_only_and_writes_owner_entries(chron):
     svc = _svc(chron)
     assert (await svc.set(A, "pot", 1))["error"] == "rejected"
+    reject = [e.payload for e in await chron.events("r", kind=EventKind.GAME)
+              if e.payload["op"] == "reject"]
+    assert reject and reject[0]["key"] == "pot"  # a refused write is still chronicled
     out = await svc.set(DEALER, "hole", "AhKh", owner="a")
     assert out["data"]["hole"] == {"a": "AhKh"}  # the dealer sees every owner entry
     assert (await svc.state(A))["data"]["hole"] == {"a": "AhKh"}
@@ -157,3 +160,64 @@ async def test_a_malformed_game_row_fails_the_realm_loudly(chron):
     fresh2 = _svc(chron)
     with pytest.raises(ReplayError):
         await fresh2.act(A, "call", {})
+
+
+async def test_a_cold_read_never_clobbers_a_concurrent_acts_applied_state(chron):
+    """A `state()`/`declaration()` cold load takes no lock. If its chronicle read is slow, an
+    `act()` can load, cache, append and apply first — the late-arriving cold load must never
+    win the cache with its stale pre-append snapshot (`_get`'s `setdefault`, not unconditional
+    assignment)."""
+    svc = _svc(chron)
+    real_events = chron.events
+    first_game_call = True
+
+    async def slow_events(realm_id, kind=None):
+        nonlocal first_game_call
+        if kind == EventKind.GAME and first_game_call:
+            first_game_call = False
+            snapshot = await real_events(realm_id, kind=kind)  # captured BEFORE the act runs
+            await asyncio.sleep(0.05)
+            return snapshot
+        return await real_events(realm_id, kind=kind)
+    chron.events = slow_events  # type: ignore[method-assign]
+
+    state_task = asyncio.create_task(svc.state(A))
+    await asyncio.sleep(0)
+    await svc.act(DEALER, "deal", {"first": "a"})
+    await state_task
+
+    assert (await svc.state(A))["state"] == "street"
+    second = await svc.act(DEALER, "deal", {"first": "a"})
+    assert second == {"error": "rejected", "check": "from",
+                       "detail": "'deal' is not available from state 'street'"}
+
+    chron.events = real_events  # type: ignore[method-assign]
+    fresh = _svc(chron)
+    assert (await fresh.state(A))["state"] == "street"  # replays without error
+
+
+async def test_paging_never_skips_a_visible_row(chron):
+    """5 visible acts, paged 2 at a time: the concatenated pages must be exactly those 5 acts,
+    in order — a page boundary landing mid-scan must not drop the rows after it."""
+    decl = {
+        "roles": {"dealer": {"members": "referee"}},
+        "states": ["s"], "initial": "s",
+        "transitions": {"ping": {"from": "s", "to": "same", "by": "dealer"}},
+    }
+    machine = {"version": 1, "declaration": decl,
+               "members": {"dealer": ["dealer"]}, "roster": ["dealer"], "referee": "dealer"}
+    await chron.append_event("p", EventKind.MACHINE, machine)
+    svc = _svc(chron)
+    dealer = Identity("p", "dealer", True, roster=("dealer",))
+    start = (await svc.state(dealer))["next_since"]  # before any pings: == machine_event_id
+    for _ in range(5):
+        await svc.act(dealer, "ping", {})
+    since = start
+    seen: list[str] = []
+    while True:
+        page = await svc.state(dealer, since=since, log_limit=2)
+        if not page["log"]:
+            break
+        seen += [r["transition"] for r in page["log"]]
+        since = page["next_since"]
+    assert seen == ["ping"] * 5
