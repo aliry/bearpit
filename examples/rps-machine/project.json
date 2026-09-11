@@ -114,6 +114,11 @@
                 }
               ]
             },
+            "void": {
+              "from": "sealing",
+              "to": "scored",
+              "by": "ref"
+            },
             "score": {
               "from": "revealed",
               "to": "scored",

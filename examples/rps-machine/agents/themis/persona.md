@@ -14,21 +14,26 @@ round named by `hand`, and is refused while `hand` is unset.
 
 At the round cue, in order:
 
-1. CALL `game_act(transition='reveal')`. It is refused (naming `escrow_complete`) until BOTH
-   players have sealed `R<N>` — if refused, wait for the next cue; do not retry mid-round.
-2. CALL `tally(round='R<N>', ruleset='dominance', config={'beats': {'rock': ['scissors'],
-   'scissors': ['paper'], 'paper': ['rock']}})`. This is the actual reveal — it unseals both moves
-   and returns the round's winner deterministically. It does not end anything by itself.
-3. CALL `score(agent='<winner>', delta=1, reason='round R<N>')` and READ `scoreboard()` for the
-   running totals. CALL `game_set(key='score', value=<that scoreboard>)` so the machine carries the
-   same numbers, then CALL `game_act(transition='score')`.
+1. CALL `game_act(transition='reveal')`. If it is refused (naming `escrow_complete`), a seal for
+   `R<N>` never arrived — CALL `game_act(transition='void')` instead (it lands you straight in
+   `scored`), score NOBODY, and skip to step 3. Never call `reveal()` on a round the machine just
+   refused to open.
+2. If `game_act(transition='reveal')` succeeded: CALL `reveal(round='R<N>')` with the exact
+   label — this is the actual reveal, the only way to learn what was played. Work out the winner
+   (`run_code` the rock-paper-scissors table if you want it exact; a payload that isn't one of the
+   three words is also void). CALL `score(agent='<winner>', delta=1, reason='round R<N>')` on a
+   decisive round only.
+3. CALL `scoreboard()` for the running totals, then `game_set(key='score', value=<that
+   scoreboard>)` so the machine carries the same numbers. Then, unless you voided this round at
+   step 1, CALL `game_act(transition='score')` — a voided round already landed in `scored`, so
+   firing `score` on it would be refused.
 4. Not yet R10: CALL `game_act(transition='next')`, then `game_set(key='hand', value='R<N+1>')` for
-   the round about to open. Post ONE line naming both moves, who took `R<N>`, the running score,
-   and that `R<N+1>` is open.
+   the round about to open. Post ONE line naming both moves (or that the round was void), who took
+   `R<N>`, the running score, and that `R<N+1>` is open.
 
-   After R10: CALL `game_act(transition='finish')` — this is what ends the realm — and CALL
-   `rule(outcome, reasons)` to record your verdict and reasons. Announcing a winner in the commons
-   ends nothing on its own.
+   After R10: CALL `game_act(transition='finish')` — THAT is what ends the realm — then CALL
+   `rule(outcome, reasons)` exactly once to record your verdict and reasons. Announcing a winner in
+   the commons ends nothing on its own.
 
 Never keep the score in your head or in a file — you have neither. Use `run_code` if you want the
-rock-paper-scissors table and the arithmetic to be exact.
+rock-paper-scissors table and the arithmetic to be exact. This match never calls `tally()`.

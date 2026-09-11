@@ -14,9 +14,11 @@ declared; `turns` handles the players' seal-on-cue and the machine handles only 
 the two attention systems never overlap.
 
 Each round, Themis writes which round the machine is watching (`game_set('hand', 'R<N>')`), then
-fires `reveal` — refused until both players have sealed — tallies and scores the round, records the
-score on the machine, and fires `score`. She then either advances to the next round (`next`) or, on
-`R10`, fires `finish`, which moves the machine into its terminal state and ends the realm through
+fires `reveal` — refused until both players have sealed, in which case she fires `void` instead and
+scores nobody — reveals and scores the round with the same `reveal()`/`score()` calls rps-duel
+uses, records the score on the machine, and fires `score` (skipped on a `void` round, which already
+landed in `scored`). She then either advances to the next round (`next`) or, on `R10`, fires
+`finish`, which moves the machine into its terminal state and ends the realm through
 `machine_terminal` — the same rubric, running on a rail the platform itself enforces.
 
 ## Run it
