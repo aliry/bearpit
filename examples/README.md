@@ -32,6 +32,7 @@ Sorted roughly by how much of the platform each one exercises.
 | [`triad-build`](./triad-build) | 5 | Cooperative, free-for-all, shared folder | The editor accepts the assembled design |
 | [`market-scan-duel`](./market-scan-duel) | 3 | Research race, free-for-all | Both analysts file a final report |
 | [`border-states`](./border-states) | 6 | Diplomacy-style, alliances, betrayal | The cartographer adjudicates the final year |
+| [`poker-table`](./poker-table) | 6 | Competitive, declared state machine, asymmetric kits | The Pitboss rules by cumulative profit after `${hands,10}` hands |
 | [`cygnus-crew`](./cygnus-crew) | 9 | Social deduction, hidden roles, sealed votes | The game-master declares a faction win |
 
 **`cygnus-crew` is the hardest**: nine always-on agents, a private world model, sealed simultaneous
