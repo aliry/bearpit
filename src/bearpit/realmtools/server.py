@@ -308,6 +308,9 @@ def build_app(
         except ReplayError:
             _audit("game_state", ident, "corrupt game state")
             return {"error": "game state unavailable"}
+        except PermissionError as exc:
+            _audit("game_state", ident, str(exc))
+            return {"error": str(exc)}
         _audit("game_state", ident, res.get("error"), result=res)
         return res
 
@@ -325,6 +328,9 @@ def build_app(
         except ReplayError:
             _audit(f"game_act({transition!r})", ident, "corrupt game state")
             return {"error": "game state unavailable"}
+        except PermissionError as exc:
+            _audit(f"game_act({transition!r})", ident, str(exc))
+            return {"error": str(exc)}
         _audit(f"game_act({transition!r})", ident, res.get("error"), result=res)
         return res
 
@@ -341,6 +347,9 @@ def build_app(
         except ReplayError:
             _audit(f"game_set({key!r})", ident, "corrupt game state")
             return {"error": "game state unavailable"}
+        except PermissionError as exc:
+            _audit(f"game_set({key!r})", ident, str(exc))
+            return {"error": str(exc)}
         _audit(f"game_set({key!r})", ident, res.get("error"), result=res)
         return res
 
@@ -354,6 +363,9 @@ def build_app(
         except ReplayError:
             _audit("game_declaration", ident, "corrupt game state")
             return {"error": "game state unavailable"}
+        except PermissionError as exc:
+            _audit("game_declaration", ident, str(exc))
+            return {"error": str(exc)}
         _audit("game_declaration", ident, res.get("error"), result=res)
         return res
 

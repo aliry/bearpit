@@ -24,6 +24,10 @@ from bearpit.realmtools.service import Identity
 # on the realm. The injection site owns the timeout.
 EscrowLookup = Callable[[str, str], Awaitable[set[str]]]
 MACHINE_VERSION = 1
+# `log_limit` arrives from an agent's tool call. CLAMPED, never rejected: a caller that asks for
+# too much gets the maximum rather than an error it has to learn to handle — and one agent can no
+# longer make this process build (and ship) an arbitrarily long list (review M7).
+LOG_LIMIT_MAX = 500
 
 
 @dataclass
@@ -48,6 +52,10 @@ class MachineService:
     def set_chronicle(self, chronicle: Chronicle) -> None:
         self._chron = chronicle
         self._live.clear()
+        # The locks go with the state they guard. An asyncio.Lock belongs to the loop it was
+        # created on, so one left over from a previous wiring is a RuntimeError on the next act,
+        # not merely a stale entry.
+        self._locks.clear()
 
     # --- loading -----------------------------------------------------------------------
     async def _load(self, realm_id: str) -> _Live | None:
@@ -126,6 +134,7 @@ class MachineService:
     async def state(
         self, who: Identity, since: int | None = None, log_limit: int = 100
     ) -> dict[str, Any]:
+        log_limit = max(1, min(log_limit, LOG_LIMIT_MAX))
         live = await self._get(who.realm_id)
         if live is None or self._chron is None:
             return {"error": "no machine declared"}

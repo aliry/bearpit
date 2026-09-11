@@ -422,10 +422,17 @@ async def _as(app: Any, token: str) -> Any:
         yield session
 
 
-async def test_game_tools_over_a_real_session_respect_identity():
+async def test_game_tools_over_a_real_session_respect_identity(caplog):
     """Token -> role -> machine: a player acts, a player is refused game_set, values never reach
-    the audit log."""
+    the audit log.
+
+    That last clause is the one with teeth. The audit trail goes to stdout (docker logs), where
+    anyone watching the realm can read it, and a hidden hand written through `game_set` is
+    exactly the kind of value the whole machine exists to keep hidden — so the log records the
+    CALL and the result's SHAPE, never a value or an argument. Asserted with sentinels rather
+    than by reading `_result_shape`: the guarantee is about what comes out."""
     import json
+    import logging
 
     from test_machine_service import MACHINE  # the shared declaration; tests/ is on sys.path
 
@@ -437,20 +444,53 @@ async def test_game_tools_over_a_real_session_respect_identity():
     app = build_app(SECRET, chronicle=chron)
     dealer = mint_token("r", "dealer", is_referee=True, secret=SECRET, roster=["a", "b"])
     a = mint_token("r", "a", is_referee=False, secret=SECRET)
+    caplog.set_level(logging.INFO, logger="realmtools.audit")
     async with app.router.lifespan_context(app):
         async with _as(app, dealer) as s:
-            r = await s.call_tool("game_act", {"transition": "deal", "args": {"first": "a"}})
+            r = await s.call_tool("game_act", {"transition": "deal",
+                                               "args": {"first": "a", "note": "arg-sentinel"}})
             assert json.loads(r.content[0].text)["actor"] == "a"
-            r = await s.call_tool("game_set", {"key": "hole", "value": "AhKh", "owner": "a"})
+            r = await s.call_tool("game_set", {"key": "hole", "value": "AhKh-sentinel",
+                                               "owner": "a"})
             assert "error" not in json.loads(r.content[0].text)
         async with _as(app, a) as s:
             r = await s.call_tool("game_set", {"key": "pot", "value": 1})
             assert json.loads(r.content[0].text)["error"] == "rejected"
             r = await s.call_tool("game_state", {})
             body = json.loads(r.content[0].text)
-            assert body["data"]["hole"] == {"a": "AhKh"} and body["actor"] == "a"
+            assert body["data"]["hole"] == {"a": "AhKh-sentinel"} and body["actor"] == "a"
             r = await s.call_tool("game_declaration", {})
             assert "transitions" in json.loads(r.content[0].text)
+    audit = "\n".join(rec.getMessage() for rec in caplog.records
+                      if rec.name == "realmtools.audit")
+    assert "game_set('hole')" in audit and "game_act('deal')" in audit  # the calls ARE recorded
+    assert "AhKh-sentinel" not in audit  # ...the owner value the dealer wrote is not
+    assert "arg-sentinel" not in audit   # ...nor a transition argument
+    await chron.close()
+
+
+async def test_a_game_tool_without_a_valid_token_answers_like_every_other_tool():
+    """`who(ctx)` raises PermissionError on a token it cannot verify. Every escrow/notes/code
+    tool catches that and answers `{"error": ...}`; the four game tools let it escape into
+    FastMCP, which turns it into a protocol-level tool error — a different shape for the same
+    condition, and one an agent has to learn separately (review M8). The denial is audited either
+    way; what the CALLER sees is what differed."""
+    import json
+
+    from test_machine_service import MACHINE
+
+    from bearpit.realmtools.server import build_app
+
+    chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+    await chron.append_event("r", EventKind.MACHINE, MACHINE)
+    app = build_app(SECRET, chronicle=chron)
+    denied = "no valid realmtools token on this request"
+    async with app.router.lifespan_context(app), _as(app, "not-a-real-token") as s:
+        for tool, args in (("game_state", {}), ("game_act", {"transition": "deal"}),
+                           ("game_set", {"key": "pot", "value": 1}), ("game_declaration", {})):
+            r = await s.call_tool(tool, args)
+            assert not r.isError, tool
+            assert json.loads(r.content[0].text) == {"error": denied}, tool
     await chron.close()
 
 
