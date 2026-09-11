@@ -226,6 +226,73 @@ def test_create_and_stop(seeded, tmp_path):
         assert c.post("/api/realms", json={"package": "/nope"}).status_code == 400
 
 
+def _participant_effects_package(tmp_path):
+    """A machine whose PLAYERS may write the game's own data — the opt-in the spec says is
+    surfaced at launch the way elevated tool grants are (§2)."""
+    (tmp_path / "project.json").write_text(json.dumps({
+        "metadata": {"name": "self-dealt"},
+        "spec": {
+            "termination": [{"type": "manual"}],
+            "mechanics": [{"kind": "state-machine", "machine": {
+                "roles": {"ref": {"members": "referee"},
+                          "player": {"members": "participants"}},
+                "states": ["a", "b"], "initial": "a",
+                "participant_effects": ["set"],
+                "data": {"pot": {"visibility": "public"}},
+                "transitions": {"go": {"from": "a", "to": "b", "by": "player",
+                                       "effects": [{"set": {"key": "pot",
+                                                            "value": "$args.n"}}]}},
+            }}],
+        },
+        "agents": [
+            {"id": "ref", "role": "referee", "rubric": "score them",
+             "model": {"provider": "azure", "model": "m", "api_key_ref": "azure-main"}},
+            {"id": "vela",
+             "model": {"provider": "azure", "model": "m", "api_key_ref": "azure-main"}},
+        ],
+    }))
+    return tmp_path
+
+
+def test_participant_effects_take_consent_at_launch(seeded, tmp_path):
+    """`participant_effects` is the user choosing LAW over physics for their game: the players
+    may now rewrite the machine's own data, which is a refereeless self-dealt table and a
+    legitimate experiment — but it is a choice, and one nobody makes by accident. It goes through
+    the same door as an elevated tool grant (ADR-004 §7): refused once, naming what it is, and
+    launched on the same `allow_elevated_tools` consent."""
+    app = create_app(chron=seeded, manager=FakeManager())
+    pkg = str(_participant_effects_package(tmp_path))
+    with TestClient(app) as c:
+        blocked = c.post("/api/realms", json={"package": pkg})
+        allowed = c.post("/api/realms", json={"package": pkg, "allow_elevated_tools": True})
+    assert 400 <= blocked.status_code < 500, blocked.text
+    detail = blocked.json()["detail"]
+    assert "participant_effects" in json.dumps(detail)
+    assert detail["machine_participant_effects"] == ["set"]
+    assert "allow_elevated_tools" in detail["hint"]
+    assert allowed.status_code == 200, allowed.text
+
+
+def test_a_machine_without_participant_effects_launches_silently(seeded, tmp_path):
+    """The consent only means something if the ordinary machine realm never sees it (#47)."""
+    from test_core_schema import _machine_spec
+
+    (tmp_path / "project.json").write_text(json.dumps({
+        "metadata": {"name": "refereed"},
+        "spec": {"termination": [{"type": "manual"}], "mechanics": [_machine_spec()]},
+        "agents": [
+            {"id": "ref", "role": "referee", "rubric": "score them",
+             "model": {"provider": "azure", "model": "m", "api_key_ref": "azure-main"}},
+            {"id": "vela",
+             "model": {"provider": "azure", "model": "m", "api_key_ref": "azure-main"}},
+        ],
+    }))
+    app = create_app(chron=seeded, manager=FakeManager())
+    with TestClient(app) as c:
+        r = c.post("/api/realms", json={"package": str(tmp_path)})
+    assert r.status_code == 200, r.text
+
+
 def _editor_payload(name="ui-game"):
     return {
         "metadata": {"name": name, "description": "made in the UI"},
