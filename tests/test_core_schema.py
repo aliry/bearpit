@@ -262,6 +262,26 @@ def test_explicit_role_members_must_be_on_the_roster():
             "impostor": {"members": ["a", "zed"], "visibility": "hidden"}})]})
 
 
+def test_a_role_that_binds_to_nobody_is_refused():
+    """A role with zero members is worse than an unreachable transition: EVERY guard over it is
+    vacuously true (`members_count … equals 0` passes, `data_set_full` over an empty role passes),
+    so the machine walks itself through the transitions those guards protect. A referee-less
+    project with a `members: referee` role is the way to find that out at 3am, not at launch."""
+    import pytest
+    with pytest.raises(ValueError, match="machine role 'ref' binds to no members"):
+        _project({"mechanics": [_machine_spec()]},
+                 agents=[{"id": "a", "role": "participant", "model_category": "small"},
+                         {"id": "b", "role": "participant", "model_category": "small"}])
+    with pytest.raises(ValueError, match="machine role 'player' binds to no members"):
+        _project({"mechanics": [_machine_spec()]},
+                 agents=[{"id": "ref", "role": "referee", "model_category": "large",
+                          "rubric": "r"}])
+    with pytest.raises(ValueError, match="machine role 'faction' binds to no members"):
+        _project({"mechanics": [_machine_spec(roles={
+            "ref": {"members": "referee"}, "player": {"members": "participants"},
+            "faction": {"members": [], "visibility": "hidden"}})]})
+
+
 def test_machine_terminal_is_a_termination_kind():
     p = _project({"mechanics": [_machine_spec(terminal=["b"])],
                   "termination": [{"type": "machine_terminal"}]})

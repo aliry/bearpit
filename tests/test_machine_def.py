@@ -164,6 +164,80 @@ def test_guards_and_effects_accept_string_and_single_key_dict_forms():
         _with(data={"mine": {"visibility": "owner", "type": "set"}}),
         "data key 'mine': an owner-visibility key cannot be a set",
     ),
+    # A guard that reads a key must NAME one. `data_set_full` was missing from the key-reading
+    # set entirely, so a keyless one passed launch and raised KeyError('key') inside check_guard
+    # on the first act — uncaught, mid-realm (review I2).
+    (
+        _with(data={"acted": {"visibility": "public", "type": "set"}},
+              transitions={"go": {"from": "a", "to": "b", "by": "ref",
+                                  "guard": [{"data_set_full": {"over": "player"}}]}}),
+        "transition 'go': guard 'data_set_full' needs a key",
+    ),
+    (
+        _with(transitions={"go": {"from": "a", "to": "b", "by": "ref",
+                                  "guard": [{"data_equals": {"value": 1}}]}}),
+        "transition 'go': guard 'data_equals' needs a key",
+    ),
+    (
+        _with(transitions={"go": {"from": "a", "to": "b", "by": "ref",
+                                  "guard": ["data_present"]}}),
+        "transition 'go': guard 'data_present' needs a key",
+    ),
+    (
+        _with(data={"acted": {"visibility": "public", "type": "set"}},
+              transitions={"go": {"from": "a", "to": "b", "by": "ref",
+                                  "guard": [{"data_set_full": {"key": "ghost",
+                                                               "over": "player"}}]}}),
+        "transition 'go': guard 'data_set_full' reads undeclared key 'ghost'",
+    ),
+    # ...and a DECLARED key of the wrong type is just as silent: a set guard over a value key is
+    # permanently false (data_set_full) or permanently true (data_set_empty).
+    (
+        _with(data={"pot": {"visibility": "public"}},
+              transitions={"go": {"from": "a", "to": "b", "by": "ref",
+                                  "guard": [{"data_set_full": {"key": "pot",
+                                                               "over": "player"}}]}}),
+        "transition 'go': guard 'data_set_full' needs a set key, 'pot' is not one",
+    ),
+    (
+        _with(data={"pot": {"visibility": "public"}},
+              transitions={"go": {"from": "a", "to": "b", "by": "ref",
+                                  "guard": [{"caller_in": "pot"}]}}),
+        "transition 'go': guard 'caller_in' needs a set key, 'pot' is not one",
+    ),
+    (
+        _with(data={"pot": {"visibility": "public"}},
+              transitions={"go": {"from": "a", "to": "b", "by": "ref",
+                                  "guard": [{"data_set_empty": "pot"}]}}),
+        "transition 'go': guard 'data_set_empty' needs a set key, 'pot' is not one",
+    ),
+    # escrow_complete's round may be `$data.<key>` — an undeclared one resolves to None, and the
+    # guard then fails closed forever against the round literally named "None".
+    (
+        _with(transitions={"go": {"from": "a", "to": "b", "by": "ref",
+                                  "guard": [{"escrow_complete": {"round": "$data.ghost",
+                                                                 "over": "player"}}]}}),
+        "transition 'go': escrow_complete.round reads undeclared key 'ghost'",
+    ),
+    # `set` may not launder a hidden value into a public key: the write is legal per-key, and the
+    # result is the referee's secret in everyone's view (review M3).
+    (
+        _with(data={"pot": {"visibility": "public"}, "secret": {"visibility": "referee"}},
+              transitions={"go": {"from": "a", "to": "b", "by": "ref",
+                                  "effects": [{"set": {"key": "pot",
+                                                       "value": "$data.secret"}}]}}),
+        "transition 'go': 'set' copies 'secret' (referee-visibility) into public key 'pot'",
+    ),
+    # Reachability (review M6)
+    (
+        _with(terminal=["b"],
+              transitions={"go": {"from": "a", "to": "a", "by": "ref"}}),
+        "no transition reaches a terminal state — machine_terminal could never fire",
+    ),
+    (
+        _with(transitions={"go": {"from": "b", "to": "a", "by": "ref"}}),
+        "initial state 'a' has no outgoing transition",
+    ),
 ])
 def test_bad_structure_is_refused_with_a_precise_message(bad, message):
     with pytest.raises(ValidationError) as exc:

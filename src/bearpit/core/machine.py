@@ -32,8 +32,14 @@ _HIDDEN_READING = frozenset({"caller_in", "caller_not_in", "data_equals", "data_
                              "data_set_full"})
 # Guards that name a data key directly — the key must be declared, except the reserved pointer
 # "actor" for data_equals/data_present (a comparison against the current actor, not a data key).
-_KEY_READING = frozenset({"data_equals", "data_present", "data_set_empty", "caller_in",
-                          "caller_not_in"})
+# `data_set_full` was missing here: a keyless one launched fine and raised KeyError('key') inside
+# `check_guard` on the first act, mid-realm and uncaught (review I2).
+_KEY_READING = frozenset({"data_equals", "data_present", "data_set_empty", "data_set_full",
+                          "caller_in", "caller_not_in"})
+# ...of those, the ones whose key must be a declared SET. A value key makes them permanently
+# false (`data_set_full`, `caller_in`) or permanently true (`data_set_empty`, `caller_not_in`):
+# a rule that never fires, or one that always does, with nothing to show for it at launch.
+_SET_READING = frozenset({"caller_in", "caller_not_in", "data_set_empty", "data_set_full"})
 AFTER_S_FLOOR = 240  # scenario-contract §13: a resolver run_code may block 90s on a real pipeline
 
 
@@ -170,6 +176,18 @@ class MachineDef(_Base):
                 if e.name not in EFFECTS:
                     raise ValueError(f"transition {name!r}: unknown effect {e.name!r}")
                 self._check_effect_keys(name, e)
+        # Reachability (review M6). A machine nobody can start, and a declared ending nothing
+        # leads to, are both dead on arrival — and both look like a realm that simply sits there.
+        if not any("any" in t.from_ or self.initial in t.from_
+                   for t in self.transitions.values()):
+            raise ValueError(
+                f"initial state {self.initial!r} has no outgoing transition — nothing could ever"
+                f" fire")
+        # Only when `terminal` is DECLARED: the spec makes the list optional (§2), and a machine
+        # that ends by verdict or duration instead is a legitimate scenario.
+        if self.terminal and not any(t.to in self.terminal for t in self.transitions.values()):
+            raise ValueError(
+                "no transition reaches a terminal state — machine_terminal could never fire")
         return self
 
     def _check_effect_keys(self, tname: str, e: Effect) -> None:
@@ -192,6 +210,18 @@ class MachineDef(_Base):
                 raise ValueError(
                     f"transition {tname!r}: 'set' on owner-visibility key {key!r} — owner values"
                     f" are written with game_set(owner=)")
+            value = (e.arg or {}).get("value") if isinstance(e.arg, dict) else None
+            src = value[6:] if isinstance(value, str) and value.startswith("$data.") else None
+            source = self.data.get(str(src)) if src is not None else None
+            if (source is not None and source.visibility != "public"
+                    and self.data[str(key)].visibility == "public"):
+                # Each half is legal on its own; together they are a copy machine pointed out of
+                # the referee's view. The engine resolves $data at act time and would publish it
+                # without a word (review M3).
+                raise ValueError(
+                    f"transition {tname!r}: 'set' copies {src!r} ({source.visibility}-visibility)"
+                    f" into public key {key!r} — declare the destination {source.visibility}, or"
+                    f" write the value the referee meant to publish")
         if e.name == "reveal":
             key = (e.arg or {}).get("key") if isinstance(e.arg, dict) else None
             d = self.data.get(str(key))
@@ -253,10 +283,27 @@ class MachineDef(_Base):
     def _check_guard(self, where: str, g: Guard, *, public_log: bool) -> None:
         arg = g.arg if isinstance(g.arg, dict) else {}
         key = arg.get("key") if isinstance(g.arg, dict) else g.arg
-        if (g.name in _KEY_READING and isinstance(key, str) and key not in self.data
-                and not (key == "actor" and g.name in {"data_equals", "data_present"})):
-            raise ValueError(
-                f"transition {where!r}: guard {g.name!r} reads undeclared key {key!r}")
+        if g.name in _KEY_READING:
+            if key is None:
+                raise ValueError(f"transition {where!r}: guard {g.name!r} needs a key")
+            if (isinstance(key, str) and key not in self.data
+                    and not (key == "actor" and g.name in {"data_equals", "data_present"})):
+                raise ValueError(
+                    f"transition {where!r}: guard {g.name!r} reads undeclared key {key!r}")
+            if g.name in _SET_READING and not self.is_set(str(key)):
+                raise ValueError(
+                    f"transition {where!r}: guard {g.name!r} needs a set key, {key!r} is not one")
+        if g.name == "escrow_complete":
+            # `round` may be a literal, `$args.<n>` or `$data.<key>`. An undeclared $data key
+            # resolves to None every time, and the guard then asks the escrow about a round
+            # literally named "None" — fails closed forever, and says nothing about why.
+            rnd = arg.get("round")
+            if isinstance(rnd, str) and rnd.startswith("$data."):
+                rkey = rnd[6:]
+                if rkey != "actor" and rkey not in self.data:
+                    raise ValueError(
+                        f"transition {where!r}: escrow_complete.round reads undeclared key"
+                        f" {rkey!r}")
         if g.name == "members_count":
             n = next((arg[k] for k in ("equals", "at_most", "at_least") if k in arg), None)
             if not isinstance(n, int) or isinstance(n, bool):

@@ -155,7 +155,8 @@ class TerminationKind(StrEnum):
 class MechanicKind(StrEnum):
     """Deterministic, platform-adjudicated interaction primitives (§9.5).
 
-    MVP ships SEALED_SUBMIT and STATE_MACHINE; turn-token / custom scorers are v2 (#31).
+    MVP ships SEALED_SUBMIT and STATE_MACHINE; verifiable-draw / turn-token / custom scorers
+    are v2 (#31).
     """
 
     SEALED_SUBMIT = "sealed-submit"  # hidden simultaneous submission + reveal + tally
@@ -968,4 +969,35 @@ class Project(_Base):
                         if who not in roster_ids:
                             raise ValueError(
                                 f"role {rname!r} names {who!r}, who is not on the roster")
+            self._check_machine_roles_bind(m)
         return self
+
+    def _check_machine_roles_bind(self, m: MachineDef) -> None:
+        """Refuse a machine role that resolves to ZERO members, the way the host binds it at
+        launch (gatekeeper.machine_record). An empty role is not merely inert: every guard over
+        it is vacuously TRUE — `members_count: {over: <empty>, equals: 0}` passes, and
+        `data_set_full` over it passes against an empty set — so the transitions those guards
+        protect fire the moment anyone tries them, and the machine walks itself.
+
+        Only once there is a roster to bind against: the package loader validates project.json on
+        its own and attaches the agents/ folders afterwards, so an unconditional check here would
+        refuse every packaged machine scenario at load (the same reason as the tool-config check
+        above). A project with no agents cannot run regardless.
+        """
+        if not self.agents:
+            return
+        referee = self.referee
+        participants = [a.id for a in self.agents if referee is None or a.id != referee.id]
+        for rname, r in m.roles.items():
+            if r.members == "referee":
+                bound, why = ([referee.id] if referee else []), "this project has no referee agent"
+            elif r.members == "participants":
+                bound, why = list(participants), "every agent on the roster is the referee"
+            else:
+                bound, why = list(r.members), "its member list is empty"
+            if not bound:
+                raise ValueError(
+                    f"machine role {rname!r} binds to no members — {why}. Every guard over an "
+                    f"empty role is vacuously true (members_count equals 0 passes, data_set_full "
+                    f"over it passes), so the machine would fire through them on its own"
+                )

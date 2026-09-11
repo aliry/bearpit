@@ -135,6 +135,16 @@ targeting a hidden role; wake rules in a realm that also sets `turns` (one atten
 rule for a role with neither `when` nor `after_s` (only `actor` may be bare); a `set` effect on an
 owner-visibility key (owner values are written with `game_set(owner=)`).
 
+Also, each one a declaration that used to launch and then misbehave in silence: a key-reading
+guard with no key at all, or one whose key is undeclared; a set guard (`caller_in`,
+`caller_not_in`, `data_set_empty`, `data_set_full`) whose key is not a declared set — it would be
+permanently false or permanently true; `escrow_complete: {round: $data.<key>}` naming an
+undeclared key; a `set` effect copying `$data.<referee- or owner-visibility key>` into a public
+key; a machine whose `initial` state has no outgoing transition, or whose declared `terminal`
+states no transition reaches (`machine_terminal` could never fire); and a role that binds to zero
+members at launch — every guard over an empty role is vacuously TRUE, so the machine would walk
+itself through the transitions those guards protect.
+
 ## 3. Tool surface
 
 Four **realmtools builtins** (there is no per-mechanic grant path; `submit_sealed` is a builtin
