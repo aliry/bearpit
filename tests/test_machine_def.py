@@ -139,6 +139,20 @@ def test_guards_and_effects_accept_string_and_single_key_dict_forms():
                     "from": "a",
                     "to": "b",
                     "by": "ref",
+                    "effects": [{"set": {"key": "hole", "value": 1}}],
+                }
+            },
+            data={"hole": {"visibility": "owner"}},
+        ),
+        "transition 'go': 'set' on owner-visibility key 'hole'",
+    ),
+    (
+        _with(
+            transitions={
+                "go": {
+                    "from": "a",
+                    "to": "b",
+                    "by": "ref",
                     "effects": [{"reveal": {"key": "pot", "owners": "$caller"}}],
                 }
             },
@@ -197,6 +211,8 @@ HIDDEN = _with(
     ({**HIDDEN, "wake": [{"role": "impostor"}]},
      "wake rule targets hidden role 'impostor' — deferred until per-agent wake rooms exist"),
     ({**HIDDEN, "wake": [{"role": "ghost"}]}, "wake rule: 'ghost' is not a declared role"),
+    ({**HIDDEN, "wake": [{"role": "ref"}]},
+     "wake rule: role 'ref' needs `when` or `after_s` — only `actor` may be bare"),
     ({**HIDDEN, "wake": [{"role": "ref", "after_s": 30}]},
      "wake rule: after_s 30 is below the floor of 240"),
     ({**HIDDEN, "wake": [{"role": "ref", "when": ["caller_is_actor"]}]},
@@ -218,7 +234,8 @@ def test_participant_effects_opt_in_lifts_the_default():
 
 
 def test_after_s_defaults_to_the_floor():
-    m = MachineDef.model_validate(_with(wake=[{"role": "ref", "after_s": None}]))
+    always = [{"members_count": {"over": "player", "at_least": 0}}]
+    m = MachineDef.model_validate(_with(wake=[{"role": "ref", "when": always, "after_s": None}]))
     assert m.wake[0].after_s is None  # None = not a time rule; the floor applies to a set value
     m2 = MachineDef.model_validate(_with(wake=[{"role": "ref", "after_s": 600}]))
     assert m2.wake[0].after_s == 600

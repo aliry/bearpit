@@ -173,6 +173,10 @@ class MachineDef(_Base):
             key = (e.arg or {}).get("key") if isinstance(e.arg, dict) else None
             if key not in self.data:
                 raise ValueError(f"transition {tname!r}: 'set' on undeclared key {key!r}")
+            elif self.data[key].visibility == "owner":
+                raise ValueError(
+                    f"transition {tname!r}: 'set' on owner-visibility key {key!r} — owner values"
+                    f" are written with game_set(owner=)")
         if e.name == "reveal":
             key = (e.arg or {}).get("key") if isinstance(e.arg, dict) else None
             d = self.data.get(str(key))
@@ -212,6 +216,10 @@ class MachineDef(_Base):
                 raise ValueError(
                     f"wake rule targets hidden role {w.role!r} — deferred until per-agent wake"
                     f" rooms exist")
+            if w.role != "actor" and not w.when and w.after_s is None:
+                raise ValueError(
+                    f"wake rule: role {w.role!r} needs `when` or `after_s` — only `actor` may"
+                    f" be bare")
             if w.after_s is not None and w.after_s < AFTER_S_FLOOR:
                 raise ValueError(
                     f"wake rule: after_s {w.after_s} is below the floor of {AFTER_S_FLOOR}")

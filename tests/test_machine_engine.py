@@ -12,14 +12,19 @@ from bearpit.realmtools.machine import (
     Bindings,
     Ctx,
     MachineState,
+    Outcome,
+    Rejection,
+    act,
     advance_actor,
     apply_effect,
     check_guard,
+    compute_wakes,
     eligible,
     initial_state,
     resolve,
     roles_of,
     set_actor,
+    set_value,
 )
 
 POKERISH = MachineDef.model_validate({
@@ -266,3 +271,113 @@ def test_reveal_selectors():
     sel = {"key": "hole", "owners": {"over": "player", "minus": ["out"]}}
     assert apply_effect(_e("reveal", sel), POKERISH, B, s, _ctx("dealer"), 1) is None
     assert s.revealed["hole"] == {"a", "c", "d"}  # b folded: mucked, stays hidden
+
+
+def _deal(s, first="a"):
+    out = act(POKERISH, B, s, "dealer", "deal", {"first": first}, {}, 10)
+    assert isinstance(out, Outcome), out
+    return out.state
+
+
+def test_act_check_order_names_the_failing_check():
+    s = _s()
+    r = act(POKERISH, B, s, "a", "teleport", {}, {}, 1)
+    assert isinstance(r, Rejection) and r.check == "exists"
+    r = act(POKERISH, B, s, "a", "fold", {}, {}, 1)
+    assert isinstance(r, Rejection) and r.check == "from" and "waiting" in r.detail
+    r = act(POKERISH, B, s, "a", "deal", {"first": "a"}, {}, 1)
+    assert isinstance(r, Rejection) and r.check == "by" and "dealer" in r.detail
+    s2 = _deal(s)
+    r = act(POKERISH, B, s2, "b", "fold", {}, {}, 1)  # a is the actor
+    assert isinstance(r, Rejection) and r.check == "guard" and r.detail == "caller_is_actor"
+    r = act(POKERISH, B, s, "dealer", "deal", {"first": "zed"}, {}, 1)
+    assert isinstance(r, Rejection) and r.check == "effect" and "zed" in r.detail
+
+
+def test_act_never_mutates_its_input_and_returns_the_game_payload():
+    s = _deal(_s())
+    before = s.copy()
+    out = act(POKERISH, B, s, "a", "call", {"to": 10}, {}, 20)
+    assert isinstance(out, Outcome)
+    assert s.sets["acted"] == before.sets["acted"] == set()  # input untouched
+    assert out.state.sets["acted"] == {"a"} and out.state.actor == "b"
+    p = out.payload
+    assert p["op"] == "act" and p["transition"] == "call" and p["caller"] == "a"
+    assert p["args"] == {"to": 10} and p["from"] == "street" and p["to"] == "street"
+    assert p["actor"] == "b" and p["log"] == "public" and p["wake"] == ["b"]
+
+
+def test_the_street_closes_without_arithmetic_and_wakes_the_dealer_exactly_once():
+    """The spec's core claim, end to end: acted + reset-on-raise + skip-acted + data_set_full."""
+    s = _deal(_s(), first="a")
+    s = act(POKERISH, B, s, "a", "call", {}, {}, 1).state          # acted={a}, actor b
+    s = act(POKERISH, B, s, "b", "raise", {"to": 30}, {}, 2).state  # acted={b}, actor c
+    s = act(POKERISH, B, s, "c", "call", {}, {}, 3).state          # acted={b,c}, actor d
+    out = act(POKERISH, B, s, "d", "call", {}, {}, 4)
+    s = out.state                                                  # acted={b,c,d}, a is next
+    assert s.actor == "a"                                          # a has not acted since the raise
+    out = act(POKERISH, B, s, "a", "call", {}, {}, 5)
+    s = out.state
+    assert s.actor is None                                         # parked: everyone acted
+    assert out.payload["wake"] == ["dealer"]                       # street closed → dealer, once
+    r = act(POKERISH, B, s, "b", "raise", {"to": 60}, {}, 6)       # the stop
+    assert isinstance(r, Rejection) and r.detail == "caller_is_actor"
+    adv = act(POKERISH, B, s, "dealer", "advance", {}, {}, 7)
+    assert isinstance(adv, Outcome) and adv.state.state == "settled"
+
+
+def test_wake_is_edge_triggered_across_referee_writes():
+    """Review M1: the dealer's own game_set calls leave the guard true; they must not re-wake."""
+    s = _deal(_s())
+    for who in "abcd":
+        s = act(POKERISH, B, s, who, "call", {}, {}, 1).state
+    assert s.actor is None
+    out = set_value(POKERISH, B, s, "dealer", "pot", 105, None, 2)
+    assert isinstance(out, Outcome) and out.payload["wake"] == []
+    out = set_value(POKERISH, B, out.state, "dealer", "pot", 106, None, 3)
+    assert out.payload["wake"] == []
+
+
+def test_no_actor_wake_on_a_parked_pointer_and_targets_are_deduped():
+    s = _s()
+    old = s.copy()
+    new = s.copy()
+    new.actor = None
+    assert compute_wakes(POKERISH, B, old, new, {}) == []
+    new.actor = "c"
+    assert compute_wakes(POKERISH, B, old, new, {}) == ["c"]
+    # two rules resolving to the same target on one event → one entry: the actor-wake for c and a
+    # player-wide `when` rule that flips true on this event both name c
+    hu = MachineDef.model_validate({**POKERISH.model_dump(by_alias=True), "wake": [
+        {"role": "actor"}, {"role": "player", "when": [{"data_present": "pot"}]}]})
+    new.data["pot"] = 1  # false on old, true on new → the player rule fires
+    assert compute_wakes(hu, B, old, new, {}) == ["a", "b", "c", "d"]
+
+
+def test_unless_suppresses_a_wake():
+    unless = [{"members_count": {"over": "player", "minus": ["out"], "equals": 1}}]
+    m = MachineDef.model_validate({**POKERISH.model_dump(by_alias=True),
+                                    "wake": [{"role": "actor", "unless": unless}]})
+    s = _deal(_s())
+    s.sets["out"] |= {"a", "b", "c"}
+    old = s.copy()
+    new = s.copy()
+    new.actor = "d"
+    assert compute_wakes(m, B, old, new, {}) == []  # d is the last one standing: do not wake
+
+
+def test_set_value_authority_and_owner_handling():
+    s = _s()
+    assert isinstance(set_value(POKERISH, B, s, "a", "pot", 1, None, 1), Rejection)
+    r = set_value(POKERISH, B, s, "dealer", "hole", "AhKh", None, 1)
+    assert isinstance(r, Rejection) and "owner" in r.detail
+    out = set_value(POKERISH, B, s, "dealer", "hole", "AhKh", "a", 1)
+    assert isinstance(out, Outcome) and out.state.owner_data["hole"]["a"] == "AhKh"
+    assert out.payload == {"op": "set", "key": "hole", "owner": "a", "value": "AhKh",
+                           "caller": "dealer", "log": "owner", "wake": []}
+    r = set_value(POKERISH, B, s, "dealer", "pot", 1, "a", 1)
+    assert isinstance(r, Rejection) and "forbidden" in r.detail
+    r = set_value(POKERISH, B, s, "dealer", "nope", 1, None, 1)
+    assert isinstance(r, Rejection) and r.check == "key"
+    r = set_value(POKERISH, B, s, "dealer", "out", ["a"], None, 1)
+    assert isinstance(r, Rejection) and "transition" in r.detail

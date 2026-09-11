@@ -241,3 +241,107 @@ def apply_effect(
         state.revealed.setdefault(key, set()).update(owners)
         return None
     raise ValueError(f"unknown effect {e.name!r}")  # unreachable: refused at launch
+
+
+@dataclass(frozen=True)
+class Rejection:
+    check: str  # exists | from | by | guard | effect | authority | key | owner
+    detail: str
+
+
+@dataclass(frozen=True)
+class Outcome:
+    state: MachineState
+    payload: dict[str, Any]  # the GAME event, verbatim
+
+
+def _wake_ctx(escrow: dict[str, set[str]]) -> Ctx:
+    return Ctx(caller=None, args={}, escrow=escrow)
+
+
+def compute_wakes(
+    defn: MachineDef, bindings: Bindings, old: MachineState, new: MachineState,
+    escrow: dict[str, set[str]],
+) -> list[str]:
+    """Edge-triggered: a `when` rule fires on false->true only, and never while `unless` holds.
+    `role: actor` fires when the pointer moved to a non-null actor. Deduplicated and sorted so
+    one event stamps one list, whatever order the rules were declared in."""
+    targets: set[str] = set()
+    ctx = _wake_ctx(escrow)
+    for w in defn.wake:
+        if w.after_s is not None:
+            continue  # the host's clock rule — never evaluated here
+        if w.role == "actor":
+            unblocked = not w.unless or not guards_hold(w.unless, defn, bindings, new, ctx)[0]
+            if new.actor is not None and new.actor != old.actor and unblocked:
+                targets.add(new.actor)
+            continue
+        now_true = guards_hold(w.when, defn, bindings, new, ctx)[0]
+        was_true = guards_hold(w.when, defn, bindings, old, ctx)[0]
+        blocked = bool(w.unless) and guards_hold(w.unless, defn, bindings, new, ctx)[0]
+        if now_true and not was_true and not blocked:
+            targets.update(bindings.members.get(w.role, ()))
+    return sorted(targets)
+
+
+def act(
+    defn: MachineDef, bindings: Bindings, state: MachineState, caller: str, transition: str,
+    args: dict[str, Any], escrow: dict[str, set[str]], now_ms: int,
+) -> Outcome | Rejection:
+    t = defn.transitions.get(transition)
+    if t is None:
+        return Rejection("exists", f"no transition {transition!r}")
+    if "any" not in t.from_ and state.state not in t.from_:
+        return Rejection("from", f"{transition!r} is not available from state {state.state!r}")
+    if t.by not in roles_of(defn, bindings, caller):
+        return Rejection("by", f"{transition!r} may only be fired by role {t.by!r}")
+    ctx = Ctx(caller=caller, args=dict(args), escrow=escrow)
+    ok, failed = guards_hold(t.guard, defn, bindings, state, ctx)
+    if not ok:
+        return Rejection("guard", str(failed))
+    new = state.copy()
+    for e in t.effects:
+        if (bad := apply_effect(e, defn, bindings, new, ctx, now_ms)) is not None:
+            return Rejection("effect", bad)
+    if t.to != "same":
+        new.state = t.to
+    payload = {
+        "op": "act", "transition": transition, "caller": caller, "args": dict(args),
+        "from": state.state, "to": new.state, "actor": new.actor, "log": t.log,
+        "wake": compute_wakes(defn, bindings, state, new, escrow),
+    }
+    return Outcome(new, payload)
+
+
+def set_value(
+    defn: MachineDef, bindings: Bindings, state: MachineState, caller: str, key: str,
+    value: Any, owner: str | None, now_ms: int,
+) -> Outcome | Rejection:
+    if not any(defn.is_referee_role(r) for r in roles_of(defn, bindings, caller)):
+        return Rejection("authority", "game_set is referee-only")
+    d = defn.data.get(key)
+    if d is None:
+        return Rejection("key", f"{key!r} is not a declared data key")
+    if d.type == "set":
+        return Rejection("key", f"{key!r} is a set — change it through a transition")
+    if d.visibility == "owner" and owner is None:
+        return Rejection("owner", f"{key!r} is an owner key: `owner` is required")
+    if d.visibility != "owner" and owner is not None:
+        return Rejection("owner", f"{key!r} is not an owner key: `owner` is forbidden")
+    new = state.copy()
+    if owner is not None:
+        new.owner_data.setdefault(key, {})[owner] = value
+    else:
+        new.data[key] = value
+    payload = {
+        "op": "set", "key": key, "owner": owner, "value": value, "caller": caller,
+        "log": d.visibility, "wake": compute_wakes(defn, bindings, state, new, {}),
+    }
+    return Outcome(new, payload)
+
+
+def reject_payload(
+    caller: str, transition: str, args: dict[str, Any], check: str, detail: str, log: str,
+) -> dict[str, Any]:
+    return {"op": "reject", "transition": transition, "caller": caller, "args": dict(args),
+            "check": check, "detail": detail, "log": log, "wake": []}
