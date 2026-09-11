@@ -24,6 +24,7 @@ from bearpit.core.schema import Project
 from bearpit.core.tools import grant_manifest
 from bearpit.forge import Forge, RealmHandles
 from bearpit.forge.container import ContainerRuntime
+from bearpit.gatekeeper.machine_record import machine_record
 from bearpit.herald import BusProvision, Herald
 from bearpit.herald.types import MatrixCreds
 from bearpit.ledger import Ledger
@@ -119,6 +120,10 @@ class Runner:
         await self.chronicle.append_event(
             realm_id, EventKind.TOOL_MANIFEST, grant_manifest(project)
         )
+        # The game state machine's declaration + bindings, BEFORE provisioning for the same
+        # reason as the manifest: an agent may call game_state the moment its container is up.
+        if (rec := machine_record(project)) is not None:
+            await self.chronicle.append_event(realm_id, EventKind.MACHINE, rec)
         bus = await self.herald.provision_bus(realm_id, project, require_mention=require_mention)
         handles = await self.forge.provision_realm(
             realm_id, project, bus.creds,

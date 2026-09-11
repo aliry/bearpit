@@ -858,3 +858,72 @@ async def test_the_snapshot_reports_participants_and_who_can_still_act():
     fired = evaluate_termination([], s)
     assert fired is not None and fired.kind == TerminationKind.NO_ACTIVE_PARTICIPANTS
     await chron.close()
+
+
+def _machine_project():
+    """Referee 'ref' (rubric required), participants 'a' and 'b'; a minimal two-state machine
+    with role 'ref' -> referee, role 'player' -> participants, one referee-driven transition."""
+    def agent(aid, referee=False):
+        extra = {"role": "referee", "rubric": "j"} if referee else {}
+        m = ModelRef(provider="azure", model="m", api_key_ref="azure-main")
+        return AgentSpec(id=aid, model=m, **extra)
+    machine = {
+        "roles": {"ref": {"members": "referee"}, "player": {"members": "participants"}},
+        "states": ["a", "b"], "initial": "a",
+        "transitions": {"go": {"from": "a", "to": "b", "by": "ref"}},
+    }
+    return Project(
+        metadata=ProjectMeta(name="machine-duel"),
+        spec=ProjectSpec(
+            termination=[TerminationCondition(type="message", channel="commons", pattern="DONE")],
+            mechanics=[{"kind": "state-machine", "machine": machine}],
+        ),
+        agents=[agent("ref", referee=True), agent("a"), agent("b")],
+    )
+
+
+def test_machine_record_resolves_bindings_from_the_project():
+    from bearpit.gatekeeper.machine_record import machine_record
+
+    project = _machine_project()
+    rec = machine_record(project)
+    assert rec["version"] == 1 and rec["roster"] == ["a", "b"] and rec["referee"] == "ref"
+    assert rec["members"] == {"ref": ["ref"], "player": ["a", "b"]}
+    assert rec["declaration"]["transitions"]["go"]["from"] == ["a"]  # by_alias: 'from', not 'from_'
+
+
+async def test_the_machine_record_is_written_before_any_agent_starts():
+    """Realmtools rebuilds the machine from this record. Agents begin running inside
+    provision_realm, so it must exist before that — the TOOL_MANIFEST precedent."""
+    project = _machine_project()
+
+    chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+    ks = KeyStore(KeyStore.generate_key())
+    ks.put("azure-main", "K")
+    herald = Herald(FakeMatrix(), server_name="realm.local", homeserver="h")
+    ledger = Ledger(ks, FakeLiteLLM(), "p")
+    forge = Forge(FakeRuntime(), ledger)
+    warden = Warden(forge, herald, chron)
+    runner = Runner(herald, forge, warden, ledger, chron)
+
+    def factory(realm_id, handles, bus, turns):
+        async def snap():
+            return RealmSnapshot(manual_stop=True)  # end immediately
+        return snap
+
+    await runner.run(
+        "m1", project, factory, system_password="pw",
+        grace=timedelta(0), interval_s=0.0, max_ticks=3,
+    )
+
+    machine_events = await chron.events("m1", kind=EventKind.MACHINE)
+    running_events = [
+        e for e in await chron.events("m1", kind=EventKind.LIFECYCLE)
+        if e.payload.get("event") == "running"
+    ]
+    assert len(machine_events) == 1
+    assert len(running_events) == 1
+    # the MACHINE record must exist before an agent's container can be up to read it — the same
+    # ordering guarantee as TOOL_MANIFEST, verified here by chronicle id (append order)
+    assert machine_events[0].id < running_events[0].id
+    await chron.close()
