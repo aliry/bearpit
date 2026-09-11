@@ -19,12 +19,15 @@ from bearpit.realmtools.machine import (
     apply_effect,
     check_guard,
     compute_wakes,
+    declaration_view,
     eligible,
     initial_state,
+    log_row,
     resolve,
     roles_of,
     set_actor,
     set_value,
+    view,
 )
 
 POKERISH = MachineDef.model_validate({
@@ -399,3 +402,65 @@ def test_set_value_authority_and_owner_handling():
     assert isinstance(r, Rejection) and "transition" in r.detail
     r = set_value(POKERISH, B, s, "dealer", "hole", "x", "zed", {}, 1)
     assert isinstance(r, Rejection) and r.check == "owner" and "zed" in r.detail
+
+
+HIDDENDEF = MachineDef.model_validate({
+    "roles": {"mother": {"members": "referee"}, "crew": {"members": "participants"},
+              "impostor": {"members": ["c", "d"], "visibility": "hidden"}},
+    "states": ["night", "day"], "initial": "night",
+    "participant_effects": ["add_to"],
+    "data": {"dead": {"visibility": "public", "type": "set"}, "plan": {"visibility": "referee"}},
+    "transitions": {"kill": {"from": "night", "to": "day", "by": "impostor", "log": "referee",
+                             "effects": [{"add_to": {"key": "dead", "value": "$args.target"}}]}},
+})
+HB = Bindings(members={"mother": ("mother",), "crew": ("a", "b", "c", "d"), "impostor": ("c", "d")},
+              roster=("a", "b", "c", "d"), referee="mother")
+
+
+def test_view_filters_by_visibility_and_reveals():
+    s = _s()
+    s.data["pot"] = 40
+    s.data["secret"] = "deck"
+    s.owner_data["hole"] = {"a": "AhKh", "b": "2c7d"}
+    v = view(POKERISH, B, s, "a")
+    assert v["data"] == {"pot": 40, "hole": {"a": "AhKh"}, "out": [], "all_in": [], "acted": []}
+    assert "secret" not in v["data"]
+    s.revealed["hole"].add("b")
+    assert view(POKERISH, B, s, "a")["data"]["hole"] == {"a": "AhKh", "b": "2c7d"}
+    d = view(POKERISH, B, s, "dealer")["data"]
+    assert d["secret"] == "deck" and d["hole"] == {"a": "AhKh", "b": "2c7d"}
+    assert view(POKERISH, B, s, "c")["data"]["hole"] == {"b": "2c7d"}  # only the revealed one
+
+
+def test_log_rows_follow_the_visibility_table():
+    pub = {"op": "act", "transition": "call", "caller": "a", "args": {"to": 10}, "log": "public"}
+    assert log_row(POKERISH, B, pub, "b") == pub
+    ref = {"op": "act", "transition": "kill", "caller": "c", "args": {"target": "a"},
+           "log": "referee"}
+    assert log_row(HIDDENDEF, HB, ref, "a") is None
+    assert log_row(HIDDENDEF, HB, ref, "mother") == ref
+    rej = {"op": "reject", "transition": "kill", "caller": "c", "check": "guard", "detail": "x",
+           "log": "referee"}
+    assert log_row(HIDDENDEF, HB, rej, "a") is None
+    assert log_row(HIDDENDEF, HB, rej, "c") is None
+    unknown = {"op": "reject", "transition": "zap", "caller": "c", "check": "exists",
+               "detail": "x", "log": "public"}
+    assert log_row(HIDDENDEF, HB, unknown, "a") is None
+    assert log_row(HIDDENDEF, HB, unknown, "c") == unknown
+    setp = {"op": "set", "key": "pot", "owner": None, "value": 5, "caller": "dealer",
+            "log": "public"}
+    assert log_row(POKERISH, B, setp, "a") == setp
+    seto = {"op": "set", "key": "hole", "owner": "a", "value": "AhKh", "caller": "dealer",
+            "log": "owner"}
+    assert log_row(POKERISH, B, seto, "a") == seto and log_row(POKERISH, B, seto, "b") is None
+    setr = {"op": "set", "key": "secret", "owner": None, "value": "deck", "caller": "dealer",
+            "log": "referee"}
+    assert log_row(POKERISH, B, setr, "a") is None and log_row(POKERISH, B, setr, "dealer") == setr
+
+
+def test_declaration_view_hides_hidden_role_membership():
+    a = declaration_view(HIDDENDEF, HB, "a")
+    assert a["roles"]["impostor"]["members"] == "<hidden>"
+    assert a["roles"]["crew"]["members"] == "participants"
+    assert declaration_view(HIDDENDEF, HB, "c")["roles"]["impostor"]["members"] == ["c", "d"]
+    assert declaration_view(HIDDENDEF, HB, "mother")["roles"]["impostor"]["members"] == ["c", "d"]

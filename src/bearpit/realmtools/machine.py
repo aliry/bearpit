@@ -351,3 +351,60 @@ def reject_payload(
 ) -> dict[str, Any]:
     return {"op": "reject", "transition": transition, "caller": caller, "args": dict(args),
             "check": check, "detail": detail, "log": log, "wake": []}
+
+
+def _is_referee(defn: MachineDef, bindings: Bindings, caller: str) -> bool:
+    return any(defn.is_referee_role(r) for r in roles_of(defn, bindings, caller))
+
+
+def view(defn: MachineDef, bindings: Bindings, state: MachineState, caller: str) -> dict[str, Any]:
+    ref = _is_referee(defn, bindings, caller)
+    data: dict[str, Any] = {}
+    for key, d in defn.data.items():
+        if d.type == "set":
+            if d.visibility == "public" or ref:
+                data[key] = sorted(state.sets.get(key, set()))
+            continue
+        if d.visibility == "public":
+            if key in state.data:
+                data[key] = state.data[key]
+        elif d.visibility == "referee":
+            if ref and key in state.data:
+                data[key] = state.data[key]
+        else:  # owner
+            entries = state.owner_data.get(key, {})
+            shown = {o: v for o, v in entries.items()
+                     if ref or o == caller or o in state.revealed.get(key, set())}
+            if shown or key in state.owner_data:
+                data[key] = shown
+    return {"state": state.state, "actor": state.actor, "actor_since": state.actor_since,
+            "data": data}
+
+
+def log_row(
+    defn: MachineDef, bindings: Bindings, payload: dict[str, Any], caller: str
+) -> dict[str, Any] | None:
+    """Spec §3: what a participant's log view contains. A referee sees every row."""
+    if _is_referee(defn, bindings, caller):
+        return payload
+    op, log = payload.get("op"), payload.get("log", "public")
+    if op == "reject" and payload.get("check") == "exists":
+        return payload if payload.get("caller") == caller else None
+    if op in {"act", "reject"}:
+        return payload if log == "public" else None
+    if op == "set":
+        if log == "public":
+            return payload
+        if log == "owner":
+            return payload if payload.get("owner") == caller else None
+        return None
+    return payload  # reveal rows are public by definition
+
+
+def declaration_view(defn: MachineDef, bindings: Bindings, caller: str) -> dict[str, Any]:
+    out = defn.model_dump(by_alias=True, mode="json")
+    ref = _is_referee(defn, bindings, caller)
+    for rname, r in defn.roles.items():
+        if r.visibility == "hidden" and not ref and caller not in bindings.members.get(rname, ()):
+            out["roles"][rname]["members"] = "<hidden>"
+    return out
