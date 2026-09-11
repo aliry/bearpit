@@ -452,3 +452,26 @@ async def test_game_tools_over_a_real_session_respect_identity():
             r = await s.call_tool("game_declaration", {})
             assert "transitions" in json.loads(r.content[0].text)
     await chron.close()
+
+
+async def test_a_corrupt_chronicle_is_a_clean_tool_error_not_a_stack_trace():
+    """A GAME row the current declaration cannot re-apply raises ReplayError from `_load` — the
+    tool must translate that into a clean `{"error": ...}`, not let FastMCP surface the raw
+    exception text (which can carry transition/key names and rejection detail) to the caller."""
+    import json
+
+    from test_machine_service import MACHINE
+
+    from bearpit.realmtools.server import build_app
+    from bearpit.realmtools.tokens import mint_token
+
+    chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+    await chron.append_event("r", EventKind.MACHINE, MACHINE)
+    await chron.append_event("r", EventKind.GAME, {"op": "act"})  # malformed: no caller/transition
+    app = build_app(SECRET, chronicle=chron)
+    a = mint_token("r", "a", is_referee=False, secret=SECRET)
+    async with app.router.lifespan_context(app), _as(app, a) as s:
+        r = await s.call_tool("game_state", {})
+        assert not r.isError
+        assert json.loads(r.content[0].text) == {"error": "game state unavailable"}
+    await chron.close()

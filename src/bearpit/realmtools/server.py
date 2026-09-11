@@ -26,6 +26,7 @@ from bearpit.chronicle import Chronicle
 from bearpit.forge.skills import BUILTIN_SKILLS
 from bearpit.realmtools.arbiter import ArbiterService
 from bearpit.realmtools.code import CodeService
+from bearpit.realmtools.machine import ReplayError
 from bearpit.realmtools.machine_service import MachineService
 from bearpit.realmtools.manifest import ManifestReader
 from bearpit.realmtools.notes import NoteService
@@ -302,8 +303,12 @@ def build_app(
         null when nobody's), the data you may see, and the transition log since `since` (an event
         id; pass the returned `next_since` to page). Hidden keys are simply absent."""
         ident = _identity(ctx, secret)
-        res = await machine.state(who(ctx), since=since, log_limit=log_limit)
-        _audit("game_state", ident, res.get("error"), result={"keys": sorted(res)})
+        try:
+            res = await machine.state(who(ctx), since=since, log_limit=log_limit)
+        except ReplayError:
+            _audit("game_state", ident, "corrupt game state")
+            return {"error": "game state unavailable"}
+        _audit("game_state", ident, res.get("error"), result=res)
         return res
 
     @mcp.tool()
@@ -315,8 +320,12 @@ def build_app(
         guards hold — and refuses otherwise, naming the failed check. Call game_declaration to see
         what you may fire and when."""
         ident = _identity(ctx, secret)
-        res = await machine.act(who(ctx), transition, args)
-        _audit(f"game_act({transition!r})", ident, res.get("error"), result={"keys": sorted(res)})
+        try:
+            res = await machine.act(who(ctx), transition, args)
+        except ReplayError:
+            _audit(f"game_act({transition!r})", ident, "corrupt game state")
+            return {"error": "game state unavailable"}
+        _audit(f"game_act({transition!r})", ident, res.get("error"), result=res)
         return res
 
     @mcp.tool()
@@ -327,8 +336,12 @@ def build_app(
         (e.g. a player's hand) and forbidden otherwise. Set-typed keys change through
         transitions, not here. The engine never interprets the value."""
         ident = _identity(ctx, secret)
-        res = await machine.set(who(ctx), key, value, owner)
-        _audit(f"game_set({key!r})", ident, res.get("error"), result={"keys": sorted(res)})
+        try:
+            res = await machine.set(who(ctx), key, value, owner)
+        except ReplayError:
+            _audit(f"game_set({key!r})", ident, "corrupt game state")
+            return {"error": "game state unavailable"}
+        _audit(f"game_set({key!r})", ident, res.get("error"), result=res)
         return res
 
     @mcp.tool()
@@ -336,8 +349,12 @@ def build_app(
         """The machine's declaration — states, transitions (who may fire what, from where, under
         which guards), data keys and their visibility. Hidden roles' membership is not shown."""
         ident = _identity(ctx, secret)
-        res = await machine.declaration(who(ctx))
-        _audit("game_declaration", ident, res.get("error"), result={"keys": sorted(res)})
+        try:
+            res = await machine.declaration(who(ctx))
+        except ReplayError:
+            _audit("game_declaration", ident, "corrupt game state")
+            return {"error": "game state unavailable"}
+        _audit("game_declaration", ident, res.get("error"), result=res)
         return res
 
     # --- Arbiter: referee scoring + verdicts (the platform keeps the running score) ----------
