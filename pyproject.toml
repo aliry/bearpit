@@ -71,9 +71,9 @@ extend-exclude = ["spikes", "deploy"]  # throwaway spike/poc scripts have no qua
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.ruff.lint.per-file-ignores]
-# These two tests transcribe an SDD brief's test code verbatim — it is the contract, not ours to
-# rewrite. The "Rk Sr Rk Sr".split() card-notation idiom trips SIM905; the fix would touch text
-# that must stay byte-identical to the brief.
+# Card notation reads as a hand, not as a list: `"As Ks Qs Js Ts".split()` is a straight flush at
+# a glance where `["As", "Ks", "Qs", "Js", "Ts"]` is five strings to parse. SIM905 would have us
+# write the second, and these two files are nothing but hands.
 "tests/test_poker_resolver.py" = ["SIM905"]
 "tests/test_poker_equity.py" = ["SIM905"]
 
