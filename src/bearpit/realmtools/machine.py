@@ -347,6 +347,12 @@ def set_value(
     new = state.copy()
     if owner is not None:
         new.owner_data.setdefault(key, {})[owner] = value
+        # A reveal disclosed one VALUE, not a standing right to read the key, so a fresh write
+        # re-conceals it. Nothing in the vocabulary can clear `revealed` — `reset` takes a set
+        # key and `unset` a public one — so without this a game with repeated rounds shows every
+        # later secret to everyone who saw the first disclosure. The poker table found it: after
+        # hand one's showdown, hand two's hole cards were public from the deal onward.
+        new.revealed.setdefault(key, set()).discard(owner)
     else:
         new.data[key] = value
     wake, wake_actor = compute_wakes(defn, bindings, state, new, escrow)

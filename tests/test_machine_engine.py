@@ -299,6 +299,29 @@ def test_reveal_selectors():
     assert s.revealed["hole"] == {"a", "c", "d"}  # b folded: mucked, stays hidden
 
 
+def test_a_new_owner_value_is_private_again_even_after_the_old_one_was_revealed():
+    """A reveal discloses one VALUE, not a standing right to read the key. `revealed` is never
+    cleared by anything in the vocabulary — `reset` takes a set key, `unset` takes a public one —
+    so without this, a game with repeated rounds leaks every later secret to everyone who saw the
+    first showdown. Found by the poker table: after hand one's showdown, hand two's hole cards
+    were public to the whole table from the moment they were dealt."""
+    s = _s()
+    s.owner_data["hole"] = {"a": "AhKh", "b": "2c7d"}
+    assert apply_effect(_e("reveal", {"key": "hole", "owners": "$caller"}),
+                        POKERISH, B, s, _ctx("a"), 1) is None
+    assert s.revealed["hole"] == {"a"}
+
+    out = set_value(POKERISH, B, s, "dealer", "hole", "QsQd", "a", {}, 2)
+    assert isinstance(out, Outcome), out
+    assert out.state.revealed["hole"] == set(), "a fresh secret is a secret again"
+    assert view(POKERISH, B, out.state, "b")["data"].get("hole", {}) == {"b": "2c7d"}, \
+        "an opponent sees only its own hand once the revealed one has been replaced"
+    # and the seat itself still sees what it holds
+    assert view(POKERISH, B, out.state, "a")["data"]["hole"] == {"a": "QsQd"}
+    # the write does not disturb anyone else's disclosure
+    assert s.revealed["hole"] == {"a"}, "the original state is untouched by the copy"
+
+
 def _deal(s, first="a"):
     out = act(POKERISH, B, s, "dealer", "deal", {"first": first}, {}, 10)
     assert isinstance(out, Outcome), out
