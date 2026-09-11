@@ -11,6 +11,14 @@ into the pot on this street once this action stands, not the increment. If the p
 you have already put in 20, you call with `to: 60`. The resolver reads the last `to` each seat
 posted on a street as that seat's contribution; an increment posted where a total belongs
 corrupts the pot silently.
+
+Odd-chip rule: when a pot does not divide evenly among its tied winners, the indivisible chip (or
+chips) go to the first seat in the pot's eligible order, which is alphabetical.
+
+Every card-bearing function is an airlock: card tokens are normalised (rank upper, suit lower —
+an LLM's wrong-case typo is corrected, not rejected) and validated before anything is scored, and
+`award` checks the whole table's hole cards plus the board together, since a card shared between
+two seats never shows up inside a single seat's own hand.
 """
 
 from __future__ import annotations
@@ -18,7 +26,10 @@ from __future__ import annotations
 import hashlib
 import itertools
 import random
+import re
 from collections import Counter
+
+_CARD_RE = re.compile(r"^[23456789TJQKA][cdhs]$")
 
 RANKS = "23456789TJQKA"
 SUITS = "cdhs"
@@ -58,6 +69,9 @@ def deck_for(seed: str) -> list[str]:
 
 def deal(seed: str, seats: list[str]) -> dict:
     """Two cards per seat in seat order, no burns, then five board cards."""
+    if 2 * len(seats) + 5 > 52:
+        raise ValueError(
+            f"deck cannot serve {len(seats)} seats plus a 5-card board (52-card deck)")
     deck = deck_for(seed)
     hole = {}
     i = 0
@@ -66,6 +80,27 @@ def deal(seed: str, seats: list[str]) -> dict:
         i += 2
     board = deck[i:i + 5]
     return {"hole": hole, "board": board}
+
+
+def _cards(tokens: list[str]) -> list[str]:
+    """Normalise and validate a multiset of card tokens: strip whitespace, uppercase the rank,
+    lowercase the suit (so `KH`, `kh` and `Kh` all become `Kh` — a wrong-case typo is the
+    likeliest LLM mistake and must be corrected, not rejected), then require each token to match
+    rank+suit exactly and the whole multiset to hold no duplicate card. Raises `ValueError` naming
+    the offending token or the duplicate card."""
+    normalised = []
+    for tok in tokens:
+        t = tok.strip()
+        card = t[:1].upper() + t[1:].lower() if len(t) == 2 else t
+        if not _CARD_RE.match(card):
+            raise ValueError(f"not a card: {tok!r}")
+        normalised.append(card)
+    seen: set[str] = set()
+    for card in normalised:
+        if card in seen:
+            raise ValueError(f"duplicate card: {card}")
+        seen.add(card)
+    return normalised
 
 
 def _score5(cards: list[str]) -> tuple:
@@ -114,11 +149,17 @@ def _score5(cards: list[str]) -> tuple:
 
 def rank7(cards: list[str]) -> tuple:
     """Score five or more cards on the best five of them; bigger is better."""
+    cards = _cards(cards)
+    if len(cards) < 5:
+        raise ValueError(f"rank7 needs at least 5 cards, got {len(cards)}")
     return max(_score5(list(combo)) for combo in itertools.combinations(cards, 5))
 
 
 def hand_name(cards: list[str]) -> str:
     """A human-readable name for the best five of `cards`, e.g. 'flush, ace high'."""
+    cards = _cards(cards)
+    if len(cards) < 5:
+        raise ValueError(f"hand_name needs at least 5 cards, got {len(cards)}")
     best = max(_score5(list(combo)) for combo in itertools.combinations(cards, 5))
     category, *tiebreak = best
 
@@ -141,10 +182,18 @@ def pots(contributions: dict[str, int], live: list[str]) -> list[dict]:
     """Side-pot layers, main pot first. Walks the distinct contribution levels in ascending
     order; at each level every contributor (folded seats included — their money is in the pot)
     gives up min(level, contributed) minus what was already taken from them. A layer's eligible
-    seats are the `live` seats that contributed at least that level."""
+    seats are the `live` seats that contributed at least that level.
+
+    A layer with no eligible live seat is dead money (every contributor at that level folded):
+    it rolls into the pot below rather than being dropped or awarded to nobody. If there is no
+    pot below to absorb it, that is unresolvable and raises `ValueError`."""
+    for seat, total in contributions.items():
+        if total < 0:
+            raise ValueError(f"negative contribution from {seat!r}: {total}")
+
     levels = sorted(set(contributions.values()))
     taken = dict.fromkeys(contributions, 0)
-    result = []
+    result: list[dict] = []
     for level in levels:
         amount = 0
         for seat, total in contributions.items():
@@ -154,6 +203,13 @@ def pots(contributions: dict[str, int], live: list[str]) -> list[dict]:
         if amount <= 0:
             continue
         eligible = sorted(seat for seat in live if contributions[seat] >= level)
+        if not eligible:
+            if not result:
+                raise ValueError(
+                    f"dead money at level {level} has no eligible seat and no earlier pot to "
+                    "absorb it")
+            result[-1]["amount"] += amount
+            continue
         result.append({"amount": amount, "eligible": eligible})
     return result
 
@@ -161,11 +217,18 @@ def pots(contributions: dict[str, int], live: list[str]) -> list[dict]:
 def award(contributions: dict[str, int], live: list[str],
           hole: dict[str, str], board: list[str]) -> dict:
     """Settle a hand: side pots, chip awards, the full ranking (best tier first, ties grouped),
-    and each live seat's hand name.
+    and each live seat's hand name (see the module docstring for the odd-chip rule)."""
+    seats_order = list(hole)
+    flat = list(board) + [c for seat in seats_order for c in hole[seat].split()]
+    normalised = _cards(flat)              # validates + dedupes across every seat and the board
+    n_board = len(board)
+    board = normalised[:n_board]
+    idx = n_board
+    hole = {}
+    for seat in seats_order:
+        hole[seat] = f"{normalised[idx]} {normalised[idx + 1]}"
+        idx += 2
 
-    Remainder rule: when a pot does not divide evenly among its tied winners, the remainder chip
-    (or chips) go to the earliest seat in that pot's `eligible` order (already alphabetical).
-    """
     all_pots = pots(contributions, live)
     scores = {seat: rank7(hole[seat].split() + board) for seat in live}
     names = {seat: hand_name(hole[seat].split() + board) for seat in live}
