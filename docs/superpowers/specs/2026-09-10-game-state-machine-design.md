@@ -102,10 +102,14 @@ validated at runtime to be members of the relevant role.
 - `{role: <role> | actor, when: [guards], unless: [guards]}` — **engine-evaluated at act time,
   edge-triggered**: effects are applied to a scratch copy, each rule is evaluated on old and new
   state, it fires on false→true only (and only while `unless` is false), targets are deduplicated
-  per event, and the result is stamped on the GAME event as `wake: [agent ids]`. `role: actor`
-  fires when the pointer moves to a non-null actor. For `role: actor`, `when` and `unless` are
-  level filters on the new state — the pointer move is the edge. Within one tick the pointer may
-  move twice; the actor-wake is delivered only to the actor as of the latest event.
+  per event, and the result is stamped on the GAME event as TWO lists: `wake: [agent ids]` from
+  the ROLE rules and `wake_actor: [agent ids]` from the `actor` rule. `role: actor` fires when the
+  pointer moves to a non-null actor. For `role: actor`, `when` and `unless` are level filters on
+  the new state — the pointer move is the edge. Within one tick the pointer may move twice; the
+  actor-wake is delivered only to the actor as of the latest event, while every `wake` id is
+  delivered outright. The two are stamped apart because the host cannot tell them apart from the
+  ids alone: inferring it (id == the event's actor) dropped a role wake that named the current
+  actor. A row with no `wake_actor` key predates this and keeps the old inference.
 - `{role: <role>, after_s: N}` — the **only host-evaluated kind**, because only the host has a
   clock: "no GAME event for N seconds" (so a referee's own `game_set`s keep it quiet). It nudges;
   it never acts. Default and floor: **240 s** (scenario-contract §13 — a resolver `run_code` may

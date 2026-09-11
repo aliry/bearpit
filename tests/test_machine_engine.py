@@ -314,7 +314,10 @@ def test_act_never_mutates_its_input_and_returns_the_game_payload():
     p = out.payload
     assert p["op"] == "act" and p["transition"] == "call" and p["caller"] == "a"
     assert p["args"] == {"to": 10} and p["from"] == "street" and p["to"] == "street"
-    assert p["actor"] == "b" and p["log"] == "public" and p["wake"] == ["b"]
+    # b is woken by the `actor` rule, so it is stamped as an ACTOR wake — the host collapses
+    # those to the latest event's actor, and must not do that to a role wake (review I1).
+    assert p["actor"] == "b" and p["log"] == "public"
+    assert p["wake"] == [] and p["wake_actor"] == ["b"]
 
 
 def test_the_street_closes_without_arithmetic_and_wakes_the_dealer_exactly_once():
@@ -330,6 +333,7 @@ def test_the_street_closes_without_arithmetic_and_wakes_the_dealer_exactly_once(
     s = out.state
     assert s.actor is None                                         # parked: everyone acted
     assert out.payload["wake"] == ["dealer"]                       # street closed → dealer, once
+    assert out.payload["wake_actor"] == []                         # the pointer parked: no actor
     r = act(POKERISH, B, s, "b", "raise", {"to": 60}, {}, 6)       # the stop
     assert isinstance(r, Rejection) and r.detail == "caller_is_actor"
     adv = act(POKERISH, B, s, "dealer", "advance", {}, {}, 7)
@@ -344,8 +348,9 @@ def test_wake_is_edge_triggered_across_referee_writes():
     assert s.actor is None
     out = set_value(POKERISH, B, s, "dealer", "pot", 105, None, {}, 2)
     assert isinstance(out, Outcome) and out.payload["wake"] == []
+    assert out.payload["wake_actor"] == []
     out = set_value(POKERISH, B, out.state, "dealer", "pot", 106, None, {}, 3)
-    assert out.payload["wake"] == []
+    assert out.payload["wake"] == [] and out.payload["wake_actor"] == []
 
 
 def test_no_actor_wake_on_a_parked_pointer_and_targets_are_deduped():
@@ -353,15 +358,15 @@ def test_no_actor_wake_on_a_parked_pointer_and_targets_are_deduped():
     old = s.copy()
     new = s.copy()
     new.actor = None
-    assert compute_wakes(POKERISH, B, old, new, {}) == []
+    assert compute_wakes(POKERISH, B, old, new, {}) == ([], [])
     new.actor = "c"
-    assert compute_wakes(POKERISH, B, old, new, {}) == ["c"]
-    # two rules resolving to the same target on one event → one entry: the actor-wake for c and a
-    # player-wide `when` rule that flips true on this event both name c
+    assert compute_wakes(POKERISH, B, old, new, {}) == ([], ["c"])
+    # two rules resolving to the same target on one event → one entry per list: the actor-wake for
+    # c and a player-wide `when` rule that flips true on this event both name c
     hu = MachineDef.model_validate({**POKERISH.model_dump(by_alias=True), "wake": [
         {"role": "actor"}, {"role": "player", "when": [{"data_present": "pot"}]}]})
     new.data["pot"] = 1  # false on old, true on new → the player rule fires
-    assert compute_wakes(hu, B, old, new, {}) == ["a", "b", "c", "d"]
+    assert compute_wakes(hu, B, old, new, {}) == (["a", "b", "c", "d"], ["c"])
 
 
 def test_an_actor_wake_honours_when_as_a_level_filter():
@@ -373,9 +378,9 @@ def test_an_actor_wake_honours_when_as_a_level_filter():
     old = s.copy()
     new = s.copy()
     new.actor = "c"
-    assert compute_wakes(m, B, old, new, {}) == []
+    assert compute_wakes(m, B, old, new, {}) == ([], [])
     new.data["pot"] = 1
-    assert compute_wakes(m, B, old, new, {}) == ["c"]
+    assert compute_wakes(m, B, old, new, {}) == ([], ["c"])
 
 
 def test_unless_suppresses_a_wake():
@@ -387,7 +392,7 @@ def test_unless_suppresses_a_wake():
     old = s.copy()
     new = s.copy()
     new.actor = "d"
-    assert compute_wakes(m, B, old, new, {}) == []  # d is the last one standing: do not wake
+    assert compute_wakes(m, B, old, new, {}) == ([], [])  # d is the last one standing: no wake
 
 
 def test_set_value_authority_and_owner_handling():
@@ -398,7 +403,7 @@ def test_set_value_authority_and_owner_handling():
     out = set_value(POKERISH, B, s, "dealer", "hole", "AhKh", "a", {}, 1)
     assert isinstance(out, Outcome) and out.state.owner_data["hole"]["a"] == "AhKh"
     assert out.payload == {"op": "set", "key": "hole", "owner": "a", "value": "AhKh",
-                           "caller": "dealer", "log": "owner", "wake": []}
+                           "caller": "dealer", "log": "owner", "wake": [], "wake_actor": []}
     r = set_value(POKERISH, B, s, "dealer", "pot", 1, "a", {}, 1)
     assert isinstance(r, Rejection) and "forbidden" in r.detail
     r = set_value(POKERISH, B, s, "dealer", "nope", 1, None, {}, 1)
@@ -500,3 +505,30 @@ def test_replay_fails_loudly_if_the_declaration_no_longer_admits_an_event():
                                    "args": {"first": "a"}, "log": "public"}),
                              (11, {"op": "act", "transition": "teleport", "caller": "a",
                                    "args": {}, "log": "public"})], start_ms=1)
+
+
+def test_a_role_rule_that_names_the_current_actor_is_stamped_as_a_ROLE_wake():
+    """Review I1 / gap T1: the two lists exist so the host never has to GUESS which rule stamped
+    an id. A role rule whose targets happen to include the current actor must land in `wake` —
+    the host collapses `wake_actor` to the latest event's actor, and collapsing this one dropped
+    that agent's wake entirely."""
+    m = MachineDef.model_validate({**POKERISH.model_dump(by_alias=True), "wake": [
+        {"role": "actor"}, {"role": "player", "when": [{"data_present": "pot"}]}]})
+    s = _s()
+    old = s.copy()
+    new = s.copy()
+    new.actor = "c"
+    new.data["pot"] = 1
+    wake, wake_actor = compute_wakes(m, B, old, new, {})
+    assert wake == ["a", "b", "c", "d"]  # c is here because the ROLE rule named it...
+    assert wake_actor == ["c"]           # ...and here because the pointer moved to it
+    # ...and the same on a real payload: one act that both trips the role rule and moves the
+    # pointer stamps the new actor in BOTH lists.
+    decl = m.model_dump(by_alias=True)
+    decl["transitions"]["bet"] = {
+        "from": "street", "to": "same", "by": "dealer",
+        "effects": [{"set": {"key": "pot", "value": "$args.n"}}, "advance_actor"]}
+    m2 = MachineDef.model_validate(decl)
+    out = act(m2, B, _deal(_s(), first="a"), "dealer", "bet", {"n": 10}, {}, 5)
+    assert isinstance(out, Outcome) and out.payload["actor"] == "b"
+    assert out.payload["wake"] == ["a", "b", "c", "d"] and out.payload["wake_actor"] == ["b"]

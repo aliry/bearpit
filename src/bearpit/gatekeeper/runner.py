@@ -653,8 +653,18 @@ class LiveSnapshot:
             targets: set[str] = set()
             actor_targets: set[str] = set()
             for e in events:
-                for who in e.payload.get("wake", []) or []:
-                    (actor_targets if who == e.payload.get("actor") else targets).add(str(who))
+                payload = e.payload
+                if "wake_actor" in payload:
+                    # The engine says which rule stamped each id. Believe it: a ROLE rule whose
+                    # targets include the event's own actor is a real wake for that agent.
+                    targets.update(str(w) for w in payload.get("wake") or ())
+                    actor_targets.update(str(w) for w in payload.get("wake_actor") or ())
+                else:
+                    # A row chronicled before the engine classified them (two live realms hold
+                    # such rows). Infer by actor, exactly as this did then, so their replay is
+                    # unchanged — it is the only reading available for those rows.
+                    for who in payload.get("wake") or ():
+                        (actor_targets if who == payload.get("actor") else targets).add(str(who))
             if latest_actor in actor_targets:
                 targets.add(str(latest_actor))
             for who in sorted(targets):

@@ -268,6 +268,42 @@ async def test_wake_stamps_become_one_mention_per_target_and_actor_wakes_collaps
     await chron.close()
 
 
+async def test_a_role_wake_naming_the_events_own_actor_is_still_delivered():
+    """Review I1: the host used to INFER which ids came from the `actor` rule by comparing each
+    id to the event's own actor, and collapse those to the latest act's actor. A ROLE rule whose
+    targets include that actor was therefore read as a stale actor-wake and dropped — silently,
+    with no log line. The engine now stamps the two kinds separately and the host believes it."""
+    chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+    mx = FakeMatrix()
+    herald = await _herald(mx)
+    live = _live(chron, herald, {}, _creds("alice", "bob", "ref"),
+                 machine=_machine_rec([{"role": "actor"},
+                                       {"role": "player", "when": [{"data_present": "pot"}]}]))
+    # alice is woken by the ROLE rule on an event whose own actor is alice; the second act in the
+    # same tick moves the pointer to bob.
+    await _game(chron, {"op": "act", "actor": "alice", "wake": ["alice", "bob"],
+                        "wake_actor": ["alice"]})
+    await _game(chron, {"op": "act", "actor": "bob", "wake": [], "wake_actor": ["bob"]})
+    await live()
+    assert sorted(_woken(mx)) == ["@g1-alice:realm.local", "@g1-bob:realm.local"]
+    await chron.close()
+
+
+async def test_a_game_row_stamped_before_wake_classification_is_delivered_exactly_as_before():
+    """Two live realms already hold GAME rows carrying only `wake`. A payload with no
+    `wake_actor` key keeps the old inference — same wakes on replay, no new mentions."""
+    chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+    mx = FakeMatrix()
+    herald = await _herald(mx)
+    live = _live(chron, herald, {}, _creds("alice", "bob", "ref"),
+                 machine=_machine_rec([{"role": "actor"}]))
+    await _game(chron, {"op": "act", "actor": "alice", "wake": ["alice", "bob"]})
+    await _game(chron, {"op": "act", "actor": "bob", "wake": []})
+    await live()
+    assert _woken(mx) == ["@g1-bob:realm.local"]  # alice's actor-wake is stale, as it always was
+    await chron.close()
+
+
 async def test_after_s_nudges_the_role_once_per_stall_measured_from_the_last_game_event():
     chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
     mx = FakeMatrix()

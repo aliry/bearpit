@@ -69,7 +69,10 @@ async def test_act_returns_the_callers_view_and_chronicles_the_event(chron):
     out = await svc.act(DEALER, "deal", {"first": "a"})
     assert out["state"] == "street" and out["actor"] == "a"
     ev = [e for e in await chron.events("r", kind=EventKind.GAME)]
-    assert len(ev) == 1 and ev[0].payload["transition"] == "deal" and ev[0].payload["wake"] == ["a"]
+    assert len(ev) == 1 and ev[0].payload["transition"] == "deal"
+    # `deal` moves the pointer, so a is an ACTOR wake: the host may collapse it to the latest
+    # event's actor, which it must never do to a role wake (review I1).
+    assert ev[0].payload["wake"] == [] and ev[0].payload["wake_actor"] == ["a"]
 
 
 async def test_rejections_are_chronicled_and_named(chron):

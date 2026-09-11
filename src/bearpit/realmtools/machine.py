@@ -262,11 +262,20 @@ def _wake_ctx(escrow: dict[str, set[str]]) -> Ctx:
 def compute_wakes(
     defn: MachineDef, bindings: Bindings, old: MachineState, new: MachineState,
     escrow: dict[str, set[str]],
-) -> list[str]:
+) -> tuple[list[str], list[str]]:
     """Edge-triggered: a `when` rule fires on false->true only, and never while `unless` holds.
     `role: actor` fires when the pointer moved to a non-null actor. Deduplicated and sorted so
-    one event stamps one list, whatever order the rules were declared in."""
+    one event stamps one list, whatever order the rules were declared in.
+
+    Returns TWO lists — `(wake, wake_actor)`: the ids stamped by a ROLE rule, and the ids stamped
+    by the `actor` rule (today at most one). They are kept apart because the host treats them
+    differently: a role wake is delivered outright, an actor wake collapses to the actor of the
+    latest event in the tick (waking a player for a pointer that has already moved on would only
+    wake it again). The host cannot tell them apart from the ids alone — it used to try, by
+    comparing each id to the event's own actor, and a role rule whose targets included that actor
+    lost its wake without a trace (review I1). One id may legitimately appear in both lists."""
     targets: set[str] = set()
+    actor_targets: set[str] = set()
     ctx = _wake_ctx(escrow)
     for w in defn.wake:
         if w.after_s is not None:
@@ -275,14 +284,14 @@ def compute_wakes(
             if new.actor is not None and new.actor != old.actor and guards_hold(
                     w.when, defn, bindings, new, ctx)[0] and not (
                     w.unless and guards_hold(w.unless, defn, bindings, new, ctx)[0]):
-                targets.add(new.actor)
+                actor_targets.add(new.actor)
             continue
         now_true = guards_hold(w.when, defn, bindings, new, ctx)[0]
         was_true = guards_hold(w.when, defn, bindings, old, ctx)[0]
         blocked = bool(w.unless) and guards_hold(w.unless, defn, bindings, new, ctx)[0]
         if now_true and not was_true and not blocked:
             targets.update(bindings.members.get(w.role, ()))
-    return sorted(targets)
+    return sorted(targets), sorted(actor_targets)
 
 
 def act(
@@ -306,10 +315,11 @@ def act(
             return Rejection("effect", bad)
     if t.to != "same":
         new.state = t.to
+    wake, wake_actor = compute_wakes(defn, bindings, state, new, escrow)
     payload = {
         "op": "act", "transition": transition, "caller": caller, "args": dict(args),
         "from": state.state, "to": new.state, "actor": new.actor, "log": t.log,
-        "wake": compute_wakes(defn, bindings, state, new, escrow),
+        "wake": wake, "wake_actor": wake_actor,
     }
     return Outcome(new, payload)
 
@@ -339,9 +349,10 @@ def set_value(
         new.owner_data.setdefault(key, {})[owner] = value
     else:
         new.data[key] = value
+    wake, wake_actor = compute_wakes(defn, bindings, state, new, escrow)
     payload = {
         "op": "set", "key": key, "owner": owner, "value": value, "caller": caller,
-        "log": d.visibility, "wake": compute_wakes(defn, bindings, state, new, escrow),
+        "log": d.visibility, "wake": wake, "wake_actor": wake_actor,
     }
     return Outcome(new, payload)
 
