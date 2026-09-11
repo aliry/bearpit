@@ -499,3 +499,52 @@ async def test_a_machine_realm_gates_the_referee_unless_it_declares_otherwise():
     assert gated.creds["ref"].require_mention is True
     reads = await provision(machine_project(True))
     assert reads.creds["ref"].require_mention is False
+
+
+def _machine_project(referee_reads_commons):
+    from bearpit.core.schema import AgentRole
+
+    def agent(aid, role=AgentRole.PARTICIPANT):
+        model = ModelRef(provider="azure", model="m", api_key_ref="azure-main")
+        kw = {"rubric": "score them"} if role == AgentRole.REFEREE else {}
+        return AgentSpec(id=aid, model=model, role=role, **kw)
+
+    machine = {
+        "roles": {"ref": {"members": "referee"}, "player": {"members": "participants"}},
+        "states": ["a", "b"], "initial": "a",
+        "transitions": {"go": {"from": "a", "to": "b", "by": "ref"}},
+        "referee_reads_commons": referee_reads_commons,
+    }
+    return Project(
+        metadata=ProjectMeta(name="deal"),
+        spec={"mechanics": [{"kind": "state-machine", "machine": machine}]},
+        agents=[agent("p1"), agent("p2"), agent("ref", AgentRole.REFEREE)],
+    )
+
+
+async def test_the_referee_gate_reads_the_same_in_the_run_record_and_on_the_bus():
+    """Two spellings of one rule — what the run RECORD says about the referee (`referee_sees_all`)
+    and what actually reaches its credentials — and they disagreed. With `require_mention: false`
+    nothing is gated at all, so the referee does see everything; the record said False anyway
+    whenever the machine had not opted into commons. A run record that contradicts the realm it
+    describes is worse than no record: every question anyone asks a finished realm is asked of it.
+
+    The machine conjunct only ever meant something when mention gating was ON."""
+    from bearpit.core.runconfig import referee_sees_all, run_config
+
+    for require_mention in (True, False):
+        for reads_commons in (True, False):
+            project = _machine_project(reads_commons)
+            mx = FakeMatrix()
+            herald = Herald(mx, server_name="realm.local", homeserver="http://conduit:6167")
+            await herald.ensure_system("syspw")
+            bus = await herald.provision_bus("r1", project, require_mention=require_mention)
+            case = (require_mention, reads_commons)
+            sees = not require_mention or reads_commons
+            assert referee_sees_all(project, require_mention=require_mention) is sees, case
+            cfg = run_config(project, "x", require_mention=require_mention)
+            assert cfg["referee_sees_all"] is sees, case
+            # ...and the gate itself: an exempt referee is never mention-gated, and nobody is
+            # gated at all when require_mention is off.
+            assert bus.creds["ref"].require_mention is (require_mention and not sees), case
+            assert bus.creds["p1"].require_mention is require_mention, case

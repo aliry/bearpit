@@ -19,6 +19,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from bearpit.chronicle import Chronicle
+from bearpit.core.runconfig import referee_sees_all
 from bearpit.core.schema import Project
 from bearpit.core.settings import DEFAULT_OPERATOR
 from bearpit.herald.matrix import MatrixClient
@@ -106,16 +107,10 @@ class Herald:
         ref_id = project.referee.id if project.referee else None
         # A referee in a FREE-FOR-ALL realm must see everything, because nobody @mentions it and it
         # would otherwise never receive the debate/pitches/bids it exists to score. A referee in a
-        # TURNS realm must NOT: the TurnManager already hands it the round transcript in its cue, so
-        # lifting the gate only means it wakes on every single message, replies to each, and hammers
-        # the proxy into rate-limiting (rps-1: Themis posted "⚡ Interrupting current task" and
-        # duplicate round resolutions until the provider started refusing calls).
-        # A machine realm's referee reads the MACHINE record, not table talk — gated by default,
-        # same reasoning as turns — unless the declaration opts back in with
-        # `referee_reads_commons: true` because it must weigh what agents actually say.
-        machine = project.spec.machine
-        ref_sees_all = (project.referee is not None and project.spec.turns is None
-                        and (machine is None or machine.referee_reads_commons))
+        # TURNS realm must NOT, and a machine realm's referee reads the MACHINE record rather than
+        # table talk — the full reasoning, clause by clause, lives with the predicate. It is
+        # shared with the run record on purpose: the two were written separately and drifted.
+        ref_sees_all = referee_sees_all(project, require_mention=require_mention)
         creds: dict[str, MatrixCreds] = {}
         for aid, (mxid, token) in users.items():
             peers = [u for u in all_ids if u != mxid]

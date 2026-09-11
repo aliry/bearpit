@@ -673,17 +673,31 @@ class LiveSnapshot:
         # skipped ticks still sees the real gap. In production a fresh event has ts ≈ now, so a
         # new-event tick never fires this.
         if self._game_last_ts is None:
-            return
+            # No GAME event has ever existed, so arm the timer from the realm's own start. A
+            # referee that never fires the OPENING transition is exactly the stall these rules
+            # exist to break, and it was the one case they never covered (review M1): the realm
+            # sat at its initial state until `duration` killed it.
+            self._game_last_ts = await self._realm_started()
+        last_ts = self._game_last_ts
         for i, rule in enumerate(decl.get("wake", [])):
             if i in self._after_fired:
                 continue
             n = rule.get("after_s")
             # Per RULE, not per tick: a declaration may escalate (nudge the referee at 240s, the
             # players at 600s), and one shared flag would let the first rule to fire mute the rest.
-            if n and now - self._game_last_ts >= n:
+            if n and now - last_ts >= n:
                 for who in self._machine.get("members", {}).get(rule["role"], []):
                     await self._mention(str(who))
                 self._after_fired.add(i)
+
+    async def _realm_started(self) -> float:
+        """The clock the machine's `after_s` rules run from before any GAME event: the realm's
+        own `running` lifecycle event, which survives a restart of the host, falling back to this
+        snapshot's start when the realm predates that record."""
+        for e in await self._chron.events(self._realm, kind=EventKind.LIFECYCLE):
+            if e.payload.get("event") == "running":
+                return float(e.ts_ms) / 1000.0
+        return self._start
 
     async def _mention(self, agent_id: str) -> None:
         cred = self._creds.get(agent_id)

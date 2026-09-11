@@ -328,6 +328,38 @@ async def test_after_s_nudges_the_role_once_per_stall_measured_from_the_last_gam
     await chron.close()
 
 
+async def test_after_s_runs_from_the_realms_start_even_if_no_transition_ever_fires():
+    """The timer was armed by the FIRST game event, so a machine with no events had no timer —
+    and "the referee never fired the opening transition" is precisely the stall an `after_s` rule
+    exists to break. A realm could sit at its initial state until `duration` killed it, with the
+    one rule written to prevent that never running. It now starts at the realm's own start."""
+    chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+    mx = FakeMatrix()
+    herald = await _herald(mx)
+    t = {"now": 0.0}
+    live = _live(chron, herald, {}, _creds("alice", "bob", "ref"),
+                 machine=_machine_rec([{"role": "ref", "after_s": 240}]))
+    live._clock = lambda: t["now"]
+    await chron.append_event("g1", EventKind.LIFECYCLE, {"event": "running"}, ts_ms=0)
+    await live()
+    assert _woken(mx) == []          # not yet: the realm is 0s old
+    t["now"] = 250
+    await live()
+    assert _woken(mx) == ["@g1-ref:realm.local"]  # ...and no GAME event has ever existed
+    t["now"] = 500
+    await live()
+    assert len(_woken(mx)) == 1      # once per stall, as ever
+    # a first real move re-arms the rule from the event's own timestamp
+    await _game(chron, {"op": "act", "wake": [], "wake_actor": []}, ts_ms=500_000)
+    t["now"] = 600
+    await live()
+    assert len(_woken(mx)) == 1
+    t["now"] = 800
+    await live()
+    assert _woken(mx)[1:] == ["@g1-ref:realm.local"]
+    await chron.close()
+
+
 async def test_game_events_count_as_activity_and_the_snapshot_carries_machine_state():
     chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
     mx = FakeMatrix()
