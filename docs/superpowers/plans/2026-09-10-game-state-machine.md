@@ -19,7 +19,7 @@
   `Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>` and
   `Claude-Session: https://claude.ai/code/session_011xccv3MYdCyEDScbEkEZXB`.
 - Tests follow the repo convention: Protocol-for-IO + fakes; a guard test must be shown to FAIL on the bug before it is trusted (reintroduce, run, restore).
-- Deploying to the live stack means rebuilding **three** components: `scripts/serve.sh`, the `pit-realmtools` image (`docker compose -f deploy/docker-compose.yaml build realmtools && … up -d realmtools`), and `pit shim`. A stale image starts silently — diff the package out of the image against the working tree.
+- Deploying to the live stack means rebuilding **three** components: `scripts/serve.sh`, the `pit-realmtools` image (`docker compose -f deploy/docker-compose.yaml build realmtools && … up -d realmtools`), and the model-provider process on :8787. A stale image starts silently — diff the package out of the image against the working tree.
 - All work on branch `feat/game-state-machine` (already created; the spec is its first commit).
 
 ## File structure
@@ -2855,7 +2855,7 @@ git commit -m "feat(examples): rps-machine — rps-duel with its referee ribbon 
 
 **Files:** none (operations + a chronicle check)
 
-- [ ] **Step 1: Deploy all three components.** `scripts/serve.sh` restart (no realm may be active — check `docker ps | grep ^realm-`); rebuild realmtools: `docker compose -f deploy/docker-compose.yaml build realmtools && docker compose -f deploy/docker-compose.yaml up -d realmtools`; verify the image matches the tree by diffing `/app/src/bearpit` out of the image against `src/bearpit`; restart `pit shim`.
+- [ ] **Step 1: Deploy all three components.** `scripts/serve.sh` restart (no realm may be active — check `docker ps | grep ^realm-`); rebuild realmtools: `docker compose -f deploy/docker-compose.yaml build realmtools && docker compose -f deploy/docker-compose.yaml up -d realmtools`; verify the image matches the tree by diffing `/app/src/bearpit` out of the image against `src/bearpit`; restart the model-provider process on :8787.
 
 - [ ] **Step 2: Launch.** `POST /api/realms {"package": "examples/rps-machine", "realm_id": "rpsm-1"}` with the bearer token from `~/.bearpit/api-token`.
 
