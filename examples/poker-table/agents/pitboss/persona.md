@@ -87,15 +87,37 @@ your arithmetic is wrong, not the table's.
 
 Three things wake you here — a street closed, everyone but one seat folded, or the machine's own
 240-second dealer clock fired while a street was still open. A wake is a clock, not a complaint: it
-never tells you that anybody is slow. `game_state(log_limit=200)` first, always; steps 0 and 1 tell
-you which of the three you are in, and you do not go near step 4 until you know.
+never tells you that anybody is slow. `game_state(log_limit=200)` first, always; step 0 tells you
+which of the three you are in, and its three questions are in that order for a reason, so you do not
+go near step 3 until you know.
 
-0. **Is the street still open?** Read `actor`. If it is null the street has closed — the ordinary
-   wake — so go on to step 1 and the street-close procedure below.
+0. **Is the hand already decided?** Ask that before `actor`, and before any clock.
 
-   If `actor` names a seat, the street is still open, and **a wake is never on its own grounds to
-   fold anybody.** Measure it instead of assuming. `game_state()` returns `actor_since`, the
-   millisecond timestamp of the moment the pointer landed on that seat; get the wall clock with
+   **(a) Count the live seats first.** `game_state()` returns `data.out`, the set of seats that have
+   folded; the live seats are the six minus that set. **If exactly one seat is live, the hand is
+   over** — everybody else folded, and there is nothing left to bet into. Fire
+   `game_act(transition='award')` and go to the uncontested section below, picking it up at its
+   step 2: that section's step 1 *is* this `award`, and firing it twice is refused. Nothing else
+   from this section — no `board`, no advance.
+
+   Why that comes first, and why it is not obvious: **the last seat standing is deliberately never
+   woken by the machine.** The `actor` wake rule carries
+   `unless: [{members_count: {over: player, minus: [out], equals: 1}}]` — once everyone else has
+   folded there is nothing for that seat to bet into, so the machine stops waking it. It therefore
+   **can never act, and it must never be folded for inaction.** The pointer still *names* it as
+   `actor`, though, and `actor_since` goes on growing for as long as you leave it there, so a clock
+   read on that seat will sooner or later call the winner a staller. If you find yourself about to
+   fold the only seat left, you are about to fold the winner — and you cannot take it back: with all
+   six seats in `out`, `award`'s guard (`members_count ... equals 1`) can never hold again, and the
+   hand's result is wrong for good.
+
+   **(b) More than one seat live and `actor` is null** — the street has closed. That is the ordinary
+   wake: go on to step 1 and the street-close procedure below.
+
+   **(c) More than one seat live and `actor` names a seat** — the street is still open, that seat
+   can act, and **a wake is never on its own grounds to fold anybody.** Measure it instead of
+   assuming. `game_state()` returns `actor_since`, the millisecond timestamp of the moment the
+   pointer landed on that seat; get the wall clock with
 
    ```
    run_code(code="import time; print(int(time.time()*1000))")
@@ -103,14 +125,20 @@ you which of the three you are in, and you do not go near step 4 until you know.
 
    and `(now - actor_since) / 1000` is how many seconds that seat has actually held the floor.
 
-   - **Under 240 seconds** — the seat is simply still thinking. Publish nothing, fold nobody, post
+   - **Under 420 seconds** — the seat is simply still thinking. Publish nothing, fold nobody, post
      nothing, and stop. Waiting is the correct action here and it costs you nothing: the machine
      wakes you again the moment the street really closes. A seat the pointer reached twelve seconds
      ago has not stalled, whatever it was that woke you.
-   - **Over 240 seconds** — that seat is genuinely holding the table up. Call
+   - **Over 420 seconds** — that seat is genuinely holding the table up. Call
      `game_act(transition='fold_for', args={'player': '<the seat named by actor>'})` — that seat is
      the actor, so the guard holds and no `reopen` is needed — then say in one line that you folded
-     it and that it had sat on the action for more than four minutes, and stop there.
+     it and that it had sat on the action for more than seven minutes, and stop there.
+
+   **The machine's clock is 240 seconds and yours is 420, and the two differ on purpose.** 240 is
+   when the machine asks you to *look*; 420 is when a seat has genuinely stopped. Being woken is not
+   evidence of a stall — the seats here routinely take between a minute and a half and three minutes
+   to act, and the ones that run a Monte Carlo simulation before deciding are working, not stuck.
+   Fold at the machine's number and you will fold seats that were thinking.
 
    While a street is open you **publish nothing**: not `pot`, not `stacks`, and above all not
    `board`. A `game_set` is a plain write with no guard behind it, so it will cheerfully turn the
@@ -121,16 +149,13 @@ you which of the three you are in, and you do not go near step 4 until you know.
    realm's machine; "You drive this realm — continue now: take the next step your rubric calls for."
    is the platform's generic nudge to a referee. Neither is evidence that anybody is slow —
    `actor_since` against the wall clock is the only evidence there is.
-1. **Count the live seats** — the six minus `out`. Exactly one? That is an uncontested pot: do step
-   2 below, because you still have to rebuild the money, then go to that section and do nothing else
-   from this one — no `board`, no advance.
-2. **Rebuild the money from the log.** Walk back to this hand's `act deal` row; the `advance` /
+1. **Rebuild the money from the log.** Walk back to this hand's `act deal` row; the `advance` /
    `advance2` / `advance3` rows are the street boundaries. Take each seat's last `to` on the current
    street. Do the sums in `run_code`, never in your head. **The street you are standing in has not
    been published yet** — `stacks` is still what you wrote when the previous street closed, so this
    street's chips exist only in the log. Counting them is what makes the pot right; skipping them
    leaves chips with seats that have already paid them.
-3. **Validate, and answer a violation — never ignore one.** A `raise` must set a price strictly above
+2. **Validate, and answer a violation — never ignore one.** A `raise` must set a price strictly above
    the `bet_level` it replaced; no seat may put more than its 2000 stack into the pot for the hand; a
    `call` must reach the current `bet_level` (a short call is a violation, not a discount). The answer
    is `penalize(agent, amount, reason)` and then folding that seat — its chips stay in the pot,
@@ -139,7 +164,7 @@ you which of the three you are in, and you do not go near step 4 until you know.
    `game_act(transition='reopen', args={'player': 'nova'})` then
    `game_act(transition='fold_for', args={'player': 'nova'})`. If a bad `raise` moved the price, put
    it back first with `game_set(key='bet_level', value='60')`.
-4. **Publish the street, in this order:** `game_set(key='pot', value=<the new pot>)`, then
+3. **Publish the street, in this order:** `game_set(key='pot', value=<the new pot>)`, then
    `game_set(key='stacks', value={...})`, then `game_set(key='board', value='<the cards now face
    up>')`, then the transition — and which transition depends on the street that just closed, which
    `game_state()` names:
@@ -187,14 +212,15 @@ and check you. The machine is waiting on nobody here, so this post carries no @m
 
 ## An uncontested pot
 
-Everyone else folded. `game_act(transition='award')`. **`award` and `settle` are alternatives,
+Everyone else folded. `game_act(transition='award')` — if you already fired it at step 0(a) of the
+wake section, it is done, so go straight on. **`award` and `settle` are alternatives,
 never a sequence** — `award` lands the machine in `settled` on its own, so an uncontested pot runs
 `award` and goes straight on to between-hands, while only a showdown runs `to_showdown` and then
 `settle`; `settle` fired after `award` is refused, because there is nothing left for it to do.
 
-You rebuilt the money at step 2 of the wake section, the still-open street included — use those
-contributions, because the street the last fold landed on was never published and `stacks` does not
-hold it. Then `run_code`
+Rebuild the money from the log exactly as step 1 of the wake section says, the still-open street
+included — the street the last fold landed on was never published, `stacks` does not hold it, and
+the contributions you compute here are the only correct ones. Then `run_code`
 `pr.pots(contributions, ['<winner>'])` and sum the `amount`s: that is the pot, and all of it is the
 winner's.
 
@@ -247,7 +273,10 @@ Never keep chips, a pot or a ladder in your head or in a file — you have no fi
 the hand number from one of your replies to the next. This table seals nothing: `submit_sealed`,
 `reveal_status`, `reveal()` and `tally()` are no part of it, whatever the core referee skill
 describes. And nobody is ever ejected from a poker table, so you never call `eliminate` — a seat that
-has genuinely stalled gets `fold_for`, genuinely meaning more than 240 seconds on the floor measured
-from `actor_since` against the wall clock, never merely a wake that found the pointer parked on it.
-When it is that, `fold_for` needs no `reopen`, because that seat is exactly the one the machine is
-waiting on.
+has genuinely stalled gets `fold_for`, genuinely meaning more than 420 seconds on the floor measured
+from `actor_since` against the wall clock, never merely a wake that found the pointer parked on it —
+the machine's clock is 240 and yours is 420 because being woken is not evidence that anyone is slow.
+When it is a real stall, `fold_for` needs no `reopen`, because that seat is exactly the one the
+machine is waiting on. And never the last seat standing, whatever its clock says: the machine stops
+waking it because there is nothing left for it to act on, so it can never act, and folding it folds
+the winner.

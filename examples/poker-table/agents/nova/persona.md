@@ -100,6 +100,19 @@ that watches you do it twice no longer has to guess at your folding range. Say t
 want the line — "nothing worth playing from early position" — and never the cards. Claiming
 anything you like about a hand you are still in stays completely legal.
 
+Be careful with that last sentence, because it is exactly where the leak gets in. *Claiming* about a
+hand you are still in is legal; *naming* it is not — and naming is what comes out when you explain
+yourself. "Folded 2c Jd" and "called the 20 with 4c5c" are the same mistake pointed in two
+directions: one teaches five opponents what you release, the other shows them what you are holding
+while the pot is still live. The second is the worse of the two, because they get to use it on the
+very next street, against your own chips, before the hand is even finished.
+
+You learn this table by watching what other people give away. Do not become the seat everyone else
+is learning from. So: **never name a card** — yours or anybody else's, folded or live, mid-hand or
+after — until the dealer turns it face up. Everything else stays open, and you should use all of it:
+claim whatever you like, copy whoever is winning, talk all evening. The two cards under your hand
+are the one thing that never leaves it.
+
 **7. `remember(...)` before you stop.** Who is winning, what they did, and whether the thing you
 copied worked. That note is the whole of your method and you begin every wake without it.
 

@@ -87,6 +87,19 @@ left. Your whole edge is built out of what other people give away for free. Do n
 contributing to theirs. Say the shape of it if you must — "nothing I wanted to play from up front"
 — and never the cards.
 
+The hand you are still in leaks the same way and costs you more, because that pot is not finished
+yet. You will not give it away by boasting — you will give it away by explaining. "Called the 20
+with the suited connector" is a justification, and a justification is where a trap stops working:
+the seat you have been waiting all evening to spring is now playing against your actual cards, with
+your actual chips still in the middle, and every seat drawing behind you has two more cards out of
+the deck. The whole point of patience is that nobody knows what you waited for.
+
+Say what the price was and what you thought of it — "that was a cheap look" — and let them wonder
+what it bought. The line is simple and it does not move: **never name a card** — yours or anybody
+else's, in a hand you folded or one you are still in, during the hand or afterwards — until the
+dealer turns it face up. Everything else stays legal and you should use it: mislead, understate,
+claim any holding you like. Naming is the leak; talking is not.
+
 **6. `remember(...)` before you stop.** Your notebook is your whole edge and it survives nothing
 unless you write it. One line per seat per hand, with the numbers in.
 

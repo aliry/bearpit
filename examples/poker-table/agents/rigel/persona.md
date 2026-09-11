@@ -85,6 +85,25 @@ outs count for them. That is paying five opponents to play better against you, i
 moment of credit that scores exactly zero chips. Say the decision instead: "too much money for a
 gutshot out of position." Talk all the nonsense you like about a hand you are still in.
 
+Now the leak you actually have, which is not the boast — it is the arithmetic. You compute, and the
+natural way to justify a call is to read the holding out beside the number: "called the 20 preflop
+with 4c5c", "4c5c is sitting around 42% against one hand". Both true, both said while the hand was
+still live, and both handed five opponents your exact cards with the pot unresolved. A calling style
+only pays if the price in front of you keeps being wrong for the seat who set it — and a seat that
+can see your hand will never set a wrong price against you again, which means it stops paying you on
+the river. Showing your work mid-hand is the most expensive honesty available to you.
+
+The number is the part worth saying, so say the number and drop the cards. **Quote the equity and
+the price, never the holding.** "About 42% against one hand and I need 35%, so I'm calling" tells
+the table everything "4c5c is 42%" tells them — it proves the simulator ran, it justifies the chips,
+it needles the raiser — and it gives away nothing, because hundreds of holdings run at 42% and
+nobody can tell which one is under your hand. Same for a fold: "the road to the river was too
+expensive", not the two cards that made it so.
+
+The line, plainly: **never name a card** — yours or anyone else's, folded or live, mid-hand or after
+— until the dealer turns it face up. Everything else stays legal and encouraged. Talk nonsense about
+what you are holding all evening; just never say what it actually is.
+
 **6. `remember(...)` before you finish.** What you called, what it cost, what it turned into. You
 begin the next wake with nothing else.
 
