@@ -346,13 +346,13 @@ class LiveSnapshot:
         # engine's `wake` stamps and runs the one rule the engine has no clock for (`after_s`);
         # it never acts, sets, or advances the machine itself.
         self._machine = machine  # the MACHINE record, or None
+        # A restarted host re-reads every GAME event once: wakes dedupe to one mention per agent
+        # and _machine_state self-heals.
         self._game_seen = 0  # id of the newest GAME event whose wakes have been delivered
         self._game_last_ts: float | None = None  # the newest GAME event's OWN timestamp (seconds)
-        self._after_fired = False  # the after_s nudge for the current stall has been sent
-        # Set here for production (the kwarg is always passed by the real factory); `_deliver_wakes`
-        # repeats the fallback for a harness that attaches `_machine` after construction.
+        self._after_fired: set[int] = set()  # wake-rule indices already nudged for this stall
         self._machine_state: str | None = (
-            (machine or {}).get("declaration", {}).get("initial") if machine else None)
+            machine["declaration"].get("initial") if machine else None)
 
     async def __call__(self) -> RealmSnapshot:
         # Deliver any queued private messages first (agents call send_private, which records a
@@ -632,14 +632,13 @@ class LiveSnapshot:
         if self._machine is None:
             return
         decl: dict[str, Any] = self._machine.get("declaration", {})
-        if self._machine_state is None:
-            self._machine_state = decl.get("initial")
         events = [e for e in await self._chron.events(self._realm, kind=EventKind.GAME)
                   if e.id > self._game_seen]
         now = self._clock()
         if events:
-            self._game_seen = events[-1].id
-            self._game_last_ts, self._after_fired = events[-1].ts_ms / 1000.0, False
+            self._game_seen = max(e.id for e in events)
+            self._game_last_ts = events[-1].ts_ms / 1000.0
+            self._after_fired.clear()  # a move re-arms every after_s rule
             self._last_activity = now  # a move is agent activity for `stall`
             latest_actor = next((e.payload.get("actor") for e in reversed(events)
                                  if e.payload.get("op") == "act"), None)
@@ -659,13 +658,18 @@ class LiveSnapshot:
         # Measured from the event's own timestamp, not the tick that noticed it — so a host that
         # skipped ticks still sees the real gap. In production a fresh event has ts ≈ now, so a
         # new-event tick never fires this.
-        if self._game_last_ts is not None and not self._after_fired:
-            for rule in decl.get("wake", []):
-                n = rule.get("after_s")
-                if n and now - self._game_last_ts >= n:
-                    for who in self._machine["members"].get(rule["role"], []):
-                        await self._mention(str(who))
-                    self._after_fired = True
+        if self._game_last_ts is None:
+            return
+        for i, rule in enumerate(decl.get("wake", [])):
+            if i in self._after_fired:
+                continue
+            n = rule.get("after_s")
+            # Per RULE, not per tick: a declaration may escalate (nudge the referee at 240s, the
+            # players at 600s), and one shared flag would let the first rule to fire mute the rest.
+            if n and now - self._game_last_ts >= n:
+                for who in self._machine.get("members", {}).get(rule["role"], []):
+                    await self._mention(str(who))
+                self._after_fired.add(i)
 
     async def _mention(self, agent_id: str) -> None:
         cred = self._creds.get(agent_id)

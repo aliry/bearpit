@@ -358,7 +358,12 @@ class Herald:
             if event_id in seen:
                 continue  # already chronicled — mirror is polled repeatedly; dedup by event id
             seen.add(event_id)
-            ts = int(e.get("origin_server_ts", 0))
+            # An absent/zero origin_server_ts must NOT be chronicled as epoch 0: `messages()`
+            # orders by (ts_ms, id), so a 1970 row sorts to the FRONT of the transcript and the
+            # TurnManager's index cursor consumes an already-seen entry — skipping the real
+            # speaker and stalling the floor. None lets the Chronicle stamp now instead.
+            raw_ts = e.get("origin_server_ts")
+            ts = int(raw_ts) if raw_ts else None
             sender = str(e.get("sender", ""))
             body = str(e.get("content", {}).get("body", ""))
             await chronicle.record_message(realm_id, room_id, sender, body, ts_ms=ts)

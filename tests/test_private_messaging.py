@@ -84,7 +84,7 @@ async def _herald(mx):
     return h
 
 
-def _live(chron, herald, side_channels, creds):
+def _live(chron, herald, side_channels, creds, machine=None):
     from bearpit.gatekeeper.runner import LiveSnapshot
 
     class _Ledger:
@@ -99,7 +99,7 @@ def _live(chron, herald, side_channels, creds):
         herald=herald, ledger=_Ledger(), chronicle=chron, runtime=_Runtime(),
         realm_id="g1", commons_room="!commons:realm.local", shared_volume=None,
         stop_flag=lambda: False, clock=lambda: 0.0,
-        side_channels=side_channels, creds=creds,
+        side_channels=side_channels, creds=creds, machine=machine,
     )
 
 
@@ -241,6 +241,10 @@ def _wakes(mx):
     return [(room, body, mentions) for (_, room, body, mentions) in mx.sent if WAKE_TEXT in body]
 
 
+def _woken(mx):
+    return [m for (_, _, mentions) in _wakes(mx) for m in mentions]  # mxids, in send order
+
+
 async def _game(chron, payload, ts_ms=None):
     await chron.append_event("g1", EventKind.GAME, payload, ts_ms=ts_ms)
 
@@ -249,8 +253,8 @@ async def test_wake_stamps_become_one_mention_per_target_and_actor_wakes_collaps
     chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
     mx = FakeMatrix()
     herald = await _herald(mx)
-    live = _live(chron, herald, {}, _creds("alice", "bob", "ref"))
-    live._machine = _machine_rec([{"role": "actor"}])
+    live = _live(chron, herald, {}, _creds("alice", "bob", "ref"),
+                 machine=_machine_rec([{"role": "actor"}]))
     await _game(chron, {"op": "act", "actor": "alice", "wake": ["alice"]})
     await _game(chron, {"op": "act", "actor": "bob", "wake": ["bob"]})
     await _game(chron, {"op": "act", "actor": "bob", "wake": ["ref", "bob"]})
@@ -269,9 +273,9 @@ async def test_after_s_nudges_the_role_once_per_stall_measured_from_the_last_gam
     mx = FakeMatrix()
     herald = await _herald(mx)
     t = {"now": 0.0}
-    live = _live(chron, herald, {}, _creds("alice", "bob", "ref"))
+    live = _live(chron, herald, {}, _creds("alice", "bob", "ref"),
+                 machine=_machine_rec([{"role": "ref", "after_s": 240}]))
     live._clock = lambda: t["now"]
-    live._machine = _machine_rec([{"role": "ref", "after_s": 240}])
     await _game(chron, {"op": "act", "wake": []}, ts_ms=0)
     await live()
     assert _wakes(mx) == []
@@ -293,9 +297,9 @@ async def test_game_events_count_as_activity_and_the_snapshot_carries_machine_st
     mx = FakeMatrix()
     herald = await _herald(mx)
     t = {"now": 0.0}
-    live = _live(chron, herald, {}, _creds("alice", "ref"))
+    live = _live(chron, herald, {}, _creds("alice", "ref"),
+                 machine=_machine_rec([], terminal=["b"]))
     live._clock = lambda: t["now"]
-    live._machine = _machine_rec([], terminal=["b"])
     snap = await live()
     assert snap.machine_state == "a"
     t["now"] = 100
@@ -304,4 +308,34 @@ async def test_game_events_count_as_activity_and_the_snapshot_carries_machine_st
     # a move IS agent activity: `stall` must not fire mid-hand
     assert snap.idle_s == 0.0
     assert snap.machine_state == "b"
+    await chron.close()
+
+
+async def test_after_s_escalates_rule_by_rule_and_a_new_event_re_arms_every_rule():
+    """Each wake rule keeps its own fired-flag: a declaration may nudge the referee at 240s and
+    escalate to the players at 600s, and one shared flag would let the first rule mute the second.
+    A sibling of the test above rather than a continuation of it — the second declaration needs
+    its own snapshot and chronicle."""
+    chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+    mx = FakeMatrix()
+    herald = await _herald(mx)
+    t = {"now": 0.0}
+    live = _live(chron, herald, {}, _creds("alice", "bob", "ref"),
+                 machine=_machine_rec([{"role": "ref", "after_s": 240},
+                                       {"role": "player", "after_s": 600}]))
+    live._clock = lambda: t["now"]
+    await _game(chron, {"op": "act", "wake": []}, ts_ms=0)
+    await live()
+    assert _woken(mx) == []
+    t["now"] = 250
+    await live()
+    assert _woken(mx) == ["@g1-ref:realm.local"]  # only the quick rule is due
+    t["now"] = 650
+    await live()
+    # the slow rule escalates to the players; the quick rule does not fire a second time
+    assert _woken(mx) == ["@g1-ref:realm.local", "@g1-alice:realm.local", "@g1-bob:realm.local"]
+    await _game(chron, {"op": "act", "wake": []}, ts_ms=650_000)
+    t["now"] = 900
+    await live()
+    assert _woken(mx)[3:] == ["@g1-ref:realm.local"]  # the move re-armed every rule
     await chron.close()

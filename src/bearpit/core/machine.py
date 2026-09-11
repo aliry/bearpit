@@ -223,6 +223,12 @@ class MachineDef(_Base):
                 raise ValueError(
                     f"wake rule: role {w.role!r} needs `when` or `after_s` — only `actor` may"
                     f" be bare")
+            if w.role == "actor" and w.after_s is not None:
+                # `actor` is the pointer, not a role with members: members['actor'] is always
+                # empty, so the nudge would be delivered to nobody and the stall never surface.
+                raise ValueError(
+                    "wake rule: after_s needs a declared role — 'actor' has no members to "
+                    "nudge; nudge the referee instead")
             if w.after_s is not None and w.after_s < AFTER_S_FLOOR:
                 raise ValueError(
                     f"wake rule: after_s {w.after_s} is below the floor of {AFTER_S_FLOOR}")

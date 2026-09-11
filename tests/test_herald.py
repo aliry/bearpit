@@ -259,6 +259,31 @@ async def test_mirror_dedups_across_polls():
     await chron.close()
 
 
+async def test_mirror_never_chronicles_an_event_without_a_timestamp_at_epoch_0():
+    """`messages()` orders by (ts_ms, id), so a 1970 row sorts to the FRONT of the transcript and
+    the TurnManager's index cursor then consumes an already-seen entry — skipping the real speaker
+    and stalling the floor. A missing/zero origin_server_ts is stamped `now` instead."""
+    mx = FakeMatrix()
+    herald = Herald(mx, server_name="realm.local", homeserver="h")
+    await herald.ensure_system("pw")
+    room = "!c:realm.local"
+    mx.seed_events(room, [
+        {"type": "m.room.message", "sender": "@vela:realm.local", "event_id": "$e1",
+         "origin_server_ts": 1000, "content": {"body": "first"}},
+        {"type": "m.room.message", "sender": "@orin:realm.local", "event_id": "$e2",
+         "content": {"body": "no timestamp"}},  # a server that sent none
+        {"type": "m.room.message", "sender": "@orin:realm.local", "event_id": "$e3",
+         "origin_server_ts": 0, "content": {"body": "zero timestamp"}},
+    ])
+    chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+    assert await herald.mirror("r", room, chron) == 3
+    rows = await chron.messages("r")
+    assert [m.body for m in rows] == ["first", "no timestamp", "zero timestamp"]
+    assert all(m.ts_ms > 0 for m in rows)  # nothing landed at epoch 0
+    assert rows[1].ts_ms > rows[0].ts_ms and rows[2].ts_ms > rows[0].ts_ms
+    await chron.close()
+
+
 async def test_wait_for_agents_gates_on_membership():
     mx = FakeMatrix()
     herald = Herald(mx, server_name="realm.local", homeserver="h")

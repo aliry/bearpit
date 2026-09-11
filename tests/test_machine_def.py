@@ -219,6 +219,9 @@ HIDDEN = _with(
      "wake rule: role 'ref' needs `when` or `after_s` — only `actor` may be bare"),
     ({**HIDDEN, "wake": [{"role": "ref", "after_s": 30}]},
      "wake rule: after_s 30 is below the floor of 240"),
+    # `actor` is the pointer, not a role with members — a timed nudge at it reaches nobody
+    ({**HIDDEN, "wake": [{"role": "actor", "after_s": 240}]},
+     "wake rule: after_s needs a declared role"),
     ({**HIDDEN, "wake": [{"role": "ref", "when": ["caller_is_actor"]}]},
      "wake rule: 'caller_is_actor' has no caller in a wake rule"),
 ])
