@@ -30,6 +30,10 @@ SAFE_EFFECTS = frozenset({"advance_actor", "add_to", "reveal"})
 # text would leak what they read).
 _HIDDEN_READING = frozenset({"caller_in", "caller_not_in", "data_equals", "data_set_empty",
                              "data_set_full"})
+# Guards that name a data key directly — the key must be declared, except the reserved pointer
+# "actor" for data_equals/data_present (a comparison against the current actor, not a data key).
+_KEY_READING = frozenset({"data_equals", "data_present", "data_set_empty", "caller_in",
+                          "caller_not_in"})
 AFTER_S_FLOOR = 240  # scenario-contract §13: a resolver run_code may block 90s on a real pipeline
 
 
@@ -175,3 +179,73 @@ class MachineDef(_Base):
             if d is None or d.visibility != "owner":
                 raise ValueError(
                     f"transition {tname!r}: 'reveal' needs an owner-visibility key, got {key!r}")
+
+    @model_validator(mode="after")
+    def _authority_and_visibility(self) -> MachineDef:
+        opt_in = set(self.participant_effects)
+        for name, t in self.transitions.items():
+            role = self.roles[t.by]
+            if role.members != "referee":
+                for e in t.effects:
+                    if e.name not in SAFE_EFFECTS and e.name not in opt_in:
+                        raise ValueError(
+                            f"transition {name!r}: role {t.by!r} may not use {e.name!r} — add it"
+                            f" to participant_effects")
+                    if e.name == "add_to" and "add_to" not in opt_in and (
+                            (e.arg or {}).get("value") != "$caller"):
+                        raise ValueError(
+                            f"transition {name!r}: role {t.by!r} may only add_to with value"
+                            f" $caller")
+                    if e.name == "reveal" and "reveal" not in opt_in and (
+                            (e.arg or {}).get("owners") != "$caller"):
+                        raise ValueError(
+                            f"transition {name!r}: role {t.by!r} may only reveal owners $caller")
+            if role.visibility == "hidden" and t.log != "referee":
+                raise ValueError(
+                    f"transition {name!r}: by hidden role {t.by!r} requires log: referee")
+            for g in t.guard:
+                self._check_guard(name, g, public_log=(t.log == "public"))
+        for i, w in enumerate(self.wake):
+            if w.role != "actor" and w.role not in self.roles:
+                raise ValueError(f"wake rule: {w.role!r} is not a declared role")
+            if w.role != "actor" and self.roles[w.role].visibility == "hidden":
+                raise ValueError(
+                    f"wake rule targets hidden role {w.role!r} — deferred until per-agent wake"
+                    f" rooms exist")
+            if w.after_s is not None and w.after_s < AFTER_S_FLOOR:
+                raise ValueError(
+                    f"wake rule: after_s {w.after_s} is below the floor of {AFTER_S_FLOOR}")
+            for g in [*w.when, *w.unless]:
+                if g.name in {"caller_is_actor", "caller_in", "caller_not_in"}:
+                    raise ValueError(f"wake rule: {g.name!r} has no caller in a wake rule")
+                self._check_guard(f"wake[{i}]", g, public_log=False)
+        return self
+
+    def _check_guard(self, where: str, g: Guard, *, public_log: bool) -> None:
+        arg = g.arg if isinstance(g.arg, dict) else {}
+        key = arg.get("key") if isinstance(g.arg, dict) else g.arg
+        if (g.name in _KEY_READING and isinstance(key, str) and key not in self.data
+                and not (key == "actor" and g.name in {"data_equals", "data_present"})):
+            raise ValueError(
+                f"transition {where!r}: guard {g.name!r} reads undeclared key {key!r}")
+        if g.name == "members_count":
+            n = next((arg[k] for k in ("equals", "at_most", "at_least") if k in arg), None)
+            if not isinstance(n, int) or isinstance(n, bool):
+                raise ValueError(f"transition {where!r}: members_count N must be a literal")
+            if arg.get("over") not in self.roles:
+                raise ValueError(
+                    f"transition {where!r}: members_count.over {arg.get('over')!r} is not a"
+                    f" declared role")
+        if g.name in {"data_set_full", "escrow_complete"} and arg.get("over") not in self.roles:
+            raise ValueError(
+                f"transition {where!r}: {g.name}.over {arg.get('over')!r} is not a declared role")
+        for s in arg.get("minus", []) if isinstance(arg, dict) else []:
+            if not self.is_set(s):
+                raise ValueError(
+                    f"transition {where!r}: {g.name}.minus {s!r} is not a declared set key")
+        if public_log and g.name in _HIDDEN_READING and isinstance(key, str):
+            d = self.data.get(key)
+            if d is not None and d.visibility == "referee":
+                raise ValueError(
+                    f"transition {where!r}: public log but guard {g.name!r} reads"
+                    f" referee-visibility key {key!r}")

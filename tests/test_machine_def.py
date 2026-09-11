@@ -119,8 +119,106 @@ def test_guards_and_effects_accept_string_and_single_key_dict_forms():
         ),
         "transition 'go': 'unset' on a set key 's' — use 'reset'",
     ),
+    (
+        _with(
+            transitions={
+                "go": {
+                    "from": "a",
+                    "to": "b",
+                    "by": "ref",
+                    "effects": [{"set": {"key": "nope", "value": 1}}],
+                }
+            },
+        ),
+        "transition 'go': 'set' on undeclared key 'nope'",
+    ),
+    (
+        _with(
+            transitions={
+                "go": {
+                    "from": "a",
+                    "to": "b",
+                    "by": "ref",
+                    "effects": [{"reveal": {"key": "pot", "owners": "$caller"}}],
+                }
+            },
+            data={"pot": {"visibility": "public"}},
+        ),
+        "transition 'go': 'reveal' needs an owner-visibility key, got 'pot'",
+    ),
 ])
 def test_bad_structure_is_refused_with_a_precise_message(bad, message):
     with pytest.raises(ValidationError) as exc:
         MachineDef.model_validate(bad)
     assert message in str(exc.value)
+
+
+HIDDEN = _with(
+    roles={"ref": {"members": "referee"}, "player": {"members": "participants"},
+           "impostor": {"members": ["cass", "vega"], "visibility": "hidden"}},
+    data={"dead": {"visibility": "public", "type": "set"},
+          "secret": {"visibility": "referee"},
+          "acted": {"visibility": "public", "type": "set"}},
+    actor={"over": "player", "skip": ["dead"]},
+)
+
+
+@pytest.mark.parametrize("bad, message", [
+    # a participant may only mark itself, show its own hand, and pass
+    (_with(data={"acted": {"visibility": "public", "type": "set"}},
+           transitions={"go": {"from": "a", "to": "b", "by": "player",
+                               "effects": [{"reset": "acted"}]}}),
+     "transition 'go': role 'player' may not use 'reset' — add it to participant_effects"),
+    (_with(data={"out": {"visibility": "public", "type": "set"}},
+           transitions={"go": {"from": "a", "to": "b", "by": "player",
+                               "effects": [{"add_to": {"key": "out", "value": "$args.victim"}}]}}),
+     "transition 'go': role 'player' may only add_to with value $caller"),
+    (_with(data={"hole": {"visibility": "owner"}},
+           transitions={"go": {"from": "a", "to": "b", "by": "player",
+                               "effects": [{"reveal": {"key": "hole", "owners": "$args.who"}}]}}),
+     "transition 'go': role 'player' may only reveal owners $caller"),
+    # hidden roles and hidden data must not leak through the public log
+    ({**HIDDEN, "transitions": {"kill": {"from": "a", "to": "b", "by": "impostor"}}},
+     "transition 'kill': by hidden role 'impostor' requires log: referee"),
+    ({**HIDDEN, "transitions": {"go": {"from": "a", "to": "b", "by": "ref",
+                                        "guard": [{"data_equals":
+                                                   {"key": "secret", "value": 1}}]}}},
+     "transition 'go': public log but guard 'data_equals' reads referee-visibility key 'secret'"),
+    # cardinality compares to a literal, never to something an agent wrote
+    ({**HIDDEN, "transitions": {"go": {"from": "a", "to": "b", "by": "ref",
+                                        "guard": [{"members_count":
+                                                   {"over": "player", "equals": "$data.n"}}]}}},
+     "transition 'go': members_count N must be a literal"),
+    # a guard may not name a key the declaration never declared
+    ({**HIDDEN, "transitions": {"go": {"from": "a", "to": "b", "by": "ref",
+                                        "guard": [{"caller_in": "ghost"}]}}},
+     "transition 'go': guard 'caller_in' reads undeclared key 'ghost'"),
+    # wake rules
+    ({**HIDDEN, "wake": [{"role": "impostor"}]},
+     "wake rule targets hidden role 'impostor' — deferred until per-agent wake rooms exist"),
+    ({**HIDDEN, "wake": [{"role": "ghost"}]}, "wake rule: 'ghost' is not a declared role"),
+    ({**HIDDEN, "wake": [{"role": "ref", "after_s": 30}]},
+     "wake rule: after_s 30 is below the floor of 240"),
+    ({**HIDDEN, "wake": [{"role": "ref", "when": ["caller_is_actor"]}]},
+     "wake rule: 'caller_is_actor' has no caller in a wake rule"),
+])
+def test_authority_and_visibility_rules_are_refused_at_launch(bad, message):
+    with pytest.raises(ValidationError) as exc:
+        MachineDef.model_validate(bad)
+    assert message in str(exc.value)
+
+
+def test_participant_effects_opt_in_lifts_the_default():
+    m = MachineDef.model_validate(_with(
+        data={"acted": {"visibility": "public", "type": "set"}}, participant_effects=["reset"],
+        transitions={"go": {"from": "a", "to": "b", "by": "player",
+                             "effects": [{"reset": "acted"}]}},
+    ))
+    assert m.participant_effects == ["reset"]
+
+
+def test_after_s_defaults_to_the_floor():
+    m = MachineDef.model_validate(_with(wake=[{"role": "ref", "after_s": None}]))
+    assert m.wake[0].after_s is None  # None = not a time rule; the floor applies to a set value
+    m2 = MachineDef.model_validate(_with(wake=[{"role": "ref", "after_s": 600}]))
+    assert m2.wake[0].after_s == 600
