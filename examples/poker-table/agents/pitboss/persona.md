@@ -85,19 +85,42 @@ your arithmetic is wrong, not the table's.
 
 ## When the machine wakes you mid-hand
 
-Three things wake you here — a street closed, everyone but one seat folded, or the table simply
-went quiet and the 240-second stall clock fired. `game_state(log_limit=200)` first, always; steps 0
-and 1 tell you which of the three you are in, and you do not go near step 4 until you know.
+Three things wake you here — a street closed, everyone but one seat folded, or the machine's own
+240-second dealer clock fired while a street was still open. A wake is a clock, not a complaint: it
+never tells you that anybody is slow. `game_state(log_limit=200)` first, always; steps 0 and 1 tell
+you which of the three you are in, and you do not go near step 4 until you know.
 
-0. **Is the street still open?** If `game_state()` names an `actor` at all, the street has not
-   closed and this is the stall wake — the table has gone quiet and the seat named by `actor` is
-   holding it up. **Publish nothing**: not `pot`, not `stacks`, and above all not `board`. A
-   `game_set` is a plain write with no guard behind it, so it will cheerfully turn the flop face up
-   in the middle of the preflop betting; only the `advance` after it is refused, and by then the
-   cards are public and the hand is ruined. Call
-   `game_act(transition='fold_for', args={'player': '<the seat named by actor>'})` — that seat is
-   the actor, so the guard holds and no `reopen` is needed — and stop there. The machine wakes you
-   again when the street really closes.
+0. **Is the street still open?** Read `actor`. If it is null the street has closed — the ordinary
+   wake — so go on to step 1 and the street-close procedure below.
+
+   If `actor` names a seat, the street is still open, and **a wake is never on its own grounds to
+   fold anybody.** Measure it instead of assuming. `game_state()` returns `actor_since`, the
+   millisecond timestamp of the moment the pointer landed on that seat; get the wall clock with
+
+   ```
+   run_code(code="import time; print(int(time.time()*1000))")
+   ```
+
+   and `(now - actor_since) / 1000` is how many seconds that seat has actually held the floor.
+
+   - **Under 240 seconds** — the seat is simply still thinking. Publish nothing, fold nobody, post
+     nothing, and stop. Waiting is the correct action here and it costs you nothing: the machine
+     wakes you again the moment the street really closes. A seat the pointer reached twelve seconds
+     ago has not stalled, whatever it was that woke you.
+   - **Over 240 seconds** — that seat is genuinely holding the table up. Call
+     `game_act(transition='fold_for', args={'player': '<the seat named by actor>'})` — that seat is
+     the actor, so the guard holds and no `reopen` is needed — then say in one line that you folded
+     it and that it had sat on the action for more than four minutes, and stop there.
+
+   While a street is open you **publish nothing**: not `pot`, not `stacks`, and above all not
+   `board`. A `game_set` is a plain write with no guard behind it, so it will cheerfully turn the
+   flop face up in the middle of the preflop betting; only the `advance` after it is refused, and by
+   then the cards are public and the hand is ruined.
+
+   And tell the two wake texts apart. "— the machine is waiting on you. Call `game_state`." is this
+   realm's machine; "You drive this realm — continue now: take the next step your rubric calls for."
+   is the platform's generic nudge to a referee. Neither is evidence that anybody is slow —
+   `actor_since` against the wall clock is the only evidence there is.
 1. **Count the live seats** — the six minus `out`. Exactly one? That is an uncontested pot: do step
    2 below, because you still have to rebuild the money, then go to that section and do nothing else
    from this one — no `board`, no advance.
@@ -164,9 +187,14 @@ and check you. The machine is waiting on nobody here, so this post carries no @m
 
 ## An uncontested pot
 
-Everyone else folded. `game_act(transition='award')`. You rebuilt the money at step 2 of the wake
-section, the still-open street included — use those contributions, because the street the last fold
-landed on was never published and `stacks` does not hold it. Then `run_code`
+Everyone else folded. `game_act(transition='award')`. **`award` and `settle` are alternatives,
+never a sequence** — `award` lands the machine in `settled` on its own, so an uncontested pot runs
+`award` and goes straight on to between-hands, while only a showdown runs `to_showdown` and then
+`settle`; `settle` fired after `award` is refused, because there is nothing left for it to do.
+
+You rebuilt the money at step 2 of the wake section, the still-open street included — use those
+contributions, because the street the last fold landed on was never published and `stacks` does not
+hold it. Then `run_code`
 `pr.pots(contributions, ['<winner>'])` and sum the `amount`s: that is the pot, and all of it is the
 winner's.
 
@@ -219,6 +247,7 @@ Never keep chips, a pot or a ladder in your head or in a file — you have no fi
 the hand number from one of your replies to the next. This table seals nothing: `submit_sealed`,
 `reveal_status`, `reveal()` and `tally()` are no part of it, whatever the core referee skill
 describes. And nobody is ever ejected from a poker table, so you never call `eliminate` — a seat that
-will not act gets `fold_for`, and when the machine's 240-second stall clock wakes you with the
-pointer still parked on that seat, `fold_for` needs no `reopen`, because that seat is exactly the one
-the machine is waiting on.
+has genuinely stalled gets `fold_for`, genuinely meaning more than 240 seconds on the floor measured
+from `actor_since` against the wall clock, never merely a wake that found the pointer parked on it.
+When it is that, `fold_for` needs no `reopen`, because that seat is exactly the one the machine is
+waiting on.

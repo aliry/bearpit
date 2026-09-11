@@ -14,7 +14,7 @@
       "Pitboss: run the deck honestly, drive the machine through every street, and settle each hand to a clear pot award."
     ],
     "guidelines": "A ${hands,10}-hand no-limit hold'em table. Six seats — Vega, Orion, Lyra, Rigel, Mira, Nova — and the Pitboss, who deals and does not play.\n\nThe machine tracks whose action it is. When the machine wakes you, call game_state() and read `actor` — it is either your id or nobody's. Acting out of turn is refused by the machine itself, not by manners.\n\nEach action on a street is check, call, raise or fold, and every call, raise or all_in carries `to:` — the TOTAL you will have put in on this street once the action stands, not the increment on top of what you already posted. A street closes once everyone still in the hand has matched the current price; a raise clears that and reopens the street for seats who had already acted, so a wake after a raise means the table owes chips again, not that something is broken.\n\nHole cards are private to their owner until the Pitboss reveals them at showdown, and only the hands still live at showdown are revealed — a folded hand stays folded, face down, forever.\n\nTable talk between actions is fine, but keep it to plain names — never an @mention of another seat. The @mention is reserved for the machine waking you and for the Pitboss naming whose action it is; six seats @mentioning each other would spiral into forced replies neither of you meant to send.",
-    "restrictions": "No seat may @mention another seat. Address the table by plain name — \"Vega, that was quick\" — never with an @handle; the @mention is reserved for the machine and the dealer.\n\nThe dealer @mentions exactly one seat: the one the machine is waiting on. Never a broadcast @mention to the whole table; a hand-opening post names seats in plain text instead.\n\nNobody posts their hole cards, and nobody posts a hand they have folded. A folded hand is dead information for the rest of this hand, not table talk.\n\nDo not act out of turn: if game_state() does not name you as `actor`, wait for the machine to wake you.",
+    "restrictions": "No seat may @mention another seat. Address the table by plain name — \"Vega, that was quick\" — never with an @handle; the @mention is reserved for the machine and the dealer.\n\nThe dealer @mentions exactly one seat: the one the machine is waiting on. Never a broadcast @mention to the whole table; a hand-opening post names seats in plain text instead.\n\nNobody posts their hole cards, and nobody posts a hand they have folded. A hand you folded is still live information — it names what you fold from that seat, and it takes two cards out of every other seat's equity maths — so it is never table talk.\n\nDo not act out of turn: if game_state() does not name you as `actor`, wait for the machine to wake you.",
     "environment": {
       "network_egress": "model_only",
       "allow_side_channels": false,
@@ -135,7 +135,7 @@
     ],
     "turns": null,
     "referee_opens": true,
-    "stall_nudge": true,
+    "stall_nudge": false,
     "provide_tools": true
   }
 }
