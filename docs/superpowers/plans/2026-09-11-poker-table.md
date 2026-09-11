@@ -417,11 +417,20 @@ readable.
 
 The rest of `spec`: `turns: null`, `referee_opens: true`, `stall_nudge: true`,
 `provide_tools: true`, `environment: {network_egress: "model_only", allow_side_channels: false,
-require_mention: false, shared_folder: {enabled: false}}`,
+require_mention: true, shared_folder: {enabled: false}}`,
 `termination: [{"type": "machine_terminal"}, {"type": "duration", "limit": "5h"},
 {"type": "stall", "limit": "30m"}]`, and `parameters: {"hands": {"type": "int", "min": 1,
 "max": 50, "description": "How many hands the table plays"}}` with `${hands,10}` used in
 `guidelines`. `metadata.name` must be `poker-table`.
+
+**Why `require_mention: true`.** With `turns: null` the only thing that makes a seat act is the
+machine's wake, and a wake is a Commons @mention. Left at `false` an agent answers by its own
+judgement of relevance; at `true` it is compelled to. Across ~240 player actions "usually responds"
+is a stall. `tests/test_examples.py` only *requires* the flag when `turns` is set, so nothing fails
+if this is wrong — the table just hangs. The cost is that every @mention compels a reply, so
+`spec.restrictions` must carry: no seat @mentions another seat (plain names only — the @ is reserved
+for the machine and the dealer); the dealer @mentions exactly one seat, the one the machine is
+waiting on, never the whole table; nobody posts hole cards or a folded hand.
 
 **Prose rule:** every string in this file is scanned by `validate_scenario` — see Global
 Constraints. Say "this hand", "this street", "when the machine wakes you".
