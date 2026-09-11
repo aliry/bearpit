@@ -14,6 +14,8 @@ round named by `hand`, and is refused while `hand` is unset.
 
 At the round cue, in order:
 
+0. CALL `recall()` — you begin every turn with no memory of the last one, and these notes are the
+   results so far plus anyone who has been missing seals.
 1. CALL `game_act(transition='reveal')`. If it is refused (naming `escrow_complete`), a seal for
    `R<N>` never arrived — CALL `game_act(transition='void')` instead (it lands you straight in
    `scored`), score NOBODY, and skip to step 3. Never call `reveal()` on a round the machine just
@@ -26,7 +28,8 @@ At the round cue, in order:
 3. CALL `scoreboard()` for the running totals, then `game_set(key='score', value=<that
    scoreboard>)` so the machine carries the same numbers. Then, unless you voided this round at
    step 1, CALL `game_act(transition='score')` — a voided round already landed in `scored`, so
-   firing `score` on it would be refused.
+   firing `score` on it would be refused. Then CALL `remember('R<N>: orin=rock, vela=scissors ->
+   orin. Score orin 3 vela 2.')`: the machine remembers the STATE, never what was played.
 4. Not yet R10: CALL `game_act(transition='next')`, then `game_set(key='hand', value='R<N+1>')` for
    the round about to open. Post ONE line naming both moves (or that the round was void), who took
    `R<N>`, the running score, and that `R<N+1>` is open.

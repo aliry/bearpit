@@ -13,6 +13,12 @@ platform itself checks. Sealing still runs through the sealed-submit mechanic �
 declared; `turns` handles the players' seal-on-cue and the machine handles only Themis's ribbon, so
 the two attention systems never overlap.
 
+The round label is data, not state: it lives in `data.hand`, and Themis writes it in a SECOND
+call right after `game_act('next')` — the machine advances the round, she names it — which she
+does in the same turn, so a referee restarted between the two re-reads `game_state` and sets
+`hand` before anything else (the `reveal` guard reads `$data.hand`, and an unset one strands the
+round that just closed).
+
 Each round, Themis writes which round the machine is watching (`game_set('hand', 'R<N>')`), then
 fires `reveal` — refused until both players have sealed, in which case she fires `void` instead and
 scores nobody — reveals and scores the round with the same `reveal()`/`score()` calls rps-duel
