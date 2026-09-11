@@ -70,6 +70,13 @@ extend-exclude = ["spikes", "deploy"]  # throwaway spike/poc scripts have no qua
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
+[tool.ruff.lint.per-file-ignores]
+# These two tests transcribe an SDD brief's test code verbatim — it is the contract, not ours to
+# rewrite. The "Rk Sr Rk Sr".split() card-notation idiom trips SIM905; the fix would touch text
+# that must stay byte-identical to the brief.
+"tests/test_poker_resolver.py" = ["SIM905"]
+"tests/test_poker_equity.py" = ["SIM905"]
+
 [tool.ruff.lint.flake8-bugbear]
 # Framework defaults: both return an immutable descriptor, not a shared mutable. B008 only
 # fires on a mutable ANNOTATION, so `--param: list[str]` trips it where `--yes: bool` does not.
