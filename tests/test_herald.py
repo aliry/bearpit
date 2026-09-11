@@ -464,3 +464,38 @@ async def test_a_referee_in_a_TURNS_realm_stays_mention_gated():
     await herald.ensure_system("syspw")
     bus = await herald.provision_bus("r1", project, require_mention=True)
     assert bus.creds["themis"].require_mention is True
+
+
+async def test_a_machine_realm_gates_the_referee_unless_it_declares_otherwise():
+    """A dealer's information source is the machine; table talk would only interrupt it. A judge
+    that must weigh speech opts back in with referee_reads_commons: true."""
+    from bearpit.core.schema import AgentRole
+
+    def agent(aid, role=AgentRole.PARTICIPANT):
+        model = ModelRef(provider="azure", model="m", api_key_ref="azure-main")
+        kw = {"rubric": "score them"} if role == AgentRole.REFEREE else {}
+        return AgentSpec(id=aid, model=model, role=role, **kw)
+
+    def machine_project(referee_reads_commons):
+        machine = {
+            "roles": {"ref": {"members": "referee"}, "player": {"members": "participants"}},
+            "states": ["a", "b"], "initial": "a",
+            "transitions": {"go": {"from": "a", "to": "b", "by": "ref"}},
+            "referee_reads_commons": referee_reads_commons,
+        }
+        return Project(
+            metadata=ProjectMeta(name="deal"),
+            spec={"mechanics": [{"kind": "state-machine", "machine": machine}]},
+            agents=[agent("p1"), agent("p2"), agent("ref", AgentRole.REFEREE)],
+        )
+
+    async def provision(project):
+        mx = FakeMatrix()
+        herald = Herald(mx, server_name="realm.local", homeserver="http://conduit:6167")
+        await herald.ensure_system("syspw")
+        return await herald.provision_bus("r1", project, require_mention=True)
+
+    gated = await provision(machine_project(False))
+    assert gated.creds["ref"].require_mention is True
+    reads = await provision(machine_project(True))
+    assert reads.creds["ref"].require_mention is False

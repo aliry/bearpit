@@ -110,7 +110,12 @@ class Herald:
         # lifting the gate only means it wakes on every single message, replies to each, and hammers
         # the proxy into rate-limiting (rps-1: Themis posted "⚡ Interrupting current task" and
         # duplicate round resolutions until the provider started refusing calls).
-        ref_sees_all = project.referee is not None and project.spec.turns is None
+        # A machine realm's referee reads the MACHINE record, not table talk — gated by default,
+        # same reasoning as turns — unless the declaration opts back in with
+        # `referee_reads_commons: true` because it must weigh what agents actually say.
+        machine = project.spec.machine
+        ref_sees_all = (project.referee is not None and project.spec.turns is None
+                        and (machine is None or machine.referee_reads_commons))
         creds: dict[str, MatrixCreds] = {}
         for aid, (mxid, token) in users.items():
             peers = [u for u in all_ids if u != mxid]

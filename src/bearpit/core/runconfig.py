@@ -112,9 +112,14 @@ def run_config(
         },
         "free_response": not require_mention,
         # `require_mention` gates PARTICIPANTS. The referee is exempt in a realm without turns —
-        # otherwise it would never receive the debate it exists to judge.
+        # otherwise it would never receive the debate it exists to judge. In a machine realm that
+        # exemption is declared, not assumed: the referee reads the MACHINE record instead of table
+        # talk unless the declaration opts back in with `referee_reads_commons: true`.
         "require_mention": require_mention,
-        "referee_sees_all": bool(referee is not None and (turns is None or not require_mention)),
+        "referee_sees_all": bool(
+            referee is not None and (turns is None or not require_mention)
+            and (spec.machine is None or spec.machine.referee_reads_commons)
+        ),
         "referee_opens": spec.referee_opens,
         "stall_nudge": spec.stall_nudge,
         "provide_tools": spec.provide_tools,

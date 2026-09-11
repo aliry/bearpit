@@ -423,6 +423,17 @@ def test_free_for_all_realm_reports_no_turns_and_a_seeing_referee():
     assert cfg["referee_sees_all"] is True      # the judge is exempt from the mention gate here
 
 
+def test_referee_sees_all_honours_referee_reads_commons():
+    from test_core_schema import _machine_spec, _project
+
+    from bearpit.core.runconfig import run_config
+
+    p = _project({"mechanics": [_machine_spec()]})   # referee_reads_commons defaults False
+    assert run_config(p, provider="x", require_mention=True)["referee_sees_all"] is False
+    p2 = _project({"mechanics": [_machine_spec(referee_reads_commons=True)]})
+    assert run_config(p2, provider="x", require_mention=True)["referee_sees_all"] is True
+
+
 def test_rerun_snapshot_replays_the_run_and_ignores_later_edits(seeded):
     """Running it again is TWO different things, and conflating them is how you "reproduce" a bug
     against code that no longer has it. `snapshot` restores the RESOLVED project captured at launch
