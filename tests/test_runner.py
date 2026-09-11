@@ -927,3 +927,22 @@ async def test_the_machine_record_is_written_before_any_agent_starts():
     # ordering guarantee as TOOL_MANIFEST, verified here by chronicle id (append order)
     assert machine_events[0].id < running_events[0].id
     await chron.close()
+
+
+async def test_the_machine_record_round_trips_into_a_live_machine_service():
+    """The host writes the record; realmtools rebuilds the machine from it. This is the seam
+    between them — a record realmtools cannot load is a realm whose game tools are dead."""
+    from bearpit.gatekeeper.machine_record import machine_record
+    from bearpit.realmtools.machine_service import MachineService
+    from bearpit.realmtools.service import Identity
+
+    chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+    rec = machine_record(_machine_project())
+    assert rec is not None
+    await chron.append_event("r", EventKind.MACHINE, rec)
+
+    svc = MachineService(chron)
+    who = Identity("r", "a", False)
+    assert (await svc.state(who))["state"] == "a"
+    assert (await svc.declaration(who))["transitions"]["go"]["from"] == ["a"]
+    await chron.close()

@@ -289,6 +289,7 @@ class LiveSnapshot:
         budget_policy: dict[str, tuple[str, float]] | None = None,
         tool_config: dict[str, dict[str, object]] | None = None,
         participants: Sequence[str] | None = None,
+        machine: dict[str, Any] | None = None,
     ) -> None:
         self._herald = herald
         self._ledger = ledger
@@ -341,6 +342,17 @@ class LiveSnapshot:
             ids = [p.strip() for p in str(info.get("label", "")).split("·")]
             if len(ids) == 2 and all(ids):
                 self._dm_route[frozenset(ids)] = room
+        # The game state machine (MACHINE record) — read-only here. The host DELIVERS the
+        # engine's `wake` stamps and runs the one rule the engine has no clock for (`after_s`);
+        # it never acts, sets, or advances the machine itself.
+        self._machine = machine  # the MACHINE record, or None
+        self._game_seen = 0  # id of the newest GAME event whose wakes have been delivered
+        self._game_last_ts: float | None = None  # the newest GAME event's OWN timestamp (seconds)
+        self._after_fired = False  # the after_s nudge for the current stall has been sent
+        # Set here for production (the kwarg is always passed by the real factory); `_deliver_wakes`
+        # repeats the fallback for a harness that attaches `_machine` after construction.
+        self._machine_state: str | None = (
+            (machine or {}).get("declaration", {}).get("initial") if machine else None)
 
     async def __call__(self) -> RealmSnapshot:
         # Deliver any queued private messages first (agents call send_private, which records a
@@ -354,6 +366,7 @@ class LiveSnapshot:
         # captured into the Chronicle just like the commons (they carry their own room-id channel).
         for room in self._side_channels:
             await self._herald.mirror(self._realm, room, self._chron)
+        await self._deliver_wakes()
         # Label commons messages "commons" (termination conditions use that, not the room id),
         # and EXCLUDE the platform's own @system posts: the kickoff quotes the guidelines, which
         # mention the termination phrase (e.g. "post VERDICT:") — matching that would end the
@@ -429,6 +442,7 @@ class LiveSnapshot:
             manual_stop=self._stop(),
             participants=len(self._participants),
             participants_alive=len(alive),
+            machine_state=self._machine_state,
         )
 
     async def _enforce_budgets(self, spend: dict[str, tuple[float, float | None]]) -> None:
@@ -609,6 +623,59 @@ class LiveSnapshot:
                 self._realm, EventKind.SYSTEM,
                 {"event": "agent_stop_failed", "agent": agent, "detail": str(exc)},
             )
+
+    async def _deliver_wakes(self) -> None:
+        """Notification, never advancement: post the engine's `wake` stamps as @system mentions,
+        and run the one host-side rule — `after_s`, a clock the engine deliberately does not have.
+        Actor-wakes collapse to the actor of the LATEST event in the tick; a player woken for a
+        pointer that has already moved on would only be woken again."""
+        if self._machine is None:
+            return
+        decl: dict[str, Any] = self._machine.get("declaration", {})
+        if self._machine_state is None:
+            self._machine_state = decl.get("initial")
+        events = [e for e in await self._chron.events(self._realm, kind=EventKind.GAME)
+                  if e.id > self._game_seen]
+        now = self._clock()
+        if events:
+            self._game_seen = events[-1].id
+            self._game_last_ts, self._after_fired = events[-1].ts_ms / 1000.0, False
+            self._last_activity = now  # a move is agent activity for `stall`
+            latest_actor = next((e.payload.get("actor") for e in reversed(events)
+                                 if e.payload.get("op") == "act"), None)
+            latest_to = next((e.payload.get("to") for e in reversed(events)
+                              if e.payload.get("op") == "act" and e.payload.get("to")), None)
+            if latest_to:
+                self._machine_state = str(latest_to)
+            targets: set[str] = set()
+            actor_targets: set[str] = set()
+            for e in events:
+                for who in e.payload.get("wake", []) or []:
+                    (actor_targets if who == e.payload.get("actor") else targets).add(str(who))
+            if latest_actor in actor_targets:
+                targets.add(str(latest_actor))
+            for who in sorted(targets):
+                await self._mention(who)
+        # Measured from the event's own timestamp, not the tick that noticed it — so a host that
+        # skipped ticks still sees the real gap. In production a fresh event has ts ≈ now, so a
+        # new-event tick never fires this.
+        if self._game_last_ts is not None and not self._after_fired:
+            for rule in decl.get("wake", []):
+                n = rule.get("after_s")
+                if n and now - self._game_last_ts >= n:
+                    for who in self._machine["members"].get(rule["role"], []):
+                        await self._mention(str(who))
+                    self._after_fired = True
+
+    async def _mention(self, agent_id: str) -> None:
+        cred = self._creds.get(agent_id)
+        if cred is None:
+            return
+        await self._herald.announce(
+            self._commons,
+            f"{cred.user_id} — the machine is waiting on you. Call `game_state`.",
+            mentions=[cred.user_id],
+        )
 
     async def _deliver_private(self) -> None:
         """Drain new PRIVATE events into their DM rooms. Each is posted AS the sender (so the mirror

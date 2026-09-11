@@ -105,8 +105,11 @@ class Chronicle:
         ts_ms: int | None = None,
     ) -> int:
         async with self._sf() as s:
+            # `is not None`, not `or`: ts_ms=0 is a legitimate epoch instant (a replay, an import,
+            # a test clock), and coalescing it to "now" silently rewrote the caller's timestamp.
             ev = Event(
-                realm_id=realm_id, kind=kind, payload=payload or {}, ts_ms=ts_ms or _now_ms()
+                realm_id=realm_id, kind=kind, payload=payload or {},
+                ts_ms=ts_ms if ts_ms is not None else _now_ms(),
             )
             s.add(ev)
             await s.commit()
@@ -124,7 +127,7 @@ class Chronicle:
         async with self._sf() as s:
             m = Message(
                 realm_id=realm_id, channel=channel, sender=sender, body=body,
-                attachments=list(attachments), ts_ms=ts_ms or _now_ms(),
+                attachments=list(attachments), ts_ms=ts_ms if ts_ms is not None else _now_ms(),
             )
             s.add(m)
             await s.commit()

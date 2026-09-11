@@ -23,6 +23,7 @@ from bearpit.core.schema import Project, parse_duration
 from bearpit.core.settings import Settings, load_settings
 from bearpit.forge import DockerRuntime, Forge, RealmHandles, RealmtoolsConfig
 from bearpit.gatekeeper.appstate import providers_config, resolve_provider
+from bearpit.gatekeeper.machine_record import machine_record
 from bearpit.gatekeeper.runner import LiveSnapshot, Runner
 from bearpit.herald import BusProvision, Herald, HttpMatrixClient
 from bearpit.ledger import HttpLiteLLMClient, KeyStore, Ledger
@@ -129,6 +130,8 @@ class Platform:
                            if a.budget.grace_period else 0.0)
                     for a in project.agents
                 },
+                # the same record the Runner persists — the host delivers its wake stamps
+                machine=machine_record(project),
             )
 
         return await self.runner.run(

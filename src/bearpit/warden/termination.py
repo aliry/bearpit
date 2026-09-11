@@ -30,6 +30,8 @@ class RealmSnapshot:
     # that does not track participants can never trip the rule (0 > 0 is false).
     participants: int = 0
     participants_alive: int = 0
+    # The game state machine's current state, when the project declares one (else None).
+    machine_state: str | None = None
 
 
 @dataclass(frozen=True)

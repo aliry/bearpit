@@ -218,3 +218,90 @@ async def test_eliminated_agent_is_stopped_and_its_dm_channel_goes_dead_both_way
     assert "you there?" not in bodies
     assert any("left the realm" in b for b in bodies)  # alice is told once that bob is gone
     await chron.close()
+
+
+# --- the machine's wake stamps: the host DELIVERS them, it never advances the machine -----------
+WAKE_TEXT = "the machine is waiting on you. Call `game_state`."
+
+
+def _machine_rec(wake, terminal=()):
+    return {
+        "version": 1,
+        "declaration": {
+            "roles": {"ref": {"members": "referee"}, "player": {"members": "participants"}},
+            "states": ["a", "b"], "initial": "a", "terminal": list(terminal),
+            "transitions": {"go": {"from": "a", "to": "b", "by": "ref"}}, "wake": wake,
+        },
+        "members": {"ref": ["ref"], "player": ["alice", "bob"]},
+        "roster": ["alice", "bob"], "referee": "ref",
+    }
+
+
+def _wakes(mx):
+    return [(room, body, mentions) for (_, room, body, mentions) in mx.sent if WAKE_TEXT in body]
+
+
+async def _game(chron, payload, ts_ms=None):
+    await chron.append_event("g1", EventKind.GAME, payload, ts_ms=ts_ms)
+
+
+async def test_wake_stamps_become_one_mention_per_target_and_actor_wakes_collapse():
+    chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+    mx = FakeMatrix()
+    herald = await _herald(mx)
+    live = _live(chron, herald, {}, _creds("alice", "bob", "ref"))
+    live._machine = _machine_rec([{"role": "actor"}])
+    await _game(chron, {"op": "act", "actor": "alice", "wake": ["alice"]})
+    await _game(chron, {"op": "act", "actor": "bob", "wake": ["bob"]})
+    await _game(chron, {"op": "act", "actor": "bob", "wake": ["ref", "bob"]})
+    await live()
+    sent = _wakes(mx)
+    mentioned = sorted(m for (_, _, ms) in sent for m in ms)
+    # alice's actor-wake is stale — the pointer moved to bob — so only bob and ref are woken
+    assert mentioned == ["@g1-bob:realm.local", "@g1-ref:realm.local"]
+    await live()
+    assert len(_wakes(mx)) == len(sent)  # delivered exactly once
+    await chron.close()
+
+
+async def test_after_s_nudges_the_role_once_per_stall_measured_from_the_last_game_event():
+    chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+    mx = FakeMatrix()
+    herald = await _herald(mx)
+    t = {"now": 0.0}
+    live = _live(chron, herald, {}, _creds("alice", "bob", "ref"))
+    live._clock = lambda: t["now"]
+    live._machine = _machine_rec([{"role": "ref", "after_s": 240}])
+    await _game(chron, {"op": "act", "wake": []}, ts_ms=0)
+    await live()
+    assert _wakes(mx) == []
+    t["now"] = 250
+    await live()
+    assert len(_wakes(mx)) == 1
+    t["now"] = 500
+    await live()
+    assert len(_wakes(mx)) == 1  # not again until a new event re-arms it
+    await _game(chron, {"op": "act", "wake": []}, ts_ms=500_000)
+    t["now"] = 800
+    await live()
+    assert len(_wakes(mx)) == 2
+    await chron.close()
+
+
+async def test_game_events_count_as_activity_and_the_snapshot_carries_machine_state():
+    chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+    mx = FakeMatrix()
+    herald = await _herald(mx)
+    t = {"now": 0.0}
+    live = _live(chron, herald, {}, _creds("alice", "ref"))
+    live._clock = lambda: t["now"]
+    live._machine = _machine_rec([], terminal=["b"])
+    snap = await live()
+    assert snap.machine_state == "a"
+    t["now"] = 100
+    await _game(chron, {"op": "act", "to": "b", "wake": []})
+    snap = await live()
+    # a move IS agent activity: `stall` must not fire mid-hand
+    assert snap.idle_s == 0.0
+    assert snap.machine_state == "b"
+    await chron.close()
