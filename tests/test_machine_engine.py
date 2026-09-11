@@ -7,12 +7,13 @@ member of a skip set (else a referee typo makes a folded player the actor).
 """
 from __future__ import annotations
 
-from bearpit.core.machine import Guard, MachineDef
+from bearpit.core.machine import Effect, Guard, MachineDef
 from bearpit.realmtools.machine import (
     Bindings,
     Ctx,
     MachineState,
     advance_actor,
+    apply_effect,
     check_guard,
     eligible,
     initial_state,
@@ -207,3 +208,61 @@ def test_escrow_complete_uses_the_machines_live_set_not_the_escrows_roster():
     s.data["hand"] = "H1"
     assert not check_guard(g, POKERISH, B, s, _ctx(escrow={"H1": {"a", "b"}}))
     assert check_guard(g, POKERISH, B, s, _ctx(escrow={"H1": {"a", "b", "c"}}))  # d excused
+
+
+def _e(name, arg=None):
+    return Effect.model_validate({name: arg} if arg is not None else name)
+
+
+def test_add_to_remove_from_reset_and_unset():
+    s = _s()
+    c = _ctx("a", {"victim": "b"})
+    add_caller = _e("add_to", {"key": "out", "value": "$caller"})
+    assert apply_effect(add_caller, POKERISH, B, s, c, 1) is None
+    add_victim = _e("add_to", {"key": "out", "value": "$args.victim"})
+    assert apply_effect(add_victim, POKERISH, B, s, c, 1) is None
+    assert s.sets["out"] == {"a", "b"}
+    remove_a = _e("remove_from", {"key": "out", "value": "a"})
+    assert apply_effect(remove_a, POKERISH, B, s, c, 1) is None
+    assert s.sets["out"] == {"b"}
+    assert apply_effect(_e("reset", "out"), POKERISH, B, s, c, 1) is None
+    assert s.sets["out"] == set()
+    s.data["pot"] = 5
+    assert apply_effect(_e("unset", "pot"), POKERISH, B, s, c, 1) is None
+    assert "pot" not in s.data
+
+
+def test_args_used_as_members_are_validated_against_the_role():
+    """Junk in `$args` would silently break `skip` and `data_set_full` (review m12)."""
+    s = _s()
+    c = _ctx("dealer", {"victim": "zed"})
+    add_victim = _e("add_to", {"key": "out", "value": "$args.victim"})
+    assert apply_effect(add_victim, POKERISH, B, s, c, 1) == "'zed' is not a member of 'player'"
+    assert s.sets["out"] == set()
+
+
+def test_set_writes_a_resolved_value_and_set_actor_checks_eligibility():
+    s = _s()
+    c = _ctx("dealer", {"first": "b", "n": 3})
+    set_pot = _e("set", {"key": "pot", "value": "$args.n"})
+    assert apply_effect(set_pot, POKERISH, B, s, c, 1) is None
+    assert s.data["pot"] == 3
+    set_first = _e("set_actor", "$args.first")
+    assert apply_effect(set_first, POKERISH, B, s, c, 2) is None
+    assert s.actor == "b"
+    s.sets["out"].add("b")
+    assert apply_effect(set_first, POKERISH, B, s, c, 3) == "'b' is in skip set 'out'"
+    assert apply_effect(_e("set_actor", None), POKERISH, B, s, c, 4) is None
+    assert s.actor is None
+
+
+def test_reveal_selectors():
+    s = _s()
+    s.owner_data["hole"] = {"a": "AhKh", "b": "2c7d", "c": "QsQd"}
+    s.sets["out"].add("b")
+    reveal_caller = _e("reveal", {"key": "hole", "owners": "$caller"})
+    assert apply_effect(reveal_caller, POKERISH, B, s, _ctx("a"), 1) is None
+    assert s.revealed["hole"] == {"a"}
+    sel = {"key": "hole", "owners": {"over": "player", "minus": ["out"]}}
+    assert apply_effect(_e("reveal", sel), POKERISH, B, s, _ctx("dealer"), 1) is None
+    assert s.revealed["hole"] == {"a", "c", "d"}  # b folded: mucked, stays hidden

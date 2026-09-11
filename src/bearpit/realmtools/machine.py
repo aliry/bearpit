@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from bearpit.core.machine import Guard, MachineDef
+from bearpit.core.machine import Effect, Guard, MachineDef
 
 
 @dataclass(frozen=True)
@@ -168,13 +168,16 @@ def check_guard(
             return bool(n == a["equals"])
         if "at_most" in a:
             return bool(n <= a["at_most"])
-        return bool(n >= a["at_least"])
+        if "at_least" in a:
+            return bool(n >= a["at_least"])
+        raise ValueError("members_count needs one of equals/at_most/at_least")
     if g.name == "data_set_full":
         expected = _expected(defn, bindings, state, a["over"], a.get("minus", []))
         return expected <= state.sets.get(str(a["key"]), set())
     if g.name == "escrow_complete":
         round_id = resolve(a.get("round"), ctx, state)
         expected = _expected(defn, bindings, state, a["over"], a.get("minus", []))
+        # A round that resolves to None becomes the key "None" and fails closed — nobody sealed it.
         return expected <= ctx.escrow.get(str(round_id), set())
     raise ValueError(f"unknown guard {g.name!r}")  # unreachable: MachineDef refused it at launch
 
@@ -186,3 +189,55 @@ def guards_hold(
         if not check_guard(g, defn, bindings, state, ctx):
             return False, g.name
     return True, None
+
+
+def _member_or_reason(
+    defn: MachineDef, bindings: Bindings, who: Any
+) -> str | None:
+    """Values that name an agent must name one in the pointer's role (or any role if there is
+    no pointer). Junk would silently break skip sets and cardinality guards."""
+    role = defn.actor.over if defn.actor is not None else None
+    pool = set(bindings.members.get(role, ())) if role else {
+        a for ids in bindings.members.values() for a in ids}
+    if who not in pool:
+        return f"{who!r} is not a member of {role or 'any role'!r}"
+    return None
+
+
+def apply_effect(
+    e: Effect, defn: MachineDef, bindings: Bindings, state: MachineState, ctx: Ctx, now_ms: int
+) -> str | None:
+    a = e.arg if isinstance(e.arg, dict) else {}
+    if e.name == "advance_actor":
+        advance_actor(defn, bindings, state, now_ms)
+        return None
+    if e.name in {"add_to", "remove_from"}:
+        who = resolve(a.get("value"), ctx, state)
+        if (bad := _member_or_reason(defn, bindings, who)) is not None:
+            return bad
+        target = state.sets.setdefault(str(a["key"]), set())
+        (target.add if e.name == "add_to" else target.discard)(str(who))
+        return None
+    if e.name == "reset":
+        state.sets[str(e.arg)] = set()
+        return None
+    if e.name == "set":
+        state.data[str(a["key"])] = resolve(a.get("value"), ctx, state)
+        return None
+    if e.name == "unset":
+        state.data.pop(str(e.arg), None)
+        return None
+    if e.name == "set_actor":
+        who = resolve(e.arg, ctx, state)
+        return set_actor(defn, bindings, state, None if who is None else str(who), now_ms)
+    if e.name == "reveal":
+        key = str(a["key"])
+        sel = a.get("owners")
+        if isinstance(sel, dict):
+            owners = _expected(defn, bindings, state, sel["over"], sel.get("minus", []))
+        else:
+            who = resolve(sel, ctx, state)
+            owners = {str(who)} if who is not None else set()
+        state.revealed.setdefault(key, set()).update(owners)
+        return None
+    raise ValueError(f"unknown effect {e.name!r}")  # unreachable: refused at launch
