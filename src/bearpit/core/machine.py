@@ -24,7 +24,7 @@ GUARDS = frozenset({
 EFFECTS = frozenset({
     "advance_actor", "add_to", "remove_from", "reset", "set", "unset", "set_actor", "reveal",
 })
-# What a participant role may carry without an opt-in: mark yourself, show your own hand, pass.
+# What a participant role may carry without an opt-in: mark yourself, show what is yours, pass.
 SAFE_EFFECTS = frozenset({"advance_actor", "add_to", "reveal"})
 # Guards that read hidden data and so must not appear on a public-log transition (the rejection
 # text would leak what they read).

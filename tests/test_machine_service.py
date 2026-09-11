@@ -185,6 +185,21 @@ async def test_a_malformed_game_row_fails_the_realm_loudly(chron):
         await fresh2.act(A, "call", {})
 
 
+async def test_a_stored_declaration_the_current_schema_refuses_fails_the_realm_loudly(chron):
+    """The MACHINE record is validated on every cold load. Launch validation grows stricter over
+    time (a guard that once passed now needs a key), so a declaration that was legal when it was
+    chronicled can be refused by the schema that reloads it — that is chronicle damage from the
+    service's point of view and must surface as `ReplayError`, never as a raw pydantic
+    ValidationError whose text carries transition and key names to the caller."""
+    import copy
+
+    bad = copy.deepcopy(MACHINE)
+    bad["declaration"]["transitions"]["deal"]["guard"] = [{"data_set_full": {"over": "player"}}]
+    await chron.append_event("r", EventKind.MACHINE, bad)
+    with pytest.raises(ReplayError):
+        await _svc(chron).state(A)
+
+
 async def test_a_cold_read_never_clobbers_a_concurrent_acts_applied_state(chron):
     """A `state()`/`declaration()` cold load takes no lock. If its chronicle read is slow, an
     `act()` can load, cache, append and apply first — the late-arriving cold load must never

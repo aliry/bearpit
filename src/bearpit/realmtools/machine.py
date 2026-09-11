@@ -98,7 +98,7 @@ def set_actor(
     defn: MachineDef, bindings: Bindings, state: MachineState, who: str | None, now_ms: int
 ) -> str | None:
     """Returns a rejection reason, or None on success. Refuses a stranger and a skipped member —
-    a referee typo must not hand the floor to a folded player."""
+    a referee typo must not give the floor to someone the pointer skips."""
     if defn.actor is None:
         return "this machine has no pointer"
     if who is not None:
@@ -361,7 +361,7 @@ def reject_payload(
     caller: str, transition: str, args: dict[str, Any], check: str, detail: str, log: str,
 ) -> dict[str, Any]:
     return {"op": "reject", "transition": transition, "caller": caller, "args": dict(args),
-            "check": check, "detail": detail, "log": log, "wake": []}
+            "check": check, "detail": detail, "log": log, "wake": [], "wake_actor": []}
 
 
 def _is_referee(defn: MachineDef, bindings: Bindings, caller: str) -> bool:

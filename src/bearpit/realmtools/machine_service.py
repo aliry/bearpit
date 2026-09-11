@@ -14,6 +14,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
+from pydantic import ValidationError
+
 from bearpit.chronicle import Chronicle, EventKind
 from bearpit.core.machine import Guard, MachineDef
 from bearpit.realmtools import machine as eng
@@ -68,7 +70,14 @@ class MachineService:
         p = head.payload
         if p.get("version") != MACHINE_VERSION:
             return None
-        defn = MachineDef.model_validate(p["declaration"])
+        try:
+            defn = MachineDef.model_validate(p["declaration"])
+        except ValidationError as exc:
+            # Launch validation grows stricter over time, so a declaration that was legal when it
+            # was chronicled can be refused by the schema that reloads it. To the service that is
+            # chronicle damage: fail the realm loudly, and never let pydantic's text (which names
+            # transitions and keys) reach a caller.
+            raise ReplayError(f"realm {realm_id!r}: stored declaration is no longer valid") from exc
         bindings = eng.Bindings(
             members={r: tuple(ids) for r, ids in p["members"].items()},
             roster=tuple(p["roster"]), referee=p.get("referee"),
