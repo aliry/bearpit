@@ -211,3 +211,72 @@ def test_a_per_round_dm_quota_needs_a_turns_block():
     # without turns: rejected
     with pytest.raises(ValueError, match="needs a `turns` block"):
         Project(metadata=ProjectMeta(name="p"), agents=[agent("a", 2)])
+
+
+def _machine_spec(**over):
+    m = {"roles": {"ref": {"members": "referee"}, "player": {"members": "participants"}},
+         "states": ["a", "b"], "initial": "a",
+         "transitions": {"go": {"from": "a", "to": "b", "by": "ref"}}}
+    m.update(over)
+    return {"kind": "state-machine", "machine": m}
+
+
+def _project(spec_over=None, agents=None):
+    from bearpit.core.schema import Project
+    spec = {"goals": ["g"], "termination": [{"type": "duration", "limit": "10m"}]}
+    spec.update(spec_over or {})
+    return Project.model_validate({
+        "apiVersion": "bearpit/v1alpha1", "kind": "Project", "metadata": {"name": "m"},
+        "spec": spec,
+        "agents": agents or [
+            {"id": "ref", "role": "referee", "model_category": "large", "rubric": "r"},
+            {"id": "a", "role": "participant", "model_category": "small"},
+            {"id": "b", "role": "participant", "model_category": "small"},
+        ],
+    })
+
+
+def test_a_state_machine_mechanic_is_declared_beside_sealed_submit():
+    p = _project({"mechanics": [_machine_spec()]})
+    assert p.spec.machine is not None and p.spec.machine.initial == "a"
+
+
+def test_two_machines_are_refused():
+    import pytest
+    with pytest.raises(ValueError, match="exactly one state-machine mechanic"):
+        _project({"mechanics": [_machine_spec(), _machine_spec()]})
+
+
+def test_wake_rules_and_turns_are_one_attention_system():
+    import pytest
+    with pytest.raises(ValueError, match="wake rules and `turns` cannot both be set"):
+        _project({"mechanics": [_machine_spec(wake=[{"role": "ref", "after_s": 240}])],
+                  "turns": {"policy": "one-at-a-time"}})
+
+
+def test_explicit_role_members_must_be_on_the_roster():
+    import pytest
+    with pytest.raises(ValueError, match="role 'impostor' names 'zed', who is not on the roster"):
+        _project({"mechanics": [_machine_spec(roles={
+            "ref": {"members": "referee"}, "player": {"members": "participants"},
+            "impostor": {"members": ["a", "zed"], "visibility": "hidden"}})]})
+
+
+def test_machine_terminal_is_a_termination_kind():
+    p = _project({"mechanics": [_machine_spec(terminal=["b"])],
+                  "termination": [{"type": "machine_terminal"}]})
+    assert p.spec.termination[0].type == "machine_terminal"
+
+
+def test_machine_terminal_needs_a_machine_with_a_terminal_state():
+    import pytest
+    with pytest.raises(
+        ValueError,
+        match="machine_terminal termination needs a state-machine with a terminal state",
+    ):
+        _project({"termination": [{"type": "machine_terminal"}]})
+
+
+def test_the_four_game_tools_are_builtin_verbs():
+    from bearpit.core.tools import BUILTIN_VERBS
+    assert {"game_state", "game_act", "game_set", "game_declaration"} <= BUILTIN_VERBS

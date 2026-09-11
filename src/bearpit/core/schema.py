@@ -25,6 +25,8 @@ from pydantic import (
     model_validator,
 )
 
+from bearpit.core.machine import MachineDef
+
 # Reusable bounded string types (item-level bounds for list fields + shorthands for scalars).
 # max_length caps input to sane sizes so no field accepts, e.g., a 1000-char agent name.
 ShortText = Annotated[str, StringConstraints(max_length=120)]  # names, ids-as-text, handles
@@ -147,15 +149,17 @@ class TerminationKind(StrEnum):
     # left who could act. Always implicitly available, like `manual`: an empty realm cannot make
     # progress, so this is physics, not a rule an author has to remember to declare.
     NO_ACTIVE_PARTICIPANTS = "no_active_participants"
+    MACHINE_TERMINAL = "machine_terminal"  # the game state machine entered a terminal state
 
 
 class MechanicKind(StrEnum):
     """Deterministic, platform-adjudicated interaction primitives (§9.5).
 
-    MVP ships SEALED_SUBMIT only; verifiable-draw / turn-token / custom scorers are v2 (#31).
+    MVP ships SEALED_SUBMIT and STATE_MACHINE; turn-token / custom scorers are v2 (#31).
     """
 
     SEALED_SUBMIT = "sealed-submit"  # hidden simultaneous submission + reveal + tally
+    STATE_MACHINE = "state-machine"  # a declarative game state machine (spec 2026-09-10)
 
 
 class TurnPolicy(StrEnum):
@@ -493,6 +497,12 @@ class Mechanic(_Base):
     config: dict[str, Any] = Field(
         default_factory=dict, description="Mechanic-specific options (rounds, ranges, …)."
     )
+    machine: MachineDef | None = Field(
+        default=None,
+        description="For kind 'state-machine': the declaration (roles, states, transitions, "
+        "data, wake rules). Validated at parse time; see "
+        "docs/superpowers/specs/2026-09-10-game-state-machine-design.md.",
+    )
 
     @model_validator(mode="after")
     def _known_ruleset(self) -> Mechanic:
@@ -502,6 +512,13 @@ class Mechanic(_Base):
                 f"unknown tally ruleset {r!r}; built-in: {sorted(BUILTIN_RULESETS)}. Register a "
                 "custom ruleset via realmtools.tally.register_ruleset and name it 'custom:<name>'."
             )
+        return self
+
+    @model_validator(mode="after")
+    def _machine_matches_kind(self) -> Mechanic:
+        if (self.kind == MechanicKind.STATE_MACHINE) != (self.machine is not None):
+            raise ValueError(
+                "kind 'state-machine' requires `machine`, and only that kind may set it")
         return self
 
 
@@ -790,6 +807,27 @@ class ProjectSpec(_Base):
     mechanics: list[Mechanic] = Field(
         default_factory=list, description="Deterministic interaction primitives the scenario uses."
     )
+
+    @property
+    def machine(self) -> MachineDef | None:
+        ms = [m.machine for m in self.mechanics if m.kind == MechanicKind.STATE_MACHINE]
+        return ms[0] if ms else None
+
+    @model_validator(mode="after")
+    def _one_machine_one_attention_system(self) -> ProjectSpec:
+        ms = [m for m in self.mechanics if m.kind == MechanicKind.STATE_MACHINE]
+        if len(ms) > 1:
+            raise ValueError("exactly one state-machine mechanic per realm at MVP; found "
+                             f"{len(ms)}")
+        m = self.machine
+        if m is not None and m.wake and self.turns is not None:
+            raise ValueError("wake rules and `turns` cannot both be set — one attention system")
+        if any(c.type == TerminationKind.MACHINE_TERMINAL for c in self.termination) and (
+                m is None or not m.terminal):
+            raise ValueError(
+                "machine_terminal termination needs a state-machine with a terminal state")
+        return self
+
     turns: Turns | None = Field(
         default=None,
         description="Opt-in turn-taking policy; null = no turns (always-on, parallel — default).",
@@ -919,4 +957,15 @@ class Project(_Base):
                     f"private_messaging.max_per_round is per-ROUND and needs a `turns` block; "
                     f"agents {sorted(capped)} set it but this realm has no turns"
                 )
+        # A machine role naming an explicit member who isn't on the roster would fail silently at
+        # runtime (nobody could ever act as that role) — refuse it at parse time instead.
+        m = self.spec.machine
+        if m is not None:
+            roster_ids = {a.id for a in self.agents}
+            for rname, r in m.roles.items():
+                if isinstance(r.members, list):
+                    for who in r.members:
+                        if who not in roster_ids:
+                            raise ValueError(
+                                f"role {rname!r} names {who!r}, who is not on the roster")
         return self
