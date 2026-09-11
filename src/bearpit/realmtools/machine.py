@@ -375,8 +375,7 @@ def view(defn: MachineDef, bindings: Bindings, state: MachineState, caller: str)
             entries = state.owner_data.get(key, {})
             shown = {o: v for o, v in entries.items()
                      if ref or o == caller or o in state.revealed.get(key, set())}
-            if shown or key in state.owner_data:
-                data[key] = shown
+            data[key] = shown
     return {"state": state.state, "actor": state.actor, "actor_since": state.actor_since,
             "data": data}
 
@@ -398,7 +397,7 @@ def log_row(
         if log == "owner":
             return payload if payload.get("owner") == caller else None
         return None
-    return payload  # reveal rows are public by definition
+    return None  # unknown op: fail closed
 
 
 def declaration_view(defn: MachineDef, bindings: Bindings, caller: str) -> dict[str, Any]:
@@ -407,4 +406,50 @@ def declaration_view(defn: MachineDef, bindings: Bindings, caller: str) -> dict[
     for rname, r in defn.roles.items():
         if r.visibility == "hidden" and not ref and caller not in bindings.members.get(rname, ()):
             out["roles"][rname]["members"] = "<hidden>"
+    return out
+
+
+class ReplayError(RuntimeError):
+    """The chronicle holds a GAME event the current declaration cannot re-apply."""
+
+
+def replay(
+    defn: MachineDef, bindings: Bindings, events: list[tuple[int, dict[str, Any]]], start_ms: int,
+) -> MachineState:
+    state = initial_state(defn, bindings, start_ms)
+    for i, (ts, p) in enumerate(events):
+        op = p.get("op")
+        if op == "reject":
+            continue
+        if op == "act":
+            # Escrow completion is re-checked as satisfied: the event exists because it held.
+            escrow = _escrow_that_held(defn, bindings, state, p)
+            out = act(defn, bindings, state, str(p["caller"]), str(p["transition"]),
+                      dict(p.get("args") or {}), escrow, ts)
+        elif op == "set":
+            out = set_value(defn, bindings, state, str(p["caller"]), str(p["key"]),
+                            p.get("value"), p.get("owner"), {}, ts)
+        else:
+            raise ReplayError(f"replay: event {i} has unknown op {op!r}")
+        if isinstance(out, Rejection):
+            raise ReplayError(f"replay: event {i} ({op} {p.get('transition') or p.get('key')})"
+                              f" no longer applies: {out.check} {out.detail}")
+        state = out.state
+    return state
+
+
+def _escrow_that_held(
+    defn: MachineDef, bindings: Bindings, state: MachineState, p: dict[str, Any]
+) -> dict[str, set[str]]:
+    """For replay only: every `escrow_complete` guard on the transition is treated as satisfied
+    by supplying the full expected set. The chronicle is the proof it held at the time."""
+    t = defn.transitions.get(str(p.get("transition")))
+    if t is None:
+        return {}
+    ctx = Ctx(caller=str(p.get("caller")), args=dict(p.get("args") or {}), escrow={})
+    out: dict[str, set[str]] = {}
+    for g in t.guard:
+        if g.name == "escrow_complete" and isinstance(g.arg, dict):
+            rid = str(resolve(g.arg.get("round"), ctx, state))
+            out[rid] = _expected(defn, bindings, state, g.arg["over"], g.arg.get("minus", []))
     return out

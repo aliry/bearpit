@@ -140,6 +140,9 @@ class MachineDef(_Base):
             for s in self.actor.skip:
                 if not self.is_set(s):
                     raise ValueError(f"actor.skip {s!r} is not a declared set key")
+        for key, d in self.data.items():
+            if d.visibility == "owner" and d.type == "set":
+                raise ValueError(f"data key {key!r}: an owner-visibility key cannot be a set")
         for name, trans in self.transitions.items():
             for s in trans.from_:
                 if s != "any" and s not in states:

@@ -7,6 +7,8 @@ member of a skip set (else a referee typo makes a folded player the actor).
 """
 from __future__ import annotations
 
+import pytest as _pytest
+
 from bearpit.core.machine import Effect, Guard, MachineDef
 from bearpit.realmtools.machine import (
     Bindings,
@@ -14,6 +16,7 @@ from bearpit.realmtools.machine import (
     MachineState,
     Outcome,
     Rejection,
+    ReplayError,
     act,
     advance_actor,
     apply_effect,
@@ -23,6 +26,8 @@ from bearpit.realmtools.machine import (
     eligible,
     initial_state,
     log_row,
+    reject_payload,
+    replay,
     resolve,
     roles_of,
     set_actor,
@@ -464,3 +469,34 @@ def test_declaration_view_hides_hidden_role_membership():
     assert a["roles"]["crew"]["members"] == "participants"
     assert declaration_view(HIDDENDEF, HB, "c")["roles"]["impostor"]["members"] == ["c", "d"]
     assert declaration_view(HIDDENDEF, HB, "mother")["roles"]["impostor"]["members"] == ["c", "d"]
+
+
+def test_log_row_fails_closed_on_an_unknown_op():
+    unknown = {"op": "mystery", "log": "public"}
+    assert log_row(POKERISH, B, unknown, "a") is None
+    assert log_row(POKERISH, B, unknown, "dealer") == unknown
+
+
+def test_replay_reproduces_the_state_and_takes_actor_since_from_the_event():
+    live = _s()
+    events = []
+    for who, ts in (("dealer", 10), ("a", 20), ("b", 30)):
+        tr = "deal" if who == "dealer" else "call"
+        o = act(POKERISH, B, live, who, tr, {"first": "a"} if tr == "deal" else {}, {}, ts)
+        assert isinstance(o, Outcome)
+        live = o.state
+        events.append((ts, o.payload))
+    o = set_value(POKERISH, B, live, "dealer", "pot", 15, None, {}, 40)
+    live = o.state
+    events.append((40, o.payload))
+    events.append((41, reject_payload("c", "fold", {}, "guard", "caller_is_actor", "public")))
+    rebuilt = replay(POKERISH, B, events, start_ms=1000)
+    assert rebuilt == live and rebuilt.actor_since == 30
+
+
+def test_replay_fails_loudly_if_the_declaration_no_longer_admits_an_event():
+    with _pytest.raises(ReplayError, match="replay: event 1 .* no longer applies"):
+        replay(POKERISH, B, [(10, {"op": "act", "transition": "deal", "caller": "dealer",
+                                   "args": {"first": "a"}, "log": "public"}),
+                             (11, {"op": "act", "transition": "teleport", "caller": "a",
+                                   "args": {}, "log": "public"})], start_ms=1)

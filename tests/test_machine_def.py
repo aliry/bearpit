@@ -160,6 +160,10 @@ def test_guards_and_effects_accept_string_and_single_key_dict_forms():
         ),
         "transition 'go': 'reveal' needs an owner-visibility key, got 'pot'",
     ),
+    (
+        _with(data={"mine": {"visibility": "owner", "type": "set"}}),
+        "data key 'mine': an owner-visibility key cannot be a set",
+    ),
 ])
 def test_bad_structure_is_refused_with_a_precise_message(bad, message):
     with pytest.raises(ValidationError) as exc:
