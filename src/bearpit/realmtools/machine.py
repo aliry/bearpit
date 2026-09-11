@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from bearpit.core.machine import MachineDef
+from bearpit.core.machine import Guard, MachineDef
 
 
 @dataclass(frozen=True)
@@ -61,7 +61,8 @@ def roles_of(defn: MachineDef, bindings: Bindings, agent: str) -> set[str]:
 
 
 def eligible(defn: MachineDef, state: MachineState, agent: str) -> bool:
-    """Member of the pointer's role and in none of its skip sets."""
+    """In none of the pointer's skip sets. Assumes `agent` is already a member of the pointer's
+    role — callers filter by membership first (see `_rotation`)."""
     p = defn.actor
     if p is None:
         return False
@@ -70,6 +71,7 @@ def eligible(defn: MachineDef, state: MachineState, agent: str) -> bool:
 
 def _rotation(defn: MachineDef, bindings: Bindings) -> tuple[str, ...]:
     assert defn.actor is not None
+    # Host invariant, refused at launch otherwise: every role member is on the roster.
     members = set(bindings.members.get(defn.actor.over, ()))
     return tuple(a for a in bindings.roster if a in members)
 
@@ -107,3 +109,80 @@ def set_actor(
                 return f"{who!r} is in skip set {s!r}"
     state.actor, state.actor_since = who, now_ms
     return None
+
+
+@dataclass(frozen=True)
+class Ctx:
+    """Per-call inputs. `escrow` maps round id -> agents who have sealed it; the service fetches
+    it before calling in, so the engine stays pure. `caller` is None when evaluating wake rules."""
+
+    caller: str | None
+    args: dict[str, Any]
+    escrow: dict[str, set[str]]
+
+
+def resolve(value: Any, ctx: Ctx, state: MachineState) -> Any:
+    if isinstance(value, str):
+        if value == "$caller":
+            return ctx.caller
+        if value.startswith("$args."):
+            return ctx.args.get(value[6:])
+        if value.startswith("$data."):
+            key = value[6:]
+            if key == "actor":
+                return state.actor
+            return state.data.get(key)
+    return value
+
+
+def _expected(
+    defn: MachineDef, bindings: Bindings, state: MachineState, over: str, minus: list[str]
+) -> set[str]:
+    members = set(bindings.members.get(over, ()))
+    for s in minus:
+        members -= state.sets.get(s, set())
+    return members
+
+
+def check_guard(
+    g: Guard, defn: MachineDef, bindings: Bindings, state: MachineState, ctx: Ctx
+) -> bool:
+    a = g.arg if isinstance(g.arg, dict) else {}
+    if g.name == "caller_is_actor":
+        return ctx.caller is not None and state.actor == ctx.caller
+    if g.name == "caller_in":
+        return ctx.caller in state.sets.get(str(g.arg), set())
+    if g.name == "caller_not_in":
+        return ctx.caller not in state.sets.get(str(g.arg), set())
+    if g.name == "data_present":
+        return str(g.arg) in state.data
+    if g.name == "data_equals":
+        key = a.get("key")
+        current = state.actor if key == "actor" else state.data.get(str(key))
+        return bool(current == resolve(a.get("value"), ctx, state))
+    if g.name == "data_set_empty":
+        return not state.sets.get(str(g.arg), set())
+    if g.name == "members_count":
+        n = len(_expected(defn, bindings, state, a["over"], a.get("minus", [])))
+        if "equals" in a:
+            return bool(n == a["equals"])
+        if "at_most" in a:
+            return bool(n <= a["at_most"])
+        return bool(n >= a["at_least"])
+    if g.name == "data_set_full":
+        expected = _expected(defn, bindings, state, a["over"], a.get("minus", []))
+        return expected <= state.sets.get(str(a["key"]), set())
+    if g.name == "escrow_complete":
+        round_id = resolve(a.get("round"), ctx, state)
+        expected = _expected(defn, bindings, state, a["over"], a.get("minus", []))
+        return expected <= ctx.escrow.get(str(round_id), set())
+    raise ValueError(f"unknown guard {g.name!r}")  # unreachable: MachineDef refused it at launch
+
+
+def guards_hold(
+    guards: list[Guard], defn: MachineDef, bindings: Bindings, state: MachineState, ctx: Ctx
+) -> tuple[bool, str | None]:
+    for g in guards:
+        if not check_guard(g, defn, bindings, state, ctx):
+            return False, g.name
+    return True, None

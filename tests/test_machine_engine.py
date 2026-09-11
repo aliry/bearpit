@@ -7,13 +7,16 @@ member of a skip set (else a referee typo makes a folded player the actor).
 """
 from __future__ import annotations
 
-from bearpit.core.machine import MachineDef
+from bearpit.core.machine import Guard, MachineDef
 from bearpit.realmtools.machine import (
     Bindings,
+    Ctx,
     MachineState,
     advance_actor,
+    check_guard,
     eligible,
     initial_state,
+    resolve,
     roles_of,
     set_actor,
 )
@@ -121,3 +124,86 @@ def test_set_actor_refuses_a_skipped_member_and_a_stranger_but_accepts_null():
     assert set_actor(POKERISH, B, s, "zed", 1) == "'zed' is not a member of 'player'"
     assert set_actor(POKERISH, B, s, "dealer", 1) == "'dealer' is not a member of 'player'"
     assert set_actor(POKERISH, B, s, None, 9) is None and s.actor is None and s.actor_since == 9
+
+
+def _g(name, arg=None):
+    return Guard.model_validate({name: arg} if arg is not None else name)
+
+
+def _ctx(caller="a", args=None, escrow=None):
+    return Ctx(caller=caller, args=args or {}, escrow=escrow or {})
+
+
+def test_resolve_caller_args_data_and_literals():
+    s = _s()
+    s.data["pot"] = 40
+    c = _ctx(args={"to": 30})
+    assert resolve("$caller", c, s) == "a"
+    assert resolve("$args.to", c, s) == 30
+    assert resolve("$data.pot", c, s) == 40
+    assert resolve(7, c, s) == 7 and resolve("bob", c, s) == "bob"
+    assert resolve("$args.missing", c, s) is None
+
+
+def test_caller_is_actor_is_false_on_a_parked_pointer():
+    s = _s()
+    assert not check_guard(_g("caller_is_actor"), POKERISH, B, s, _ctx("a"))
+    set_actor(POKERISH, B, s, "a", 1)
+    assert check_guard(_g("caller_is_actor"), POKERISH, B, s, _ctx("a"))
+    assert not check_guard(_g("caller_is_actor"), POKERISH, B, s, _ctx("b"))
+
+
+def test_membership_guards():
+    s = _s()
+    s.sets["acted"].add("a")
+    assert check_guard(_g("caller_in", "acted"), POKERISH, B, s, _ctx("a"))
+    assert not check_guard(_g("caller_not_in", "acted"), POKERISH, B, s, _ctx("a"))
+    assert check_guard(_g("caller_not_in", "acted"), POKERISH, B, s, _ctx("b"))
+
+
+def test_data_equals_present_and_set_empty():
+    s = _s()
+    assert not check_guard(_g("data_present", "pot"), POKERISH, B, s, _ctx())
+    s.data["pot"] = 0
+    assert check_guard(_g("data_present", "pot"), POKERISH, B, s, _ctx())
+    assert check_guard(_g("data_equals", {"key": "pot", "value": 0}), POKERISH, B, s, _ctx())
+    # values resolve: a guard may compare a key to an arg
+    set_actor(POKERISH, B, s, "c", 1)
+    assert check_guard(_g("data_equals", {"key": "actor", "value": "$args.player"}),
+                       POKERISH, B, s, _ctx(args={"player": "c"}))
+    assert check_guard(_g("data_set_empty", "out"), POKERISH, B, s, _ctx())
+    s.sets["out"].add("a")
+    assert not check_guard(_g("data_set_empty", "out"), POKERISH, B, s, _ctx())
+
+
+def test_members_count_and_data_set_full_over_the_live_set():
+    s = _s()
+    s.sets["out"].add("a")
+    s.sets["all_in"].add("b")
+    live = _g("members_count", {"over": "player", "minus": ["out", "all_in"], "equals": 2})
+    assert check_guard(live, POKERISH, B, s, _ctx())
+    last = _g("members_count", {"over": "player", "minus": ["out"], "at_most": 1})
+    assert not check_guard(last, POKERISH, B, s, _ctx())
+    full = _g("data_set_full", {"key": "acted", "over": "player", "minus": ["out", "all_in"]})
+    assert not check_guard(full, POKERISH, B, s, _ctx())
+    s.sets["acted"] |= {"c", "d"}
+    assert check_guard(full, POKERISH, B, s, _ctx())  # a and b are excused
+
+
+def test_data_set_full_is_vacuously_true_when_everyone_is_excused():
+    """Everyone all-in: the dealer runs the board with guard-true advances (spec §2 pointer)."""
+    s = _s()
+    s.sets["all_in"] |= {"a", "b", "c", "d"}
+    full = _g("data_set_full", {"key": "acted", "over": "player", "minus": ["out", "all_in"]})
+    assert check_guard(full, POKERISH, B, s, _ctx())
+
+
+def test_escrow_complete_uses_the_machines_live_set_not_the_escrows_roster():
+    """Review M5: the escrow's own roster only grows, so an eliminated agent that never seals
+    deadlocked every round after the first ejection."""
+    s = _s()
+    s.sets["out"].add("d")
+    g = _g("escrow_complete", {"round": "$data.hand", "over": "player", "minus": ["out"]})
+    s.data["hand"] = "H1"
+    assert not check_guard(g, POKERISH, B, s, _ctx(escrow={"H1": {"a", "b"}}))
+    assert check_guard(g, POKERISH, B, s, _ctx(escrow={"H1": {"a", "b", "c"}}))  # d excused
