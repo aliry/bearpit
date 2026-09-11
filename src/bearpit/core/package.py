@@ -200,6 +200,10 @@ def _read_files(folder: Path) -> dict[str, str]:
             continue
         if not f.is_file() or f.stat().st_size > 1_000_000:
             continue
+        # A compiled cache is never a reference file. Relying on the UnicodeDecodeError below to
+        # drop it is luck: a .pyc whose bytes happen to decode rides into the container as text.
+        if "__pycache__" in f.parts:
+            continue
         try:
             out[str(f.relative_to(folder))] = f.read_text()
         except UnicodeDecodeError:
