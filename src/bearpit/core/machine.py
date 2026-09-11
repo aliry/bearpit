@@ -82,6 +82,16 @@ class Effect(_Clause):
 
 
 class TransitionDef(_Base):
+    # `from` is a Python keyword, so the field is `from_` with the JSON key as its alias. The
+    # model must round-trip through a plain `model_dump()` → `model_validate()` on its own:
+    # `bind_params` does exactly that on EVERY launch, and the first live machine realm was a 500
+    # before a single container existed because the dump emitted `from_` and `extra="forbid"`
+    # rejected it. Serialising by alias keeps every dump on the JSON key; validating by name keeps
+    # any dump that was already stored the old way loadable.
+    model_config = ConfigDict(
+        extra="forbid", validate_by_name=True, validate_by_alias=True, serialize_by_alias=True
+    )
+
     from_: list[str] = Field(alias="from")
     to: str
     by: str
@@ -92,9 +102,11 @@ class TransitionDef(_Base):
     @model_validator(mode="before")
     @classmethod
     def _from_list(cls, v: Any) -> Any:
-        if isinstance(v, dict) and isinstance(v.get("from"), str):
-            v = dict(v)
-            v["from"] = [v["from"]]
+        if isinstance(v, dict):
+            for key in ("from", "from_"):
+                if isinstance(v.get(key), str):
+                    v = dict(v)
+                    v[key] = [v[key]]
         return v
 
 

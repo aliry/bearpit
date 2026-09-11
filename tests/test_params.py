@@ -330,3 +330,23 @@ def test_the_run_records_which_values_it_used() -> None:
     # and a scenario with none records an empty map rather than omitting the key, so a reader
     # never has to distinguish "no parameters" from "an older run that did not record them"
     assert run_config(project, "azure", require_mention=True)["parameters"] == {}
+
+
+def test_bind_round_trips_a_machine_declaration() -> None:
+    """`bind` runs on EVERY launch, parameters or not, and it re-validates the project from a
+    dump. `TransitionDef.from_` is aliased to the JSON key `from`, so a dump that emits the
+    Python name is rejected by `extra="forbid"` — the first live launch of a machine realm was a
+    500 before a single container existed, while every unit test (which validates once and never
+    dumps) stayed green. The model must round-trip on its own: the UI's package view and the
+    rerun snapshot dump it the same way."""
+    from bearpit.core import load_package
+
+    project = load_package("examples/rps-machine")
+    bound = bind(project, {})
+    assert bound.spec.machine is not None
+    assert bound.spec.machine.transitions["reveal"].from_ == ["sealing"]
+    # and the dump itself carries the JSON key, so anything that stores or displays it sees the
+    # declaration as it was written
+    dumped = project.model_dump(mode="json", exclude_none=True)
+    reveal = dumped["spec"]["mechanics"][1]["machine"]["transitions"]["reveal"]
+    assert "from" in reveal and "from_" not in reveal
