@@ -271,6 +271,22 @@ def test_set_writes_a_resolved_value_and_set_actor_checks_eligibility():
     assert s.actor is None
 
 
+def test_set_actor_fails_closed_on_a_malformed_arg():
+    """`set_actor` takes a VALUE — an agent id, a `$`-reference, or an explicit null. A dict
+    arrives whenever a declaration reaches for a shape that does not exist (`{set_actor: {who:
+    …}}`), and it resolves to no agent id at all. It must be refused exactly like a stranger's
+    id: the pointer is the floor, and a floor handed to nobody stalls the realm silently."""
+    s = _s()
+    c = _ctx("dealer", {"first": "a"})
+    for bad in ({"who": 1}, {"who": None}, {}):
+        r = apply_effect(_e("set_actor", bad), POKERISH, B, s, c, 1)
+        assert r is not None and "is not a member of 'player'" in r, bad
+        assert s.actor is None  # and the pointer never moved
+    # ...while an explicit null still parks it, which is a different thing entirely
+    assert set_actor(POKERISH, B, s, "a", 1) is None and s.actor == "a"
+    assert apply_effect(_e("set_actor", None), POKERISH, B, s, c, 2) is None and s.actor is None
+
+
 def test_reveal_selectors():
     s = _s()
     s.owner_data["hole"] = {"a": "AhKh", "b": "2c7d", "c": "QsQd"}
