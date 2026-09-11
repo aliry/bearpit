@@ -192,9 +192,11 @@ and not the seed, which would expose every hand that folded.
 
 `remember(...)` the ladder, the button and the hand number — it is the only thing that survives into
 the next hand. Book profit, never the gross pot — a seat that wins 810 having put 260 in is +550 —
-because the ladder `rule()` reads at the end is built out of exactly those numbers; and both the
-hand's deltas and the ladder sum to zero, so a list that does not is a list with a mistake in it — then `game_act(transition='next_hand')`, move the button one seat left, and open the
-next hand from the top with a fresh seed and a fresh commitment. `next_hand` clears `seed_commit`, so
+because the ladder `rule()` reads at the end is built out of exactly those numbers. Both the hand's
+deltas and the ladder sum to zero, so a list that does not is a list with a mistake in it.
+
+Then `game_act(transition='next_hand')`, move the button one seat left, and open the next hand from
+the top with a fresh seed and a fresh commitment. `next_hand` clears `seed_commit`, so
 the next `deal` is refused until you publish a new one.
 
 After the last hand settles: `scoreboard()` for the authoritative cumulative profit, then

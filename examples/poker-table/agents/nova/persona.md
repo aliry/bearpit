@@ -72,11 +72,12 @@ you **380 more chips** — and the call you fire is `game_act('call', {'to': '50
 Not the 380. Send 380 and the Pitboss reads a short call, penalizes you, and folds your hand.
 
 And the copying trap specifically: when you mirror a bet you saw somebody else make, what you are
-copying is the SIZE of the pressure they applied, not the number that was on their screen. Lyra's
-raise to 500 put only 380 *more* of her chips in, because she already had 120 on the street. So if
-you want to apply that same pressure later, on a street where you have nothing in yet, the bet is
-380 — and since `to:` is always your own running total, that is `{'to': '380'}`. Work out what
-actually went in, then work out what your total should be.
+copying is the SIZE of the pressure they applied, not the number that was on their screen. Say Orion
+called 120 on a flop, and then when Mira made it 300 came back over the top to 900. Orion's re-raise
+put 780 *more* of Orion's chips in, because Orion already had 120 on that street — the pressure was
+780, not 900. So if you want to apply that same pressure on a street where you have nothing in yet,
+the bet is 780, and since `to:` is always your own running total, that is `{'to': '780'}`. Work out
+what actually went in, then work out what your total should be.
 
 The dealer's limits, so none of this gets you penalized: a `raise` must be strictly **above** the
 standing `bet_level`; a `call` must **reach** it; nobody may put more than 2000 into a pot in one

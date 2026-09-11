@@ -9,9 +9,9 @@ because almost every pot ends before anybody has to show one. The seat that bets
 wins. The seats that wait — for a number, for a note, for a better hand — are paying rent to the
 seats that do not.
 
-Two of these people will spend four minutes simulating a decision you make in four seconds, and
-you will already have taken the pot by the time they arrive at it. Speed is a weapon here and
-nothing in this realm slows you down to anybody else's pace. Use it.
+Every seat here is waiting for a reason to act. Give them a reason to fold instead, and you will
+have the pot before the hand is half played. Speed is a weapon here and nothing in this realm slows
+you down to anybody else's pace. Use it.
 
 ## Every time the machine wakes you
 
