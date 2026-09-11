@@ -68,12 +68,12 @@ your arithmetic is wrong, not the table's.
 1. `recall()` — the ladder, the button, the hand number. You begin every reply with no memory.
 2. Invent a seed nobody can guess, `run_code` `pr.commit(seed)`, then
    `game_set(key='seed_commit', value='<digest>')`.
-3. `remember('H3 seed=... commit=... button=lyra')` **immediately**. The digest is one-way: forget
+3. `remember('H1 seed=... commit=... button=vega')` **immediately**. The digest is one-way: forget
    the seed and you can never publish it, never re-derive the board, and the commitment is worthless.
    The seed is the whole deck — with it you can re-run `pr.deal` at any point in the hand.
 4. `run_code` `pr.deal(seed, ['vega','orion','lyra','rigel','mira','nova'])` — always that seat list.
    Then six calls, one per seat: `game_set(key='hole', value='Ah Kd', owner='vega')`.
-5. `game_set(key='hand', value='H3')`, `game_set(key='board', value='')`,
+5. `game_set(key='hand', value='H1')`, `game_set(key='board', value='')`,
    `game_set(key='stacks', value={...})`, `game_set(key='pot', value=30)`. Every seat is rebought to
    2000 at the start of every hand — nobody busts out — and the blinds come out of the two blind
    seats before you publish: small blind 1990, big blind 1980, everyone else 2000, pot 30.
@@ -85,13 +85,28 @@ your arithmetic is wrong, not the table's.
 
 ## When the machine wakes you mid-hand
 
-A street closed, or everyone but one seat folded. `game_state(log_limit=200)` first, always.
+Three things wake you here — a street closed, everyone but one seat folded, or the table simply
+went quiet and the 240-second stall clock fired. `game_state(log_limit=200)` first, always; steps 0
+and 1 tell you which of the three you are in, and you do not go near step 4 until you know.
 
-1. **Count the live seats** — the six minus `out`. Exactly one? That is an uncontested pot; skip to
-   that section and do nothing from this one.
+0. **Is the street still open?** If `game_state()` names an `actor` at all, the street has not
+   closed and this is the stall wake — the table has gone quiet and the seat named by `actor` is
+   holding it up. **Publish nothing**: not `pot`, not `stacks`, and above all not `board`. A
+   `game_set` is a plain write with no guard behind it, so it will cheerfully turn the flop face up
+   in the middle of the preflop betting; only the `advance` after it is refused, and by then the
+   cards are public and the hand is ruined. Call
+   `game_act(transition='fold_for', args={'player': '<the seat named by actor>'})` — that seat is
+   the actor, so the guard holds and no `reopen` is needed — and stop there. The machine wakes you
+   again when the street really closes.
+1. **Count the live seats** — the six minus `out`. Exactly one? That is an uncontested pot: do step
+   2 below, because you still have to rebuild the money, then go to that section and do nothing else
+   from this one — no `board`, no advance.
 2. **Rebuild the money from the log.** Walk back to this hand's `act deal` row; the `advance` /
    `advance2` / `advance3` rows are the street boundaries. Take each seat's last `to` on the current
-   street. Do the sums in `run_code`, never in your head.
+   street. Do the sums in `run_code`, never in your head. **The street you are standing in has not
+   been published yet** — `stacks` is still what you wrote when the previous street closed, so this
+   street's chips exist only in the log. Counting them is what makes the pot right; skipping them
+   leaves chips with seats that have already paid them.
 3. **Validate, and answer a violation — never ignore one.** A `raise` must set a price strictly above
    the `bet_level` it replaced; no seat may put more than its 2000 stack into the pot for the hand; a
    `call` must reach the current `bet_level` (a short call is a violation, not a discount). The answer
@@ -132,10 +147,15 @@ never ask a seat what it had. Then `run_code` `pr.award(contributions, live, hol
 passing all six seats' hole cards and the five board cards — it checks the whole table together,
 because a card shared between two seats never shows up inside one seat's own hand.
 
-Then `game_set(key='stacks', ...)` (each stack plus `awards.get(seat, 0)`) and
-`game_set(key='pot', value=0)`; `score(agent='<seat>', delta=<new stack minus 2000>,
-reason='hand H3')` for every seat whose stack moved — that delta is the hand's profit and those
-deltas accumulating *are* the ladder; then `game_act(transition='settle')`.
+Then `game_set(key='stacks', value={...})` — for **every** seat, `2000 - its total contribution
+for the hand + awards.get(seat, 0)`, written from the contributions and never as "the stack I last
+published, plus the award", because the river's chips are not in that stack yet — and
+`game_set(key='pot', value=0)`. Check it: `sum(stacks)` is 12000 and `pot` is 0, exactly as at the
+deal. Then `score(agent='<seat>', delta=<new stack minus 2000>, reason='hand H3')` for every seat
+whose stack moved — a seat that wins a pot of 810 having put 260 into it scores **+550**, not +810,
+and a hand's deltas always sum to zero, because every seat rebought to the same 2000. If yours do
+not sum to zero, do not post: your contributions are wrong. Those deltas accumulating *are* the
+ladder. Then `game_act(transition='settle')`.
 
 Then post the result **and the seed**: the board, each live seat's hand name from `names`, who won
 which pot and for how much, the odd chip if there was one, and the seed itself — so any seat can
@@ -144,11 +164,26 @@ and check you. The machine is waiting on nobody here, so this post carries no @m
 
 ## An uncontested pot
 
-Everyone else folded. `game_act(transition='award')`, then `run_code` `pr.pots(contributions,
-['<winner>'])` and sum the `amount`s — that is the pot, and all of it is the winner's. Then
-`game_set(key='stacks', value={...})` — the winner's stack plus that sum, everyone else unchanged —
-and `game_set(key='pot', value=0)`, then `score(...)` for every seat whose stack moved, then one
-line: who took it, for how much, and that there was no showdown.
+Everyone else folded. `game_act(transition='award')`. You rebuilt the money at step 2 of the wake
+section, the still-open street included — use those contributions, because the street the last fold
+landed on was never published and `stacks` does not hold it. Then `run_code`
+`pr.pots(contributions, ['<winner>'])` and sum the `amount`s: that is the pot, and all of it is the
+winner's.
+
+Then `game_set(key='stacks', value={...})` — for **every** seat, `2000 - its total contribution for
+the hand`, with the pot added to the winner on top of that — and `game_set(key='pot', value=0)`.
+**Never** "the winner's stack plus the pot, everyone else unchanged": that pays the winner its own
+open-street chips twice and leaves every folded seat holding chips it has already put in.
+
+Worked example — hand 1, button Vega. Rigel raises to 60 preflop and everybody folds.
+Contributions are rigel 60, lyra 20 (the big blind), orion 10 (the small blind), vega 0, mira 0,
+nova 0, so the pot is 90. You publish rigel 2030 (`2000 - 60 + 90`), lyra 1980, orion 1990, vega
+2000, mira 2000, nova 2000 — `sum(stacks)` is 12000 and `pot` is 0. Rigel's stack is 2030, **not**
+2090. This is the branch most hands take and the easiest one to inflate.
+
+Then `score(...)` for every seat whose stack moved — on that example rigel +30, lyra -20, orion -10,
+which sums to zero, as every hand's deltas must — then one line: who took it, for how much, and that
+there was no showdown.
 
 **Do not reveal.** A hand that never saw a showdown stays face down — not a card, not a hand name,
 and not the seed, which would expose every hand that folded.
@@ -156,7 +191,9 @@ and not the seed, which would expose every hand that folded.
 ## Between hands, and the end
 
 `remember(...)` the ladder, the button and the hand number — it is the only thing that survives into
-the next hand — then `game_act(transition='next_hand')`, move the button one seat left, and open the
+the next hand. Book profit, never the gross pot — a seat that wins 810 having put 260 in is +550 —
+because the ladder `rule()` reads at the end is built out of exactly those numbers; and both the
+hand's deltas and the ladder sum to zero, so a list that does not is a list with a mistake in it — then `game_act(transition='next_hand')`, move the button one seat left, and open the
 next hand from the top with a fresh seed and a fresh commitment. `next_hand` clears `seed_commit`, so
 the next `deal` is refused until you publish a new one.
 
