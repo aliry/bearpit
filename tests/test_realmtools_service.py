@@ -1,5 +1,8 @@
 """Realmtools tokens + EscrowService (#39): identity can't be spoofed, role gates, hidden moves."""
 
+from contextlib import asynccontextmanager
+from typing import Any
+
 import pytest
 
 from bearpit.chronicle import Chronicle, EventKind
@@ -399,3 +402,53 @@ async def test_the_chronicle_is_connected_once_per_process_not_once_per_session(
         f"connected {connects['n']} times for 3 sessions — one engine, and therefore one "
         f"connection pool, is leaked per session"
     )
+
+
+@asynccontextmanager
+async def _as(app: Any, token: str) -> Any:
+    """Drive the real app as one caller, over an in-process MCP session (mirrors
+    tests/test_tool_broker.py:349-364; copied here since tests/ is not a package)."""
+    import httpx
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamable_http_client
+
+    async with (
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://localhost",
+                          headers={"Authorization": f"Bearer {token}"}) as hc,
+        streamable_http_client("http://localhost/mcp", http_client=hc) as (r, w, _),
+        ClientSession(r, w) as session,
+    ):
+        await session.initialize()
+        yield session
+
+
+async def test_game_tools_over_a_real_session_respect_identity():
+    """Token -> role -> machine: a player acts, a player is refused game_set, values never reach
+    the audit log."""
+    import json
+
+    from test_machine_service import MACHINE  # the shared declaration; tests/ is on sys.path
+
+    from bearpit.realmtools.server import build_app
+    from bearpit.realmtools.tokens import mint_token
+
+    chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+    await chron.append_event("r", EventKind.MACHINE, MACHINE)
+    app = build_app(SECRET, chronicle=chron)
+    dealer = mint_token("r", "dealer", is_referee=True, secret=SECRET, roster=["a", "b"])
+    a = mint_token("r", "a", is_referee=False, secret=SECRET)
+    async with app.router.lifespan_context(app):
+        async with _as(app, dealer) as s:
+            r = await s.call_tool("game_act", {"transition": "deal", "args": {"first": "a"}})
+            assert json.loads(r.content[0].text)["actor"] == "a"
+            r = await s.call_tool("game_set", {"key": "hole", "value": "AhKh", "owner": "a"})
+            assert "error" not in json.loads(r.content[0].text)
+        async with _as(app, a) as s:
+            r = await s.call_tool("game_set", {"key": "pot", "value": 1})
+            assert json.loads(r.content[0].text)["error"] == "rejected"
+            r = await s.call_tool("game_state", {})
+            body = json.loads(r.content[0].text)
+            assert body["data"]["hole"] == {"a": "AhKh"} and body["actor"] == "a"
+            r = await s.call_tool("game_declaration", {})
+            assert "transitions" in json.loads(r.content[0].text)
+    await chron.close()
