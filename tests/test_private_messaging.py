@@ -311,6 +311,22 @@ async def test_game_events_count_as_activity_and_the_snapshot_carries_machine_st
     await chron.close()
 
 
+async def test_snapshot_reports_machine_terminal_reached_once_the_machine_gets_there():
+    chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+    mx = FakeMatrix()
+    herald = await _herald(mx)
+    live = _live(chron, herald, {}, _creds("alice", "ref"),
+                 machine=_machine_rec([], terminal=["b"]))
+    snap = await live()
+    assert snap.machine_state == "a"
+    assert snap.machine_terminal_reached is False
+    await _game(chron, {"op": "act", "to": "b", "wake": []})
+    snap = await live()
+    assert snap.machine_state == "b"
+    assert snap.machine_terminal_reached is True
+    await chron.close()
+
+
 async def test_after_s_escalates_rule_by_rule_and_a_new_event_re_arms_every_rule():
     """Each wake rule keeps its own fired-flag: a declaration may nudge the referee at 240s and
     escalate to the players at 600s, and one shared flag would let the first rule mute the second.

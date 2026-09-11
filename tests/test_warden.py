@@ -278,3 +278,15 @@ def test_a_declared_verdict_still_wins_the_tick() -> None:
         RealmSnapshot(participants=2, participants_alive=0, verdict="orin wins"),
     )
     assert fired is not None and fired.kind == TerminationKind.REFEREE_VERDICT
+
+
+def test_machine_terminal_fires_when_the_machine_reaches_a_terminal_state():
+    from bearpit.core.schema import TerminationCondition, TerminationKind
+    from bearpit.warden.termination import RealmSnapshot, evaluate_termination
+    cond = [TerminationCondition(type=TerminationKind.MACHINE_TERMINAL)]
+    assert evaluate_termination(cond, RealmSnapshot(machine_state="b")) is None
+    fired = evaluate_termination(
+        cond, RealmSnapshot(machine_state="done", machine_terminal_reached=True)
+    )
+    assert fired is not None and fired.kind == TerminationKind.MACHINE_TERMINAL
+    assert fired.detail == "machine reached 'done'"

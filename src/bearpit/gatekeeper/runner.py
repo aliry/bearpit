@@ -353,6 +353,9 @@ class LiveSnapshot:
         self._after_fired: set[int] = set()  # wake-rule indices already nudged for this stall
         self._machine_state: str | None = (
             machine["declaration"].get("initial") if machine else None)
+        # The declaration's terminal states, for the `machine_terminal` termination condition.
+        self._machine_terminal: set[str] = set(
+            machine["declaration"].get("terminal", []) if machine else ())
 
     async def __call__(self) -> RealmSnapshot:
         # Deliver any queued private messages first (agents call send_private, which records a
@@ -443,6 +446,7 @@ class LiveSnapshot:
             participants=len(self._participants),
             participants_alive=len(alive),
             machine_state=self._machine_state,
+            machine_terminal_reached=self._machine_state in self._machine_terminal,
         )
 
     async def _enforce_budgets(self, spend: dict[str, tuple[float, float | None]]) -> None:
