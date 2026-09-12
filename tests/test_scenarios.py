@@ -6,6 +6,7 @@ import zipfile
 
 import pytest
 
+from bearpit.core import load_package
 from bearpit.gatekeeper import scenarios as sc
 
 
@@ -65,6 +66,51 @@ def test_write_bundles_used_custom_skills(dirs):
     # the local skill is copied INTO the agent's own skills/ dir (loader resolves per-agent)
     md = dirs / "bundled" / "agents" / "vela" / "skills" / "my-move" / "SKILL.md"
     assert md.read_text().find("bluff") > 0
+
+
+def test_write_saves_an_edited_local_skill_into_the_agent_not_the_library(dirs):
+    """An edited local skill belongs to THIS scenario. The loader's truth is already per-agent, so
+    the edit lands in agents/<id>/skills/<ref>/SKILL.md — and the global library copy, which every
+    other scenario draws from, is left exactly as it was."""
+    sc.write_custom_skill("my-move", "You may bluff.")
+    p = _payload("edited")
+    p["agents"][1]["skills"] = ["local:my-move"]
+    p["agents"][1]["local_skills"] = {"my-move": "---\nname: my-move\n---\n\nNever bluff."}
+    sc.write_scenario(dirs, "edited", p)
+
+    md = dirs / "edited" / "agents" / "vela" / "skills" / "my-move" / "SKILL.md"
+    assert md.read_text() == "---\nname: my-move\n---\n\nNever bluff."
+    lib = sc.custom_skill_content("my-move")  # library untouched: every OTHER scenario
+    assert "You may bluff." in lib and "Never bluff." not in lib
+    # ...and the loader hands the agent the EDITED text, which is the whole point
+    vela = next(a for a in load_package(str(dirs / "edited")).agents if a.id == "vela")
+    assert vela.local_skills["my-move"].endswith("Never bluff.")
+
+
+def test_an_edited_local_skill_needs_no_library_copy(dirs):
+    """A scenario is self-contained: a skill that exists only inside it saves fine. Without inline
+    text there is nothing to write, so that case still needs the library and still says so."""
+    p = _payload("own")
+    p["agents"][1]["skills"] = ["local:house-style"]
+    p["agents"][1]["local_skills"] = {"house-style": "# House style\n\nBe terse."}
+    sc.write_scenario(dirs, "own", p)
+    assert (dirs / "own" / "agents" / "vela" / "skills" / "house-style"
+            / "SKILL.md").read_text().endswith("Be terse.")
+
+    blank = _payload("blank")
+    blank["agents"][1]["skills"] = ["local:house-style"]
+    blank["agents"][1]["local_skills"] = {"house-style": "   "}  # whitespace is not content
+    with pytest.raises(sc.ScenarioError, match="not found in your library"):
+        sc.write_scenario(dirs, "blank", blank)
+
+
+def test_a_local_skill_ref_cannot_escape_the_agents_skills_dir(dirs):
+    p = _payload("escape")
+    p["agents"][1]["skills"] = ["local:../../../../etc/ssh"]
+    p["agents"][1]["local_skills"] = {"../../../../etc/ssh": "owned"}
+    with pytest.raises(sc.ScenarioError, match="invalid local skill ref"):
+        sc.write_scenario(dirs, "escape", p)
+    assert not (dirs / "escape").exists()
 
 
 def test_delete_scenario(dirs):
@@ -206,6 +252,21 @@ def test_folder_skill_bundles_into_scenario(dirs):
     # the WHOLE skill folder is copied into the agent's package, not just SKILL.md
     base = dirs / "uses-skill" / "agents" / "vela" / "skills" / "deep-research"
     assert (base / "SKILL.md").is_file() and (base / "scripts" / "search.py").is_file()
+
+
+def test_editing_a_multi_file_skill_keeps_its_bundled_files(dirs):
+    """The edit replaces SKILL.md. Scripts and references the skill ships with still come along —
+    editing one line of prose must not quietly strip a skill down to its brief."""
+    sc.import_skill_zip(_skill_zip())  # a 3-file skill in the library
+    p = _payload("edits-folder")
+    p["agents"][1]["skills"] = ["local:deep-research"]
+    p["agents"][1]["local_skills"] = {"deep-research": "---\nname: deep-research\n---\nMy rules."}
+    sc.write_scenario(dirs, "edits-folder", p)
+    base = dirs / "edits-folder" / "agents" / "vela" / "skills" / "deep-research"
+    assert base.joinpath("SKILL.md").read_text().endswith("My rules.")
+    assert (base / "scripts" / "search.py").is_file()
+    assert (base / "references" / "method.md").is_file()
+    assert "Use the scripts." in sc.custom_skill_content("deep-research")  # library untouched
 
 
 def test_write_custom_skill_preserves_existing_frontmatter(dirs):

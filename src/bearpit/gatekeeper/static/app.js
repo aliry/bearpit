@@ -1247,6 +1247,7 @@ const INFO = {
   gracePeriod: "For starve_then_kill: how long to keep the agent alive after its budget is spent, "
     + "e.g. 5m.",
   skills: "SKILL.md briefs that give the agent its role and capabilities. Click a skill to read it.",
+  localSkills: "The text of this agent's local skills. A local skill is a SKILL.md the agent carries: it is inlined into its brief and seeded as a file in its container.\n\nEditing here changes THIS scenario only — the copy in your Skills library, and every other scenario that attached it, is untouched.\n\nA skill edited here is saved inside the agent (agents/<id>/skills/<ref>/SKILL.md), so the exported package carries its own copy.",
   tools: "Capabilities this agent may use, granted per agent (ADR-004). One agent that can research and one that cannot is a scenario in itself.\n\nTools run on the host, never inside the agent's container, and every call is recorded with its cost. A tool marked ⚠ reaches past the realm and asks for your confirmation at launch.\n\nSet per-tool limits under spec.tools in the JSON, e.g. max_calls_per_agent.",
   persona: "The agent's private character brief (persona.md). Only this agent sees it.",
   rubric: "The referee's private judging criteria — how it scores or decides. Only the referee sees "
@@ -1304,6 +1305,9 @@ function detailToState(d) {
         private_messaging: { enabled: !!(a.private_messaging || {}).enabled,
           include_referee: !!(a.private_messaging || {}).include_referee },
         skills: a.skills || [], tools: a.tools || [], persona: a.persona || "", rubric: a.rubric || "", goals: a.goals || [],
+        // the SKILL.md text of this agent's OWN local skills ({ref: text}) — edited in
+        // the roster and written back into this agent, never into the skill library
+        local_skills: a.local_skills || {},
         color: a.color || null,
       };
     }),
@@ -1776,6 +1780,7 @@ function rosterPanel(S, skills, keyRefs, installedTools) {
       budget: { max_usd: 2.0, on_exhausted: "starve_then_kill", grace_period: "5m" },
       private_messaging: { enabled: false, include_referee: false },
       skills: role === "referee" ? ["builtin:referee-basics"] : ["builtin:agent-basics"],
+      local_skills: {},
       persona: "", rubric: "", goals: [] });
     draw();
   };
@@ -1817,13 +1822,61 @@ function privateMsgControl(a) {
 
 function agentBlock(S, a, i, skills, keyRefs, redraw, installedTools) {
   const isRef = a.role === "referee";
+
+  /* Local skills. A local skill is a SKILL.md the AGENT carries — on disk at
+     agents/<id>/skills/<ref>/SKILL.md, inlined into its brief and seeded as a file in its
+     container. Its text is therefore scenario state, not library state: it is edited here and
+     written back into this agent, never into the global library. */
+  a.local_skills = a.local_skills || {};
+  const localWrap = el("div");
+  const localSkills = el("details", { class: "local-skills" },
+    el("summary", null,
+      el("b", { text: "Local skills" }),
+      el("span", { class: "inline-note", text: "the SKILL.md text this agent carries" }),
+      infoIcon(INFO.localSkills),
+      el("span", { class: "fold-mark" }, "›")),
+    el("div", { class: "local-skills-body" },
+      el("p", { class: "inline-note", style: "margin:0 0 10px" },
+        "Editing here changes this scenario only — the copy in your Skills library is untouched."),
+      localWrap));
+  // A newly attached skill starts from the library copy, so the author edits the real thing
+  // rather than a blank box. Fire-and-forget: the row renders now, the text lands when it lands.
+  const seedFromLibrary = (ref, box) => {
+    api(`/api/skills/local/${encodeURIComponent(ref)}`).then((sk) => {
+      if (a.local_skills[ref] != null || !sk || !sk.content) return;
+      a.local_skills[ref] = sk.content;
+      if (!box.value) box.value = sk.content;
+    }).catch(() => {});  // no library copy: this skill lives only in this scenario
+  };
+  const drawLocalSkills = () => {
+    clear(localWrap);
+    const refs = a.skills.filter((s) => String(s).startsWith("local:"))
+      .map((s) => String(s).slice("local:".length));
+    localSkills.hidden = !refs.length;   // nothing to edit, nothing to show
+    for (const ref of refs) {
+      const box = el("textarea", { class: "mono", rows: 14, value: a.local_skills[ref] ?? "",
+        placeholder: `# ${ref}\n\nWhat this skill tells the agent to do.`,
+        oninput: (e) => { a.local_skills[ref] = e.target.value; } });
+      if (a.local_skills[ref] == null) seedFromLibrary(ref, box);
+      localWrap.append(el("details", { class: "skill-edit" },
+        el("summary", null, el("span", { class: "skill-pill local", text: ref }),
+          el("span", { class: "fold-mark" }, "›")),
+        el("div", { class: "skill-edit-body" }, box)));
+    }
+  };
+
   const skillWrap = el("div", { class: "pill-list", style: "margin-bottom:8px" });
   const drawSkills = () => {
     clear(skillWrap);
     a.skills.forEach((s, si) => skillWrap.append(el("span", { class: `skill-pill ${s.split(":")[0]}` },
       el("span", { onclick: () => showSkill(...s.split(":")) }, s),
-      el("span", { style: "cursor:pointer;color:var(--faint)", onclick: () => { a.skills.splice(si, 1); drawSkills(); } }, " ✕"))));
+      el("span", { style: "cursor:pointer;color:var(--faint)", onclick: () => {
+        const [src, ref] = String(s).split(":");
+        a.skills.splice(si, 1);
+        if (src === "local") delete a.local_skills[ref];  // its editor goes with it
+        drawSkills(); } }, " ✕"))));
     if (!a.skills.length) skillWrap.append(el("span", { class: "inline-note", text: "no skills" }));
+    drawLocalSkills();   // one editor per attached local skill, always in step with the pills
   };
   drawSkills();
   const skillPicker = el("select", null,
@@ -1897,6 +1950,7 @@ function agentBlock(S, a, i, skills, keyRefs, redraw, installedTools) {
       textField("Grace period", a.budget, "grace_period", { ph: "5m", info: INFO.gracePeriod, maxlength: 20 })),
     privateMsgControl(a),
     el("div", { class: "field" }, fieldLabel("Skills", { info: INFO.skills }), skillWrap, skillPicker),
+    localSkills,
     el("div", { class: "field" }, fieldLabel("Tools", { info: INFO.tools }), toolWrap, toolPicker),
     textField("Persona", a, "persona", { area: true, rows: 3, info: INFO.persona, maxlength: 50000,
       ph: "The agent's private character brief (persona.md)." }),

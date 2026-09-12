@@ -190,6 +190,28 @@ select { appearance: none; background-image:
 .disclose { margin-left: auto; color: var(--faint); transition: transform .2s; }
 .agent-block[open] .disclose { transform: rotate(90deg); }
 
+/* ---- local skills: the SKILL.md an agent carries, edited where the scenario is authored ---- */
+.local-skills { border: 1px solid var(--line); border-radius: var(--r); background: var(--void);
+  margin-bottom: 16px; overflow: hidden; }
+.local-skills[hidden] { display: none; }
+.local-skills > summary { list-style: none; cursor: pointer; padding: 10px 13px; display: flex;
+  align-items: center; gap: 9px; user-select: none; font-size: 12.5px; color: var(--dim); }
+.local-skills > summary::-webkit-details-marker { display: none; }
+.local-skills[open] > summary { border-bottom: 1px solid var(--line); background: var(--panel-2); }
+.local-skills-body { padding: 13px; }
+.skill-edit { border: 1px solid var(--line-soft); border-radius: 8px; background: var(--panel-2);
+  margin-bottom: 8px; overflow: hidden; }
+.skill-edit:last-child { margin-bottom: 0; }
+.skill-edit > summary { list-style: none; cursor: pointer; padding: 8px 10px; display: flex;
+  align-items: center; gap: 9px; user-select: none; }
+.skill-edit > summary::-webkit-details-marker { display: none; }
+.skill-edit-body { padding: 0 10px 10px; }
+.skill-edit textarea { min-height: 200px; }
+/* its own chevron: .disclose is a descendant rule on the agent block, so a nested fold needs a
+   mark of its own or it renders permanently open */
+.fold-mark { margin-left: auto; color: var(--faint); transition: transform .2s; }
+details[open] > summary > .fold-mark { transform: rotate(90deg); }
+
 /* ---- live realm feed (the signature) ---- */
 .realm-layout { display: grid; grid-template-columns: 1fr 300px; gap: 20px; align-items: start; }
 .feed { background: #090b10; border: 1px solid var(--line); border-radius: var(--r-lg);

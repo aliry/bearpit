@@ -351,6 +351,62 @@ def test_zip_import_via_api(seeded, tmp_path, monkeypatch):
         assert "zebra" in {p["name"] for p in c.get("/api/packages").json()["packages"]}
 
 
+def test_a_scenarios_local_skills_round_trip_through_the_editor(seeded, tmp_path, monkeypatch):
+    """A local skill is a SKILL.md the AGENT carries, so its text is scenario state. The editor has
+    to be able to read it, change it, and save it back — into that agent, in that scenario. The
+    library copy (and every other scenario that attached the same ref) stays as it was."""
+    monkeypatch.setenv("BEARPIT_SCENARIOS_DIR", str(tmp_path / "scen"))
+    monkeypatch.setenv("BEARPIT_SKILLS_DIR", str(tmp_path / "skills"))  # deliberately EMPTY
+    app = create_app(chron=seeded, manager=FakeManager())
+    with TestClient(app) as c:
+        d = c.get("/api/packages/poker-table").json()
+        vega = next(a for a in d["agents"] if a["id"] == "vega")
+        # the editor gets the text, per agent, not just the ref
+        assert "pot-odds" in vega["local_skills"]
+        assert "Pricing a hand" in vega["local_skills"]["pot-odds"]
+        assert "table-notes" in next(a for a in d["agents"] if a["id"] == "mira")["local_skills"]
+
+        body = _editor_body(d)
+        edited = next(a for a in body["agents"] if a["id"] == "vega")
+        edited["local_skills"]["pot-odds"] += "\n\nAlways price the river.\n"
+        assert c.put("/api/packages/poker-table", json=body).status_code == 200
+
+        after = c.get("/api/packages/poker-table").json()
+        again = next(a for a in after["agents"] if a["id"] == "vega")
+        assert again["local_skills"]["pot-odds"].endswith("Always price the river.\n")
+        assert "Pricing a hand" in again["local_skills"]["pot-odds"], "an edit, not a replacement"
+        # the edit is this agent's alone: rigel attaches the same ref and did not change
+        rigel = next(a for a in after["agents"] if a["id"] == "rigel")
+        assert "Always price the river." not in rigel["local_skills"]["pot-odds"]
+        # ...and the library (empty here) was never written to
+        assert not (tmp_path / "skills").exists()
+        # the bundled example is a read-only template; the edit went to the user dir
+        assert (tmp_path / "scen" / "poker-table" / "agents" / "vega" / "skills" / "pot-odds"
+                / "SKILL.md").is_file()
+
+
+def _editor_body(d):
+    """The detail payload as the scenario editor hands it back on save (see detailToState/save in
+    app.js): skills as "source:ref" strings, and each agent's own local skill text."""
+    return {
+        "metadata": {"name": d["title"], "description": d["description"], "tags": d["tags"],
+                     "author": d["author"], "category": d["category"]},
+        "spec": {"goals": d["goals"], "guidelines": d["guidelines"],
+                 "restrictions": d["restrictions"], "parameters": d["parameters"],
+                 "termination": d["termination"], "mechanics": d["mechanics"],
+                 "turns": d["turns"], "referee_opens": d["referee_opens"],
+                 "provide_tools": d["provide_tools"], "stall_nudge": d["stall_nudge"],
+                 "environment": {**d["environment"],
+                                 "shared_folder": {"enabled": d["environment"]["shared_folder"]}}},
+        "agents": [{"id": a["id"], "name": a["name"], "role": a["role"],
+                    "model_category": a["model_category"], "budget": a["budget_ref"],
+                    "private_messaging": a["private_messaging"], "persona": a["persona"],
+                    "rubric": a["rubric"], "goals": a["goals"], "skills": a["skills"],
+                    "tools": a["tools"], "local_skills": a["local_skills"]}
+                   for a in d["agents"]],
+    }
+
+
 def test_skills_api(seeded, tmp_path, monkeypatch):
     monkeypatch.setenv("BEARPIT_SKILLS_DIR", str(tmp_path / "skills"))
     app = create_app(chron=seeded, manager=FakeManager())

@@ -240,6 +240,11 @@ def serialize_project(project: Any, name: str, path: str) -> dict[str, Any]:
                 "budget_ref": a.budget.model_dump(mode="json"),
                 "private_messaging": a.private_messaging.model_dump(mode="json"),
                 "skills": [f"{sk.source}:{sk.ref}" for sk in a.skills],
+                # ...and the TEXT of this agent's own local skills, so the editor can edit
+                # them in place. `local_skills` is loader state (exclude=True) but a plain
+                # attribute: {ref: SKILL.md}. Per-agent on purpose — the deduped
+                # `skill_contents` map below feeds the read-only viewer, a different thing.
+                "local_skills": dict(a.local_skills or {}),
                 # ...and its tool grants, or the editor shows "no tools" for an agent that has
                 # them and silently drops them on the next save (#58)
                 "tools": list(a.tools),
