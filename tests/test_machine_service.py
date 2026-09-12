@@ -322,3 +322,33 @@ async def test_paging_never_skips_a_visible_row(chron):
         seen += [r["transition"] for r in page["log"]]
         since = page["next_since"]
     assert seen == ["ping"] * 5
+
+
+async def test_replay_survives_a_clock_that_stepped_backwards_mid_realm(chron):
+    """The consequence the ordering rule exists to prevent (#107).
+
+    `_load` is the ONLY constructor for a reloaded realm: it replays GAME events and whatever comes
+    out is the state. A wall clock that steps backwards — NTP, a host suspend — makes `ts_ms`
+    non-monotonic, and replaying in timestamp order applies `b`'s call before the `deal` that made
+    anyone the actor. It does not fail quietly in a useful way: it either raises inside replay or
+    reconstructs a plausible, WRONG state that diverges from what the live realm actually did.
+
+    The realm here is ordinary — deal, a calls, b calls. Only the clock misbehaves.
+    """
+    live_svc = _svc(chron)
+    await live_svc.act(DEALER, "deal", {"first": "a"})
+    await live_svc.act(A, "call", {})
+    await live_svc.act(B, "call", {})
+    live = await live_svc.state(DEALER)
+
+    # the same causal sequence, rechronicled into a second realm with a clock that stumbles
+    payloads = [e.payload for e in await chron.events("r", kind=EventKind.GAME)]
+    assert len(payloads) == 3, "the sequence under test must be three acts"
+    await chron.append_event("skew", EventKind.MACHINE, MACHINE, ts_ms=1_000)
+    for payload, ts in zip(payloads, (2_000, 3_000, 2_500), strict=True):
+        await chron.append_event("skew", EventKind.GAME, payload, ts_ms=ts)
+
+    skewed = await _svc(chron).state(Identity("skew", "dealer", True, roster=("a", "b")))
+    assert skewed["state"] == live["state"]
+    assert skewed["actor"] == live["actor"]
+    assert skewed["data"]["acted"] == live["data"]["acted"]

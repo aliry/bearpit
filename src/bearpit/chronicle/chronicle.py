@@ -135,13 +135,26 @@ class Chronicle:
 
     # --- read ----------------------------------------------------------------
     async def events(self, realm_id: str, kind: str | None = None) -> Sequence[Event]:
-        q = select(Event).where(Event.realm_id == realm_id).order_by(Event.ts_ms, Event.id)
+        """Append order, which for events IS causal order: the host appends an event after the
+        thing it records has happened, so the row id is the sequence. `ts_ms` is a wall clock and
+        is not monotonic — an NTP correction or a host suspend steps it backwards — and ordering by
+        it would hand a reader a sequence that never happened.
+
+        `MachineService._load` rebuilds the authoritative game state by replaying GAME events in
+        this order, and replay is its only constructor, so a reordering here does not look odd: it
+        reconstructs a different state than the one that was live. Messages take the opposite rule
+        for a reason — see `messages`."""
+        q = select(Event).where(Event.realm_id == realm_id).order_by(Event.id)
         if kind is not None:
             q = q.where(Event.kind == kind)
         async with self._sf() as s:
             return list((await s.scalars(q)).all())
 
     async def messages(self, realm_id: str, channel: str | None = None) -> Sequence[Message]:
+        """Sent order, NOT append order — deliberately the opposite of `events`. A message's
+        `ts_ms` is Matrix's `origin_server_ts`, when it was said; its row id is when the mirror
+        happened to write it, and those differ whenever the mirror backfills. A transcript is a
+        record of a conversation, so it follows the conversation."""
         q = select(Message).where(Message.realm_id == realm_id).order_by(Message.ts_ms, Message.id)
         if channel is not None:
             q = q.where(Message.channel == channel)
@@ -150,9 +163,11 @@ class Chronicle:
 
     async def realms(self) -> list[str]:
         """Distinct realm ids that have any chronicled events (most-recent first)."""
-        q = select(Event.realm_id, func.max(Event.ts_ms).label("t")).group_by(
+        # by max(id), not max(ts_ms): "most recently written" must not depend on a wall clock
+        # that can step backwards, or a realm whose last event landed during the step reads as old.
+        q = select(Event.realm_id, func.max(Event.id).label("t")).group_by(
             Event.realm_id
-        ).order_by(func.max(Event.ts_ms).desc())
+        ).order_by(func.max(Event.id).desc())
         async with self._sf() as s:
             return [row[0] for row in (await s.execute(q)).all()]
 

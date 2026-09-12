@@ -69,3 +69,50 @@ async def test_machine_and_game_are_first_class_event_kinds():
     await c.append_event("r", EventKind.GAME, {"op": "act"})
     assert [e.kind for e in await c.events("r")] == ["machine", "game"]
     await c.close()
+
+
+async def test_events_come_back_in_the_order_they_were_appended():
+    """The append order IS the causal order: the host appends an event after the thing it records
+    has happened. `ts_ms` is a wall clock and is not monotonic — an NTP correction, a container
+    clock skew or a host suspend steps it backwards — so ordering by it can hand a reader a
+    sequence that never happened in that order.
+
+    This is not cosmetic. `MachineService._load` rebuilds the authoritative game state by replaying
+    GAME events in this order; replay is the only constructor, so a reordering does not merely look
+    odd, it reconstructs a DIFFERENT state than the one that was live.
+    """
+    c = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+    await c.append_event("r", EventKind.GAME, {"n": 1}, ts_ms=1_000)
+    await c.append_event("r", EventKind.GAME, {"n": 2}, ts_ms=2_000)
+    await c.append_event("r", EventKind.GAME, {"n": 3}, ts_ms=1_500)  # the clock stepped back
+    await c.append_event("r", EventKind.GAME, {"n": 4}, ts_ms=1_600)
+    assert [e.payload["n"] for e in await c.events("r")] == [1, 2, 3, 4]
+    assert [e.payload["n"] for e in await c.events("r", kind=EventKind.GAME)] == [1, 2, 3, 4]
+    await c.close()
+
+
+async def test_messages_keep_the_order_they_were_SENT_in():
+    """Deliberately the opposite rule, and it must stay that way. A message's `ts_ms` is Matrix's
+    `origin_server_ts` — when it was SENT — while its row id is when the mirror happened to write
+    it. Those differ whenever the mirror backfills, and a transcript that renders a late-mirrored
+    message at the bottom is a transcript that misreports the conversation.
+
+    Events are the opposite because the host appends them itself, in causal order. If these two
+    ever get "made consistent", one of them breaks.
+    """
+    c = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+    await c.record_message("r", "!c", "@late:x", "spoken first, mirrored last", ts_ms=1_000)
+    await c.record_message("r", "!c", "@early:x", "spoken second", ts_ms=2_000)
+    await c.record_message("r", "!c", "@backfill:x", "spoken before either", ts_ms=500)
+    assert [m.sender for m in await c.messages("r")] == ["@backfill:x", "@late:x", "@early:x"]
+    await c.close()
+
+
+async def test_a_realm_listing_survives_a_clock_that_went_backwards():
+    """`realms()` is 'most recently written first'. Taking that from max(ts_ms) means a realm whose
+    last event landed during a backwards clock step sorts as though it were old."""
+    c = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+    await c.append_event("older", EventKind.SYSTEM, {}, ts_ms=5_000)
+    await c.append_event("newer", EventKind.SYSTEM, {}, ts_ms=1_000)  # written later, lower clock
+    assert (await c.realms())[0] == "newer"
+    await c.close()
