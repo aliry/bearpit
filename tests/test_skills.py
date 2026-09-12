@@ -30,10 +30,45 @@ def test_declared_builtin_added_alongside_default():
     assert "skills/referee-basics/SKILL.md" in files  # declared
 
 
-def test_local_skills_are_not_resolved_here():
-    # local/gh skills are copied from the package by Forge, not from the builtin library
+def test_a_declared_local_ref_with_no_loaded_text_seeds_nothing():
+    """A ref alone is not content. `local_skills` is filled by the package loader from
+    `agents/<id>/skills/<ref>/SKILL.md`; an AgentSpec built without it has nothing to write, and
+    inventing a file would be worse than omitting one."""
     agent = _agent("vela", skills=[SkillRef(source="local", ref="my-skill")])
     assert list(skill_files(agent)) == ["skills/agent-basics/SKILL.md"]
+
+
+def test_a_local_skill_is_seeded_as_a_file_like_any_other():
+    """A local skill reached the model (it is inlined into SOUL.md by `skill_texts`) but never
+    existed as a file, because `skill_files` filtered on BUILTIN. So an agent told to look in its
+    skills folder found the builtins there and would have concluded its local skill did not exist,
+    and `builtin` and `local` behaved differently for no reason the schema suggests."""
+    agent = _agent("vela", skills=[SkillRef(source="local", ref="pot-odds")])
+    agent = agent.model_copy(update={"local_skills": {"pot-odds": "# Pricing a hand\n\nbody"}})
+    files = skill_files(agent)
+    assert files["skills/pot-odds/SKILL.md"] == "# Pricing a hand\n\nbody"
+    assert "skills/agent-basics/SKILL.md" in files, "the role default is still seeded"
+
+
+def test_a_local_skill_overrides_a_builtin_of_the_same_name_on_disk_too():
+    """`skill_texts` already lets a package replace platform advice it disagrees with. The file
+    the agent can open must say the same thing as the text in its prompt, or the two disagree."""
+    agent = _agent("vela", skills=[SkillRef(source="builtin", ref="competitor"),
+                                   SkillRef(source="local", ref="competitor")])
+    agent = agent.model_copy(update={"local_skills": {"competitor": "ours, not yours"}})
+    assert skill_files(agent)["skills/competitor/SKILL.md"] == "ours, not yours"
+
+
+def test_the_file_and_the_prompt_carry_the_same_skills():
+    """The two delivery paths must not drift: whatever `skill_texts` puts in SOUL.md is what
+    `skill_files` puts on disk."""
+    from bearpit.forge.skills import skill_texts
+
+    agent = _agent("vela", skills=[SkillRef(source="builtin", ref="competitor"),
+                                   SkillRef(source="local", ref="pot-odds")])
+    agent = agent.model_copy(update={"local_skills": {"pot-odds": "price it"}})
+    assert sorted(skill_texts(agent)) == sorted(
+        k.removeprefix("skills/").removesuffix("/SKILL.md") for k in skill_files(agent))
 
 
 def test_flavor_skills_are_opt_in_per_scenario():
