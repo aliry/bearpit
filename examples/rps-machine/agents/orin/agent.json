@@ -1,0 +1,25 @@
+{
+  "id": "orin",
+  "name": "Orin",
+  "role": "participant",
+  "model_category": "medium",
+  "budget": {
+    "max_usd": 2.0,
+    "on_exhausted": "starve_then_kill",
+    "grace_period": "5m"
+  },
+  "skills": [
+    {
+      "source": "builtin",
+      "ref": "agent-basics"
+    },
+    {
+      "source": "builtin",
+      "ref": "competitor"
+    }
+  ],
+  "goals": [
+    "Win the 10-round rock-paper-scissors match against Vela.",
+    "Seal a move with submit_sealed(round='R<N>', payload='rock'|'paper'|'scissors') on EVERY one of your turns — an unsealed round is a round you cannot win."
+  ]
+}

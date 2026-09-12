@@ -1119,23 +1119,36 @@ def create_app(
             )
 
     def _check_elevated(project: Project, allow: bool) -> None:
-        """Consent for a grant whose blast radius reaches past the realm (ADR-004 §7).
+        """Consent for a power the user has to CHOOSE: a tool grant whose blast radius reaches
+        past the realm (ADR-004 §7), and a machine that lets participants write the game's own
+        state (`participant_effects`).
 
         Two tiers, because a warning shown on every research scenario stops being a warning — the
         #47 lesson. Contained tools (web_search, web_fetch) are metered, chronicled and cannot
         reach past the platform, so they launch silently and stay visible in the run record.
+
+        `participant_effects` sits in the first tier for a different reason: it is the user
+        picking law over physics for that game (architecture principle 3). A refereeless
+        self-dealt table is a legitimate experiment — and not one anybody should discover they
+        launched. Same door, same consent flag, so there is one thing to say yes to.
         """
         from bearpit.core.tools import elevated_grants
 
         risky = elevated_grants(project)
-        if not risky or allow:
+        machine = project.spec.machine
+        effects = list(machine.participant_effects) if machine is not None else []
+        if (not risky and not effects) or allow:
             return
         raise HTTPException(
             status_code=400,
             detail={
-                "error": "this scenario grants tools that need your consent",
+                "error": "this scenario grants powers that need your consent",
                 "elevated": [{"agent": a, "tools": ts} for a, ts in sorted(risky.items())],
-                "hint": "these reach past the realm — remove the grants, or resend with "
+                # The machine's opt-in, named as it is spelled in the manifest so the answer to
+                # "where did this come from?" is one search.
+                "machine_participant_effects": effects,
+                "hint": "tool grants here reach past the realm, and participant_effects lets "
+                        "players write the machine's own state — remove them, or resend with "
                         "allow_elevated_tools=true to run with them",
             },
         )

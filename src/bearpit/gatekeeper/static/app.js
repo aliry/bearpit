@@ -1114,14 +1114,22 @@ function launchModal(packages, preselect) {
             close(); ok("Realm launched", r.realm_id);
             location.hash = `#/realm/${encodeURIComponent(r.realm_id)}`;
           } catch (e) {
-            const elevated = e.detail && e.detail.elevated;
-            if (elevated) {
-              // A grant that reaches past the realm. Same shape as an empty parameter and a
-              // substituted provider: explained in place, and it takes a second press.
+            const elevated = (e.detail && e.detail.elevated) || [];
+            const effects = (e.detail && e.detail.machine_participant_effects) || [];
+            if (elevated.length || effects.length) {
+              // A grant that reaches past the realm, or a machine whose PLAYERS may write its
+              // own state. Same shape as an empty parameter and a substituted provider:
+              // explained in place, and it takes a second press. Both are the same consent, so
+              // one banner lists whichever of them this scenario actually asks for — an empty
+              // list is not a warning worth showing.
               toolConsent = true;
               paramBox.prepend(el("div", { class: "param-warn" },
-                el("strong", null, "This scenario grants tools that reach past the realm. "),
-                elevated.map((g) => `${g.agent}: ${g.tools.join(", ")}`).join(" · "),
+                elevated.length ? el("div", null,
+                  el("strong", null, "Tools that reach past the realm: "),
+                  elevated.map((g) => `${g.agent}: ${g.tools.join(", ")}`).join(" · ")) : null,
+                effects.length ? el("div", null,
+                  el("strong", null, "Players may write the machine's own state: "),
+                  `participant_effects: ${effects.join(", ")}`) : null,
                 el("div", { class: "hint" }, "Press Launch anyway to continue.")));
               setTimeout(() => btn.replaceChildren("Launch anyway"), 0);
               return;

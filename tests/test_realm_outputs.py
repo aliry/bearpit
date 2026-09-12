@@ -191,6 +191,21 @@ def test_outputs_are_fetched_once_and_only_after_the_realm_stops() -> None:
     assert 'const FINISHED = new Set(["archived", "failed"])' in js
 
 
+def test_the_launch_consent_banner_reads_both_halves_of_the_refusal() -> None:
+    """The launch dialog's consent banner is keyed off the refusal's fields. `elevated` is now
+    always present (possibly empty) and a machine's `participant_effects` ride beside it — so a
+    banner that tests `if (elevated)` fires on an empty array and shows an empty warning, and one
+    that never reads the new field leaves the operator pressing Launch with no idea what they are
+    consenting to. There is no JS runtime in this suite; this is the guard."""
+    js = _app_js()
+    assert "machine_participant_effects" in js, (
+        "the consent banner must render the machine's opt-in"
+    )
+    assert "elevated.length || effects.length" in js, (
+        "an empty `elevated` array is truthy — the banner must test length, not presence"
+    )
+
+
 # --- one Forge, many realms ---------------------------------------------------------------------
 async def test_a_realm_that_declares_no_outputs_inherits_none_from_the_realm_before_it(
     tmp_path,
