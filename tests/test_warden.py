@@ -280,6 +280,55 @@ def test_a_declared_verdict_still_wins_the_tick() -> None:
     assert fired is not None and fired.kind == TerminationKind.REFEREE_VERDICT
 
 
+async def test_conclude_takes_a_final_spend_reading_after_the_agents_are_stopped():
+    """Spend is polled only from the live tick, and LiteLLM aggregates a few seconds behind the
+    call that caused it. A realm that ends inside that window recorded NOTHING, permanently — its
+    virtual keys are revoked at teardown, so the last sample is unrecoverable.
+
+    camp-fetchprobe: 173s, both agents up, `witness` fetched a UUID and posted it with the
+    PROBE-DONE terminator, realm concluded correctly on the message pattern — and its chronicle
+    holds zero SPEND events. Measured across 12 realms, the aggregation lag is 5-17s while
+    container boot is 105-172s, so a short realm dies entirely inside the blind spot.
+
+    The reconciliation runs AFTER teardown on purpose: the containers are stopped by then, so no
+    further spend can accrue and the reading is final rather than a racing snapshot.
+    """
+    forge, herald, chron = FakeForge(), FakeHerald(), await _chron()
+    warden = Warden(forge, herald, chron)  # type: ignore[arg-type]
+    from bearpit.warden import TerminationFired
+
+    calls: list[str] = []
+
+    async def reconcile() -> None:
+        calls.append("polled" if forge.torn_down else "polled-too-early")
+
+    await warden.conclude(
+        "r", handles=object(), commons_room="!c",  # type: ignore[arg-type]
+        fired=TerminationFired(TerminationKind.MESSAGE, "PROBE-DONE"),
+        grace=timedelta(0), sleep=_noop, reconcile_spend=reconcile,
+    )
+    assert calls == ["polled"], "a realm can still archive with its final spend unrecorded"
+
+
+async def test_a_failing_final_spend_reading_never_costs_us_the_archive():
+    """The report is the run's value; a proxy hiccup at teardown must not swallow it."""
+    forge, herald, chron = FakeForge(), FakeHerald(), await _chron()
+    warden = Warden(forge, herald, chron)  # type: ignore[arg-type]
+    from bearpit.warden import TerminationFired
+
+    async def boom() -> None:
+        raise RuntimeError("litellm unreachable")
+
+    result = await warden.conclude(
+        "r", handles=object(), commons_room="!c",  # type: ignore[arg-type]
+        fired=TerminationFired(TerminationKind.MESSAGE, "x"),
+        grace=timedelta(0), sleep=_noop, reconcile_spend=boom,
+    )
+    assert result.fired.kind == TerminationKind.MESSAGE
+    events = await chron.events("r", kind=EventKind.LIFECYCLE)
+    assert "archived" in {e.payload["event"] for e in events}
+
+
 def test_machine_terminal_fires_when_the_machine_reaches_a_terminal_state():
     from bearpit.core.schema import TerminationCondition, TerminationKind
     from bearpit.warden.termination import RealmSnapshot, evaluate_termination
