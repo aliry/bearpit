@@ -25,6 +25,7 @@ from pydantic import BaseModel, ValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from bearpit.chronicle import Chronicle, EventKind
+from bearpit.chronicle.audit import audit_realm
 from bearpit.core import PackageError, Turns, load_package
 from bearpit.core.colors import resolve_agent_colors
 from bearpit.core.params import ParameterError
@@ -1225,6 +1226,13 @@ def create_app(
         elif not status["active"] and status["state"] in NON_TERMINAL:
             # a non-terminal state with no live task = the run was cut off (e.g. server restart)
             status["state"] = "interrupted"
+        # What this run's own record says about whether its result means anything (#90). A realm
+        # can report success and be worthless — four archived ones hold verdicts scored on content
+        # no participant posted — and nothing else on this page would say so.
+        status["integrity"] = [
+            {"code": f.code, "detail": f.detail}
+            for f in await audit_realm(get_chron(), realm_id)
+        ]
         return status
 
     @app.get("/api/realms/{realm_id}/transcript")
