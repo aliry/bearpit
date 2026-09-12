@@ -733,3 +733,87 @@ def test_the_turns_override_can_still_turn_turns_off_and_on():
     fresh = apply_turns_override(None, TurnsConfig(enabled=True, silence_timeout_s=45))
     assert fresh is not None and fresh.silence_timeout_s == 45
     assert fresh.min_rounds_before_verdict == 0
+
+
+class _StubPlatform:
+    """Just enough for the image guard to find a container runtime, the way the real
+    `RealmManager.platform.runtime` does."""
+
+    def __init__(self, runtime):
+        self.runtime = runtime
+
+
+class _StubRuntime:
+    def __init__(self, answer, exit_code=0):
+        self._answer, self._exit = answer, exit_code
+
+    def exec_python(self, container_id, code, *, timeout_s=30, user="10000"):
+        return self._exit, self._answer
+
+
+def _manager_with_image(answer, exit_code=0):
+    mgr = FakeManager()
+    mgr.platform = _StubPlatform(_StubRuntime(answer, exit_code))
+    return mgr
+
+
+def test_a_launch_is_refused_when_realmtools_is_not_running_this_code(seeded, tmp_path):
+    """A stale realmtools image is the one failure here that announces itself with nothing: the
+    realm runs, concludes, and writes a well-formed verdict computed by code nobody is looking at.
+    It has happened twice, once turning an among-us run into a spurious "crew win" (#106).
+
+    This test exists because the guard's first wiring reached for `mgr.runtime`, which does not
+    exist — `getattr(..., None)` then made the whole check a silent no-op, and every other test
+    still passed because a test double has no runtime either. Only a manager that DOES expose one
+    can tell the difference.
+    """
+    (tmp_path / "project.json").write_text(json.dumps({
+        "metadata": {"name": "plain"},
+        "spec": {"termination": [{"type": "manual"}]},
+        "agents": [{"id": "solo", "role": "participant",
+                    "model": {"provider": "azure", "model": "m", "api_key_ref": "azure-main"}}],
+    }))
+    pkg = str(tmp_path)
+    app = create_app(chron=seeded, manager=_manager_with_image("ffffffffffff\n"))
+    with TestClient(app) as c:
+        blocked = c.post("/api/realms", json={"package": pkg})
+        allowed = c.post("/api/realms", json={"package": pkg, "allow_stale_image": True})
+    assert 400 <= blocked.status_code < 500, blocked.text
+    detail = blocked.json()["detail"]
+    assert detail["container"] == "ffffffffffff"
+    assert detail["host"] and detail["host"] != detail["container"]
+    assert "allow_stale_image" in detail["hint"]
+    assert allowed.status_code == 200, "the operator may still run the old build deliberately"
+
+
+def test_an_image_that_matches_this_tree_launches_silently(seeded, tmp_path):
+    """The guard only means something if an up-to-date deployment never sees it."""
+    from bearpit.core.buildid import source_fingerprint
+
+    (tmp_path / "project.json").write_text(json.dumps({
+        "metadata": {"name": "plain"},
+        "spec": {"termination": [{"type": "manual"}]},
+        "agents": [{"id": "solo", "role": "participant",
+                    "model": {"provider": "azure", "model": "m", "api_key_ref": "azure-main"}}],
+    }))
+    app = create_app(chron=seeded, manager=_manager_with_image(source_fingerprint() + "\n"))
+    with TestClient(app) as c:
+        r = c.post("/api/realms", json={"package": str(tmp_path)})
+    assert r.status_code == 200, r.text
+
+
+def test_an_image_too_old_to_answer_is_refused_too(seeded, tmp_path):
+    """The check lives in the code it checks, so an image predating it cannot report at all. That
+    failure is conclusive and must refuse, not pass."""
+    (tmp_path / "project.json").write_text(json.dumps({
+        "metadata": {"name": "plain"},
+        "spec": {"termination": [{"type": "manual"}]},
+        "agents": [{"id": "solo", "role": "participant",
+                    "model": {"provider": "azure", "model": "m", "api_key_ref": "azure-main"}}],
+    }))
+    app = create_app(chron=seeded, manager=_manager_with_image(
+        "ModuleNotFoundError: No module named 'bearpit.core.buildid'", exit_code=1))
+    with TestClient(app) as c:
+        r = c.post("/api/realms", json={"package": str(tmp_path)})
+    assert 400 <= r.status_code < 500, r.text
+    assert r.json()["detail"]["container"] is None
