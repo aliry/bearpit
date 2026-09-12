@@ -220,6 +220,78 @@ async def test_eliminated_agent_is_stopped_and_its_dm_channel_goes_dead_both_way
     await chron.close()
 
 
+class QuotaMatrix(FakeMatrix):
+    """A DM room the agent posts into DIRECTLY, plus a record of every power-level change."""
+
+    def __init__(self, room_events=None):
+        super().__init__()
+        self.room_events = room_events or {}
+        self.power: list[tuple[str, dict, int]] = []  # (room, users, events_default)
+
+    async def messages(self, token, room_id, limit=100):
+        return self.room_events.get(room_id, [])
+
+    async def set_power_levels(self, token, room_id, users, events_default):
+        self.power.append((room_id, dict(users), events_default))
+
+
+def _dm_event(n, sender, body):
+    return {"type": "m.room.message", "event_id": f"$d{n}", "origin_server_ts": 1000 + n,
+            "sender": sender, "content": {"msgtype": "m.text", "body": body}}
+
+
+async def test_the_dm_quota_counts_what_an_agent_posts_in_the_room_itself():
+    """The quota was enforced only on the `send_private` path. An agent is a member of its DM room
+    and can post there with its own Matrix client — and the room's welcome message tells it to
+    ("To coordinate privately, reply RIGHT HERE in this room"). So the limit guarded one of two
+    sanctioned routes into the room it exists to protect.
+
+    Live in camp-border-states round 1, `corvane` (quota 4): 4 delivered through the tool, 4 more
+    correctly blocked with the 🔇 notice — and 6 posted straight into the DM rooms, unlimited. The
+    content is exactly what the quota exists to stop: "Confirmed the pact", "Reaffirmed the pact",
+    "Deal locked", "Deal reaffirmed" — one agreement restated four times. That realm spent $1.74 in
+    a single round; a whole sealed-auction realm cost $0.15.
+
+    Herald's own mirror docstring names the right boundary: "A per-project message-rate limit, if a
+    scenario wants one, belongs at the bus boundary, not here — it must not lose the record." So
+    the record is still chronicled in full; the agent is muted in the room by power levels, which
+    a homeserver enforces against ANY client.
+    """
+    chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+    room = "!dm:realm.local"
+    alice = "@g1-alice:realm.local"
+    mx = QuotaMatrix({room: [_dm_event(i, alice, f"reaffirming the pact #{i}") for i in range(3)]})
+    herald = await _herald(mx)
+    side = {room: {"members": [alice, "@g1-bob:realm.local"], "label": "alice · bob"}}
+    live = _live(chron, herald, side, _creds("alice", "bob"))
+    live._dm_quota = {"alice": 2}  # two per round; the agent posted three directly
+
+    await live()
+
+    # every message is still chronicled — the mirror must never drop the record
+    assert len(await chron.messages("g1", room)) == 3
+    # ...and the bus now refuses further posts from alice in that room
+    mutes = [p for p in mx.power if p[0] == room and p[1].get(alice, 0) < 0]
+    assert mutes, "an over-quota agent can still post directly into its DM room"
+    await chron.close()
+
+
+async def test_a_within_quota_agent_is_never_muted_in_its_dm_room():
+    """The gate must only close on the agent that actually exceeded its allowance."""
+    chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+    room = "!dm:realm.local"
+    alice = "@g1-alice:realm.local"
+    mx = QuotaMatrix({room: [_dm_event(0, alice, "one quiet word")]})
+    herald = await _herald(mx)
+    side = {room: {"members": [alice, "@g1-bob:realm.local"], "label": "alice · bob"}}
+    live = _live(chron, herald, side, _creds("alice", "bob"))
+    live._dm_quota = {"alice": 4}
+
+    await live()
+
+    assert not [p for p in mx.power if p[1].get(alice, 0) < 0], "muted an agent inside its quota"
+
+
 # --- the machine's wake stamps: the host DELIVERS them, it never advances the machine -----------
 WAKE_TEXT = "the machine is waiting on you. Call `game_state`."
 
