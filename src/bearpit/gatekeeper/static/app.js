@@ -484,16 +484,17 @@ route(/^\/realm\/(.+)$/, async (id) => {
   const layout = el("div", { class: "realm-layout" }, feed, stats);
 
   const head = el("div");
+  const integrityBox = el("div");  // what the run's own record says about its result (#90)
   const banner = el("div");  // prominent outcome once the realm concludes
   const wrap = el("div", null,
     el("div", { class: "crumb" }, el("a", { href: "#/realms" }, "Realms"), "›",
       el("span", { class: "mono", text: id })),
-    head, banner, layout);
+    head, integrityBox, banner, layout);
 
   // Fetched at most once per visit, and deliberately BEFORE the rail is rendered: realmStats
   // rebuilds the entire rail every 2s, so a card inserted asynchronously AFTER that render
   // made the whole rail jump on every single poll.
-  let seen = 0, lastState = null, lastOutcome = null, outputs = null;
+  let seen = 0, lastState = null, lastOutcome = null, lastIntegrity = null, outputs = null;
   async function tick() {
     let status, tr;
     try { [status, tr] = await Promise.all([api(`/api/realms/${encodeURIComponent(id)}`),
@@ -503,6 +504,22 @@ route(/^\/realm\/(.+)$/, async (id) => {
     if (status.state !== lastState) {
       lastState = status.state;
       clear(head); head.append(realmHead(id, status, referee));
+    }
+    // What this run's own record says about whether its result means anything (#90). It sits ABOVE
+    // the outcome deliberately: a realm can report success and be worthless, and the outcome is
+    // exactly the thing not to read first when it can.
+    const integrity = status.integrity || [];
+    const intKey = integrity.map(f => f.code).join(",");
+    if (intKey !== lastIntegrity) {
+      lastIntegrity = intKey;
+      clear(integrityBox);
+      if (integrity.length) integrityBox.append(el("div", { class: "integrity-banner" },
+        el("span", { class: "integrity-ic" }, "⚠"),
+        el("div", null,
+          el("div", { class: "mono-micro", text: "Check this run before trusting its result" }),
+          ...integrity.map(f => el("div", { class: "integrity-line" },
+            el("span", { class: "integrity-code", text: f.code }),
+            el("span", { text: " " + f.detail }))))));
     }
     // prominent outcome banner (only when it changes)
     if (status.outcome !== lastOutcome) {
