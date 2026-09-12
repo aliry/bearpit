@@ -6,6 +6,7 @@ import zipfile
 
 import pytest
 
+from bearpit.core import load_package
 from bearpit.gatekeeper import scenarios as sc
 
 
@@ -65,6 +66,51 @@ def test_write_bundles_used_custom_skills(dirs):
     # the local skill is copied INTO the agent's own skills/ dir (loader resolves per-agent)
     md = dirs / "bundled" / "agents" / "vela" / "skills" / "my-move" / "SKILL.md"
     assert md.read_text().find("bluff") > 0
+
+
+def test_write_saves_an_edited_local_skill_into_the_agent_not_the_library(dirs):
+    """An edited local skill belongs to THIS scenario. The loader's truth is already per-agent, so
+    the edit lands in agents/<id>/skills/<ref>/SKILL.md — and the global library copy, which every
+    other scenario draws from, is left exactly as it was."""
+    sc.write_custom_skill("my-move", "You may bluff.")
+    p = _payload("edited")
+    p["agents"][1]["skills"] = ["local:my-move"]
+    p["agents"][1]["local_skills"] = {"my-move": "---\nname: my-move\n---\n\nNever bluff."}
+    sc.write_scenario(dirs, "edited", p)
+
+    md = dirs / "edited" / "agents" / "vela" / "skills" / "my-move" / "SKILL.md"
+    assert md.read_text() == "---\nname: my-move\n---\n\nNever bluff."
+    lib = sc.custom_skill_content("my-move")  # library untouched: every OTHER scenario
+    assert "You may bluff." in lib and "Never bluff." not in lib
+    # ...and the loader hands the agent the EDITED text, which is the whole point
+    vela = next(a for a in load_package(str(dirs / "edited")).agents if a.id == "vela")
+    assert vela.local_skills["my-move"].endswith("Never bluff.")
+
+
+def test_an_edited_local_skill_needs_no_library_copy(dirs):
+    """A scenario is self-contained: a skill that exists only inside it saves fine. Without inline
+    text there is nothing to write, so that case still needs the library and still says so."""
+    p = _payload("own")
+    p["agents"][1]["skills"] = ["local:house-style"]
+    p["agents"][1]["local_skills"] = {"house-style": "# House style\n\nBe terse."}
+    sc.write_scenario(dirs, "own", p)
+    assert (dirs / "own" / "agents" / "vela" / "skills" / "house-style"
+            / "SKILL.md").read_text().endswith("Be terse.")
+
+    blank = _payload("blank")
+    blank["agents"][1]["skills"] = ["local:house-style"]
+    blank["agents"][1]["local_skills"] = {"house-style": "   "}  # whitespace is not content
+    with pytest.raises(sc.ScenarioError, match="not found in your library"):
+        sc.write_scenario(dirs, "blank", blank)
+
+
+def test_a_local_skill_ref_cannot_escape_the_agents_skills_dir(dirs):
+    p = _payload("escape")
+    p["agents"][1]["skills"] = ["local:../../../../etc/ssh"]
+    p["agents"][1]["local_skills"] = {"../../../../etc/ssh": "owned"}
+    with pytest.raises(sc.ScenarioError, match="invalid local skill ref"):
+        sc.write_scenario(dirs, "escape", p)
+    assert not (dirs / "escape").exists()
 
 
 def test_delete_scenario(dirs):
@@ -208,6 +254,21 @@ def test_folder_skill_bundles_into_scenario(dirs):
     assert (base / "SKILL.md").is_file() and (base / "scripts" / "search.py").is_file()
 
 
+def test_editing_a_multi_file_skill_keeps_its_bundled_files(dirs):
+    """The edit replaces SKILL.md. Scripts and references the skill ships with still come along —
+    editing one line of prose must not quietly strip a skill down to its brief."""
+    sc.import_skill_zip(_skill_zip())  # a 3-file skill in the library
+    p = _payload("edits-folder")
+    p["agents"][1]["skills"] = ["local:deep-research"]
+    p["agents"][1]["local_skills"] = {"deep-research": "---\nname: deep-research\n---\nMy rules."}
+    sc.write_scenario(dirs, "edits-folder", p)
+    base = dirs / "edits-folder" / "agents" / "vela" / "skills" / "deep-research"
+    assert base.joinpath("SKILL.md").read_text().endswith("My rules.")
+    assert (base / "scripts" / "search.py").is_file()
+    assert (base / "references" / "method.md").is_file()
+    assert "Use the scripts." in sc.custom_skill_content("deep-research")  # library untouched
+
+
 def test_write_custom_skill_preserves_existing_frontmatter(dirs):
     body = "---\nname: pre\ndescription: keep me\nversion: 2.0.0\n---\n\nBody here."
     sc.write_custom_skill("pre", body)
@@ -223,3 +284,38 @@ def test_raw_github_url_forms():
         "https://raw.githubusercontent.com/org/repo/main/x/SKILL.md")
     assert sc._raw_github_url("https://raw.githubusercontent.com/o/r/main/a.md") == (
         "https://raw.githubusercontent.com/o/r/main/a.md")
+
+
+def test_saving_a_scenario_keeps_each_agent_its_resource_files(tmp_path):
+    """The editor rebuilds a package from its payload, so anything the payload omits is DELETED on
+    save — silently, and only noticed when the realm runs. Saving `poker-table` through the editor
+    dropped `poker_resolver.py` and `equity.py`, leaving a dealer that could not add up a pot and
+    two seats whose personas tell them to consult a calculator that is no longer there.
+
+    Same shape as #58, one folder over: the editor showed the thing, the package stopped carrying
+    it. Round-trip the real package, because a fixture with one file would not have caught it."""
+    from bearpit.core import load_package
+    from bearpit.gatekeeper import scenarios as sc
+    from bearpit.gatekeeper.api import serialize_project
+
+    src = load_package("examples/poker-table")
+    payload = serialize_project(src, "poker-table", "examples/poker-table")
+    for a in payload["agents"]:  # the editor sends budget as a dict, serialize emits a float
+        br = a.get("budget_ref") or {}
+        a["budget"] = {"max_usd": br.get("max_usd"),
+                       "on_exhausted": br.get("on_exhausted", "starve_then_kill"),
+                       "grace_period": br.get("grace_period")}
+
+    sc.write_scenario(tmp_path, "poker-rt", payload)
+    after = load_package(str(tmp_path / "poker-rt"))
+
+    def by_id(project, aid):
+        return next(a for a in project.agents if a.id == aid)
+
+    for aid, fname in (("pitboss", "poker_resolver.py"), ("vega", "equity.py"),
+                       ("rigel", "equity.py")):
+        assert by_id(after, aid).resource_files.get(fname) == \
+            by_id(src, aid).resource_files.get(fname), f"{aid} lost {fname}"
+    # and the local skills it was saved with are still there, byte for byte
+    assert by_id(after, "vega").local_skills["pot-odds"] == \
+        by_id(src, "vega").local_skills["pot-odds"]

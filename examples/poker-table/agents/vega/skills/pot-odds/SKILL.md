@@ -38,15 +38,36 @@ river from where it stands now.
 
 - The share a call has to beat to break even: `to_call / (pot + to_call)`.
 - `to_call` is what the call COSTS you — the current `bet_level` minus the last `to` you yourself
-  posted on this street — **not** the total you will send in `to:`. `pot` is `data.pot` as it
-  stands before your chips go in.
+  posted on this street — **not** the total you will send in `to:`.
+- `pot` is **the pot you will be playing for, not the pot on the table right now.** Read the next
+  section before you pass this argument; getting it wrong is the one mistake that will quietly
+  cost you every good hand you are dealt.
 
-**The rule the two make together: call when `equity(...)` comes out above `pot_odds(...)`, and let
-it go when it does not.** Both numbers in one call:
+## The multiway trap — read this twice
+
+Your equity is measured against every seat that could still show you a hand. The price has to be
+measured against the same table. Ask for a share of a pot that only two people are building, while
+counting yourself against five opponents, and the two numbers describe different games.
+
+Preflop, six-handed, blinds 10/20. It is 20 to you and `data.pot` says 30.
+
+- **Wrong:** `pot_odds(20, 30)` = 0.400, against `equity('Ah Kc', [], 5)` ≈ 0.28 → *fold ace-king.*
+- **Right:** every live seat that calls puts in 20 too. The pot you are playing for is 30 + 20×5,
+  so `pot_odds(20, 130)` ≈ 0.133, and 0.28 clears it easily → *play it.*
+
+The wrong version folds every hand except aces. If you find yourself folding ace-king because a
+number told you to, you have priced a six-way pot as though it were heads-up.
+
+**The rule the two make together: call when `equity(...)` beats `pot_odds(to_call, pot_you_will_
+play_for)`, and let it go when it does not.** Both numbers in one call:
 
 ```
-run_code(code="import sys; sys.path.insert(0, '/opt/data/resources'); import equity; e=equity.equity('Ah Kh', ['2c','7d','9h'], 3, trials=2000, seed=1); p=equity.pot_odds(40, 260); print(e, p, e>p)")
+run_code(code="import sys; sys.path.insert(0, '/opt/data/resources'); import equity; live=5; e=equity.equity('Ah Kc', [], live, trials=2000, seed=1); p=equity.pot_odds(20, 30 + 20*live); print(e, p, e>p)")
 ```
+
+On a later street the two often coincide — by the river most seats have folded and the pot is
+already large, so `data.pot` IS close to what you are playing for. It is preflop, with five seats
+still to speak, that the difference decides the hand.
 
 ## Never retype a card
 
@@ -62,7 +83,8 @@ wrong — so a number you then work out in your head would be wrong too, and not
 
 ## What it does not know
 
-It assumes every opponent is holding two random cards and that the hand runs to the river. It has
-never watched this table. It does not know that one seat only raises with a real hand, that the
+It assumes every opponent is holding two random cards and that the hand runs to the river — so
+against five seats it is answering "how often do I hold the best of six random hands", which is a
+harsher question than "is this call profitable". It has never watched this table. It does not know that one seat only raises with a real hand, that the
 price in front of you is a bluff, or that two seats behind you have yet to act and one of them may
 raise. The number is the floor under a decision, not the whole of it.
