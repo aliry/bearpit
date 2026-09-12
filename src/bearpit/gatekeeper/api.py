@@ -35,6 +35,7 @@ from bearpit.core.params import resolve_values as resolve_param_values
 from bearpit.core.params import scan as scan_params
 from bearpit.core.params import validate_values as validate_param_values
 from bearpit.core.schema import Project
+from bearpit.forge.staleness import check_realmtools_image
 from bearpit.gatekeeper import scenarios as sc
 from bearpit.gatekeeper.auth import (
     COOKIE_NAME,
@@ -123,6 +124,10 @@ class CreateRealm(BaseModel):
     # ...and once more for a tool grant that breaks realm isolation or hands a third party realm
     # content (ADR-004 §7). Contained tools launch silently; these do not.
     allow_elevated_tools: bool = False
+    # ...and once more for a realmtools image that is not the code in this tree. A stale image is
+    # the only failure here that announces itself with nothing: the realm runs, concludes, and
+    # writes a well-formed verdict computed by code nobody is looking at.
+    allow_stale_image: bool = False
 
 
 class ScribeSessionCreate(BaseModel):
@@ -1074,6 +1079,45 @@ def create_app(
             ],
         }
 
+    def _check_image(allow: bool) -> None:
+        """Refuse to launch against a realmtools container that is not running this code.
+
+        The container is a BUILT image with no source mount, so `up -d` alone does not redeploy
+        it. When it drifts nothing says so — the realm runs, concludes, and writes a well-formed
+        verdict. It has happened twice, once turning an among-us run into a spurious "crew win".
+
+        Fails closed: a container too old to answer, or a Docker error, refuses the same as a
+        mismatch. The whole point is not to proceed on something unverified."""
+        if allow:
+            return
+        from bearpit.core.settings import load_settings
+
+        # `mgr.platform.runtime`, spelled out. An earlier version reached for `mgr.runtime`, which
+        # does not exist, so `getattr(..., None)` made this guard a silent no-op — the very shape
+        # of failure it is here to catch. A missing attribute now means a test double, and the
+        # API-level test below proves the wiring on the real one.
+        try:
+            runtime = get_manager().platform.runtime
+        except AttributeError:
+            return  # a test double with no container runtime
+        container = load_settings().realmtools_container
+        if runtime is None or not container:
+            return  # a host-only deployment with no realmtools container to check
+        check = check_realmtools_image(runtime, container)
+        if check.matches:
+            return
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "the realmtools container is not running this code",
+                "host": check.host,
+                "container": check.container,
+                "hint": f"{check.detail}. A stale image does not fail loudly — it produces a "
+                        f"well-formed verdict computed by code you are not looking at. Resend "
+                        f"with allow_stale_image=true only if you meant to run the old build.",
+            },
+        )
+
     def _check_provider(allow: bool) -> None:
         """Refuse to launch on a provider the operator did not choose.
 
@@ -1157,6 +1201,7 @@ def create_app(
     @app.post("/api/realms")
     async def create_realm(req: CreateRealm) -> dict[str, Any]:
         _check_provider(req.allow_provider_fallback)
+        _check_image(req.allow_stale_image)
         try:
             project = load_package(req.package)
         except (PackageError, FileNotFoundError) as exc:
@@ -1328,7 +1373,7 @@ def create_app(
     @app.post("/api/realms/{realm_id}/rerun")
     async def rerun_realm(
         realm_id: str, mode: str = "snapshot", allow_provider_fallback: bool = False,
-        allow_elevated_tools: bool = False,
+        allow_elevated_tools: bool = False, allow_stale_image: bool = False,
     ) -> dict[str, Any]:
         """Run this realm again. Two honestly-different things, and the caller must choose.
 
@@ -1351,6 +1396,7 @@ def create_app(
         if mode not in ("snapshot", "latest"):
             raise HTTPException(status_code=400, detail="mode must be 'snapshot' or 'latest'")
         _check_provider(allow_provider_fallback)
+        _check_image(allow_stale_image)
 
         events = await get_chron().events(realm_id, kind=EventKind.LIFECYCLE)
         snap = next((e.payload for e in events if e.payload.get("project")), None)
