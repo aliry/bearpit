@@ -7,6 +7,7 @@ malformed (empty) auth header, so we omit the header entirely when there is no t
 
 from __future__ import annotations
 
+import asyncio
 import secrets
 from typing import Any, Protocol
 
@@ -35,10 +36,25 @@ class MatrixClient(Protocol):
     ) -> None: ...
 
 
+class RoomIdCollision(RuntimeError):
+    """The homeserver handed back a room id it had already issued.
+
+    Two realms sharing a commons would break realm isolation — a hard guarantee — and would do it
+    silently, so provisioning fails here instead. See #100.
+    """
+
+
 class HttpMatrixClient:
     def __init__(self, base_url: str, timeout: float = 15.0) -> None:
         self._base = base_url.rstrip("/")
         self._timeout = timeout
+        # Conduit's room-id generation is not atomic: 8 CONCURRENT createRoom calls came back with
+        # 4 distinct ids, while 8 sequential calls gave 8 (distinct room names do not help, so it
+        # is the id, not deduplication). Two realms launched together were handed the same commons
+        # and each chronicled the other's messages (#100). Creation is rare — a handful per launch
+        # — so serialising it costs nothing and closes the race.
+        self._room_lock = asyncio.Lock()
+        self._rooms_issued: set[str] = set()
 
     async def _req(
         self, method: str, path: str, token: str | None = None,
@@ -66,11 +82,21 @@ class HttpMatrixClient:
         return str(d["access_token"])
 
     async def create_room(self, token: str, name: str, invite: list[str]) -> str:
-        d = await self._req(
-            "POST", "/_matrix/client/v3/createRoom", token=token,
-            json={"name": name, "preset": "private_chat", "invite": invite},
-        )
-        return str(d["room_id"])
+        async with self._room_lock:
+            d = await self._req(
+                "POST", "/_matrix/client/v3/createRoom", token=token,
+                json={"name": name, "preset": "private_chat", "invite": invite},
+            )
+            room = str(d["room_id"])
+            # The lock only covers this process. If a duplicate still arrives, refuse it: a loud
+            # failure at provisioning beats two realms quietly sharing a room, which is what
+            # happened — nothing errored and both runs reported success.
+            if room in self._rooms_issued:
+                raise RoomIdCollision(
+                    f"homeserver reissued room {room}; refusing to share it between realms"
+                )
+            self._rooms_issued.add(room)
+            return room
 
     async def invite(self, token: str, room_id: str, user_id: str) -> None:
         await self._req(

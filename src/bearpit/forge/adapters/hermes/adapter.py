@@ -67,7 +67,7 @@ class HermesAdapter:
         files = render_hermes_home(
             spec, cred, matrix, roster=roster, guidelines=guidelines, restrictions=restrictions,
             realmtools=self._realmtools.get(spec.id), allow_side_channels=side_channels,
-            dm_rooms=dm_rooms, shared_folder=bool(realm.shared_folder),
+            dm_rooms=dm_rooms, shared_folder=bool(realm.shared_folder), machine=realm.machine,
         )
         # seed the role default (agent-basics / referee-basics) + any declared builtin skills
         files.update(skill_files(spec))

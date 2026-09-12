@@ -26,6 +26,8 @@ from bearpit.chronicle import Chronicle
 from bearpit.forge.skills import BUILTIN_SKILLS
 from bearpit.realmtools.arbiter import ArbiterService
 from bearpit.realmtools.code import CodeService
+from bearpit.realmtools.machine import ReplayError
+from bearpit.realmtools.machine_service import MachineService
 from bearpit.realmtools.manifest import ManifestReader
 from bearpit.realmtools.notes import NoteService
 from bearpit.realmtools.private import PrivateMessageService
@@ -112,8 +114,14 @@ def build_app(
     manifests = ManifestReader(chronicle)
     granted = ToolCallService(chronicle, manifests=manifests)
 
+    async def _sealed(realm_id: str, round_id: str) -> set[str]:
+        status = await service._escrow(realm_id).status_async(round_id)  # noqa: SLF001
+        return set(status["submitted"])
+
+    machine = MachineService(chronicle, escrow_lookup=_sealed)
+
     def _wire(chron: Chronicle) -> None:
-        for svc in (service, arbiter, turns, private, notes, coder, granted, manifests):
+        for svc in (service, arbiter, turns, private, notes, coder, granted, manifests, machine):
             svc.set_chronicle(chron)
 
     # NOT FastMCP's own lifespan. That one runs inside `app.run()`, which the streamable-http
@@ -285,6 +293,81 @@ def build_app(
             return await service.tally(who(ctx), round, ruleset, config)
         except (SealedError, TallyError, PermissionError) as exc:
             return {"error": str(exc)}
+
+    # --- the game state machine (Task 11/12): declarative states/transitions/data -------------
+    @mcp.tool()
+    async def game_state(
+        ctx: ToolContext, since: int | None = None, log_limit: int = 100
+    ) -> dict[str, Any]:
+        """Your view of the realm's game state machine: current state, whose move it is (`actor`,
+        null when nobody's), the data you may see, and the transition log since `since` (an event
+        id; pass the returned `next_since` to page). Hidden keys are simply absent."""
+        ident = _identity(ctx, secret)
+        try:
+            res = await machine.state(who(ctx), since=since, log_limit=log_limit)
+        except ReplayError:
+            _audit("game_state", ident, "corrupt game state")
+            return {"error": "game state unavailable"}
+        except PermissionError as exc:
+            _audit("game_state", ident, str(exc))
+            return {"error": str(exc)}
+        _audit("game_state", ident, res.get("error"), result=res)
+        return res
+
+    @mcp.tool()
+    async def game_act(
+        transition: str, ctx: ToolContext, args: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Fire a transition of the game state machine as yourself. The platform checks it is
+        legal — it exists, it is available from the current state, your role may fire it, and its
+        guards hold — and refuses otherwise, naming the failed check. Call game_declaration to see
+        what you may fire and when."""
+        ident = _identity(ctx, secret)
+        try:
+            res = await machine.act(who(ctx), transition, args)
+        except ReplayError:
+            _audit(f"game_act({transition!r})", ident, "corrupt game state")
+            return {"error": "game state unavailable"}
+        except PermissionError as exc:
+            _audit(f"game_act({transition!r})", ident, str(exc))
+            return {"error": str(exc)}
+        _audit(f"game_act({transition!r})", ident, res.get("error"), result=res)
+        return res
+
+    @mcp.tool()
+    async def game_set(
+        key: str, value: Any, ctx: ToolContext, owner: str | None = None
+    ) -> dict[str, Any]:
+        """Referee only: write a declared data key. `owner` is required for owner-visibility keys
+        (e.g. a player's hand) and forbidden otherwise. Set-typed keys change through
+        transitions, not here. The engine never interprets the value."""
+        ident = _identity(ctx, secret)
+        try:
+            res = await machine.set(who(ctx), key, value, owner)
+        except ReplayError:
+            _audit(f"game_set({key!r})", ident, "corrupt game state")
+            return {"error": "game state unavailable"}
+        except PermissionError as exc:
+            _audit(f"game_set({key!r})", ident, str(exc))
+            return {"error": str(exc)}
+        _audit(f"game_set({key!r})", ident, res.get("error"), result=res)
+        return res
+
+    @mcp.tool()
+    async def game_declaration(ctx: ToolContext) -> dict[str, Any]:
+        """The machine's declaration — states, transitions (who may fire what, from where, under
+        which guards), data keys and their visibility. Hidden roles' membership is not shown."""
+        ident = _identity(ctx, secret)
+        try:
+            res = await machine.declaration(who(ctx))
+        except ReplayError:
+            _audit("game_declaration", ident, "corrupt game state")
+            return {"error": "game state unavailable"}
+        except PermissionError as exc:
+            _audit("game_declaration", ident, str(exc))
+            return {"error": str(exc)}
+        _audit("game_declaration", ident, res.get("error"), result=res)
+        return res
 
     # --- Arbiter: referee scoring + verdicts (the platform keeps the running score) ----------
     @mcp.tool()

@@ -327,3 +327,15 @@ async def test_a_failing_final_spend_reading_never_costs_us_the_archive():
     assert result.fired.kind == TerminationKind.MESSAGE
     events = await chron.events("r", kind=EventKind.LIFECYCLE)
     assert "archived" in {e.payload["event"] for e in events}
+
+
+def test_machine_terminal_fires_when_the_machine_reaches_a_terminal_state():
+    from bearpit.core.schema import TerminationCondition, TerminationKind
+    from bearpit.warden.termination import RealmSnapshot, evaluate_termination
+    cond = [TerminationCondition(type=TerminationKind.MACHINE_TERMINAL)]
+    assert evaluate_termination(cond, RealmSnapshot(machine_state="b")) is None
+    fired = evaluate_termination(
+        cond, RealmSnapshot(machine_state="done", machine_terminal_reached=True)
+    )
+    assert fired is not None and fired.kind == TerminationKind.MACHINE_TERMINAL
+    assert fired.detail == "machine reached 'done'"

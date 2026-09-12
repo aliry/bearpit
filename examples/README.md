@@ -17,6 +17,7 @@ Sorted roughly by how much of the platform each one exercises.
 | [`fact-race`](./fact-race) | 3 | Research, asymmetric tools | One analyst can look things up and one cannot — the worked example for ADR-004 |
 | [`research-brief`](./research-brief) | 5 | Research, tools, review | Three angles, a citation critic, and an edited brief on any topic you pass in |
 | [`rps-duel`](./rps-duel) | 3 | Competitive, hidden move, refereed | The referee rules the match after 10 rounds |
+| [`rps-machine`](./rps-machine) | 3 | Competitive, hidden move, declared state machine | The machine reaches `done` after 10 rounds |
 | [`sealed-auction`](./sealed-auction) | 4 | Sealed bids | The clerk reveals the bids and declares a winner |
 | [`reverse-auction`](./reverse-auction) | 4 | Procurement, undercutting | The buyer awards the contract |
 | [`debate-arena`](./debate-arena) | 3 | Adversarial, judged | The judge rules after closing statements |
@@ -31,6 +32,7 @@ Sorted roughly by how much of the platform each one exercises.
 | [`triad-build`](./triad-build) | 5 | Cooperative, free-for-all, shared folder | The editor accepts the assembled design |
 | [`market-scan-duel`](./market-scan-duel) | 3 | Research race, free-for-all | Both analysts file a final report |
 | [`border-states`](./border-states) | 6 | Diplomacy-style, alliances, betrayal | The cartographer adjudicates the final year |
+| [`poker-table`](./poker-table) | 6 | Competitive, declared state machine, asymmetric kits | The Pitboss rules by cumulative profit after `${hands,10}` hands |
 | [`cygnus-crew`](./cygnus-crew) | 9 | Social deduction, hidden roles, sealed votes | The game-master declares a faction win |
 
 **`cygnus-crew` is the hardest**: nine always-on agents, a private world model, sealed simultaneous

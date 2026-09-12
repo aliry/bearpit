@@ -24,6 +24,7 @@ from bearpit.core.schema import Project
 from bearpit.core.tools import grant_manifest
 from bearpit.forge import Forge, RealmHandles
 from bearpit.forge.container import ContainerRuntime
+from bearpit.gatekeeper.machine_record import machine_record
 from bearpit.herald import BusProvision, Herald
 from bearpit.herald.types import MatrixCreds
 from bearpit.ledger import Ledger
@@ -119,6 +120,10 @@ class Runner:
         await self.chronicle.append_event(
             realm_id, EventKind.TOOL_MANIFEST, grant_manifest(project)
         )
+        # The game state machine's declaration + bindings, BEFORE provisioning for the same
+        # reason as the manifest: an agent may call game_state the moment its container is up.
+        if (rec := machine_record(project)) is not None:
+            await self.chronicle.append_event(realm_id, EventKind.MACHINE, rec)
         bus = await self.herald.provision_bus(realm_id, project, require_mention=require_mention)
         handles = await self.forge.provision_realm(
             realm_id, project, bus.creds,
@@ -294,6 +299,7 @@ class LiveSnapshot:
         budget_policy: dict[str, tuple[str, float]] | None = None,
         tool_config: dict[str, dict[str, object]] | None = None,
         participants: Sequence[str] | None = None,
+        machine: dict[str, Any] | None = None,
     ) -> None:
         self._herald = herald
         self._ledger = ledger
@@ -349,6 +355,20 @@ class LiveSnapshot:
             ids = [p.strip() for p in str(info.get("label", "")).split("·")]
             if len(ids) == 2 and all(ids):
                 self._dm_route[frozenset(ids)] = room
+        # The game state machine (MACHINE record) — read-only here. The host DELIVERS the
+        # engine's `wake` stamps and runs the one rule the engine has no clock for (`after_s`);
+        # it never acts, sets, or advances the machine itself.
+        self._machine = machine  # the MACHINE record, or None
+        # A restarted host re-reads every GAME event once: wakes dedupe to one mention per agent
+        # and _machine_state self-heals.
+        self._game_seen = 0  # id of the newest GAME event whose wakes have been delivered
+        self._game_last_ts: float | None = None  # the newest GAME event's OWN timestamp (seconds)
+        self._after_fired: set[int] = set()  # wake-rule indices already nudged for this stall
+        self._machine_state: str | None = (
+            machine["declaration"].get("initial") if machine else None)
+        # The declaration's terminal states, for the `machine_terminal` termination condition.
+        self._machine_terminal: set[str] = set(
+            machine["declaration"].get("terminal", []) if machine else ())
 
     async def __call__(self) -> RealmSnapshot:
         # Deliver any queued private messages first (agents call send_private, which records a
@@ -363,6 +383,7 @@ class LiveSnapshot:
         for room in self._side_channels:
             await self._herald.mirror(self._realm, room, self._chron)
         await self._enforce_dm_quota()
+        await self._deliver_wakes()
         # Label commons messages "commons" (termination conditions use that, not the room id),
         # and EXCLUDE the platform's own @system posts: the kickoff quotes the guidelines, which
         # mention the termination phrase (e.g. "post VERDICT:") — matching that would end the
@@ -438,6 +459,8 @@ class LiveSnapshot:
             manual_stop=self._stop(),
             participants=len(self._participants),
             participants_alive=len(alive),
+            machine_state=self._machine_state,
+            machine_terminal_reached=self._machine_state in self._machine_terminal,
         )
 
     async def _enforce_budgets(self, spend: dict[str, tuple[float, float | None]]) -> None:
@@ -665,6 +688,87 @@ class LiveSnapshot:
                 members = info.get("members")
                 if isinstance(members, list) and cred.user_id in members:
                     await self._herald.mute_in_room(room, cred.user_id)
+
+    async def _deliver_wakes(self) -> None:
+        """Notification, never advancement: post the engine's `wake` stamps as @system mentions,
+        and run the one host-side rule — `after_s`, a clock the engine deliberately does not have.
+        Actor-wakes collapse to the actor of the LATEST event in the tick; a player woken for a
+        pointer that has already moved on would only be woken again."""
+        if self._machine is None:
+            return
+        decl: dict[str, Any] = self._machine.get("declaration", {})
+        events = [e for e in await self._chron.events(self._realm, kind=EventKind.GAME)
+                  if e.id > self._game_seen]
+        now = self._clock()
+        if events:
+            self._game_seen = max(e.id for e in events)
+            self._game_last_ts = events[-1].ts_ms / 1000.0
+            self._after_fired.clear()  # a move re-arms every after_s rule
+            self._last_activity = now  # a move is agent activity for `stall`
+            latest_actor = next((e.payload.get("actor") for e in reversed(events)
+                                 if e.payload.get("op") == "act"), None)
+            latest_to = next((e.payload.get("to") for e in reversed(events)
+                              if e.payload.get("op") == "act" and e.payload.get("to")), None)
+            if latest_to:
+                self._machine_state = str(latest_to)
+            targets: set[str] = set()
+            actor_targets: set[str] = set()
+            for e in events:
+                payload = e.payload
+                if "wake_actor" in payload:
+                    # The engine says which rule stamped each id. Believe it: a ROLE rule whose
+                    # targets include the event's own actor is a real wake for that agent.
+                    targets.update(str(w) for w in payload.get("wake") or ())
+                    actor_targets.update(str(w) for w in payload.get("wake_actor") or ())
+                else:
+                    # A row chronicled before the engine classified them (two live realms hold
+                    # such rows). Infer by actor, exactly as this did then, so their replay is
+                    # unchanged — it is the only reading available for those rows.
+                    for who in payload.get("wake") or ():
+                        (actor_targets if who == payload.get("actor") else targets).add(str(who))
+            if latest_actor in actor_targets:
+                targets.add(str(latest_actor))
+            for who in sorted(targets):
+                await self._mention(who)
+        # Measured from the event's own timestamp, not the tick that noticed it — so a host that
+        # skipped ticks still sees the real gap. In production a fresh event has ts ≈ now, so a
+        # new-event tick never fires this.
+        if self._game_last_ts is None:
+            # No GAME event has ever existed, so arm the timer from the realm's own start. A
+            # referee that never fires the OPENING transition is exactly the stall these rules
+            # exist to break, and it was the one case they never covered (review M1): the realm
+            # sat at its initial state until `duration` killed it.
+            self._game_last_ts = await self._realm_started()
+        last_ts = self._game_last_ts
+        for i, rule in enumerate(decl.get("wake", [])):
+            if i in self._after_fired:
+                continue
+            n = rule.get("after_s")
+            # Per RULE, not per tick: a declaration may escalate (nudge the referee at 240s, the
+            # players at 600s), and one shared flag would let the first rule to fire mute the rest.
+            if n and now - last_ts >= n:
+                for who in self._machine.get("members", {}).get(rule["role"], []):
+                    await self._mention(str(who))
+                self._after_fired.add(i)
+
+    async def _realm_started(self) -> float:
+        """The clock the machine's `after_s` rules run from before any GAME event: the realm's
+        own `running` lifecycle event, which survives a restart of the host, falling back to this
+        snapshot's start when the realm predates that record."""
+        for e in await self._chron.events(self._realm, kind=EventKind.LIFECYCLE):
+            if e.payload.get("event") == "running":
+                return float(e.ts_ms) / 1000.0
+        return self._start
+
+    async def _mention(self, agent_id: str) -> None:
+        cred = self._creds.get(agent_id)
+        if cred is None:
+            return
+        await self._herald.announce(
+            self._commons,
+            f"{cred.user_id} — the machine is waiting on you. Call `game_state`.",
+            mentions=[cred.user_id],
+        )
 
     async def _deliver_private(self) -> None:
         """Drain new PRIVATE events into their DM rooms. Each is posted AS the sender (so the mirror

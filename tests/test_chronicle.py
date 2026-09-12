@@ -55,3 +55,17 @@ async def test_append_only_has_no_mutation_api(chron: Chronicle):
     assert not hasattr(chron, "update_event")
     assert not hasattr(chron, "delete_event")
     assert not hasattr(chron, "delete_message")
+
+
+async def test_machine_and_game_are_first_class_event_kinds():
+    """The machine's declaration and every transition are chronicle events like any other
+    source — 'everything is chronicled' means a new event source feeds it from day one."""
+    from bearpit.chronicle import EventKind
+
+    assert EventKind.MACHINE == "machine"
+    assert EventKind.GAME == "game"
+    c = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+    await c.append_event("r", EventKind.MACHINE, {"declaration": {}})
+    await c.append_event("r", EventKind.GAME, {"op": "act"})
+    assert [e.kind for e in await c.events("r")] == ["machine", "game"]
+    await c.close()

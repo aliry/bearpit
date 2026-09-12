@@ -1,0 +1,472 @@
+"""The game state machine ENGINE — pure functions over a declaration and a state document.
+
+(declaration, bindings, state, caller, transition, args) -> new state | Rejection
+
+No IO and no clock: `now_ms` is always a parameter, the escrow's submitted set is passed in, and
+every function is deterministic — which is what makes replay-as-recovery correct (spec §4). The
+engine has no arithmetic: numbers are opaque values the referee writes. Adding either a timer or
+a `+` here is the line the design says never to cross (ADR-002).
+
+The service in `machine_service.py` is the only place this meets the chronicle.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+
+from bearpit.core.machine import Effect, Guard, MachineDef
+
+
+@dataclass(frozen=True)
+class Bindings:
+    """Host-resolved at launch and persisted in the MACHINE event: who is in each role, and the
+    roster order the pointer rotates over. Frozen so a replay sees exactly what the run saw."""
+
+    members: dict[str, tuple[str, ...]]
+    roster: tuple[str, ...]
+    referee: str | None
+
+
+@dataclass
+class MachineState:
+    state: str
+    actor: str | None
+    actor_since: int
+    data: dict[str, Any] = field(default_factory=dict)  # public + referee scalar values
+    owner_data: dict[str, dict[str, Any]] = field(default_factory=dict)  # key -> owner -> value
+    sets: dict[str, set[str]] = field(default_factory=dict)
+    revealed: dict[str, set[str]] = field(default_factory=dict)  # owner-key -> owners now public
+
+    def copy(self) -> MachineState:
+        return MachineState(
+            state=self.state, actor=self.actor, actor_since=self.actor_since,
+            data=dict(self.data),
+            owner_data={k: dict(v) for k, v in self.owner_data.items()},
+            sets={k: set(v) for k, v in self.sets.items()},
+            revealed={k: set(v) for k, v in self.revealed.items()},
+        )
+
+
+def initial_state(defn: MachineDef, bindings: Bindings, now_ms: int) -> MachineState:
+    return MachineState(
+        state=defn.initial, actor=None, actor_since=now_ms,
+        owner_data={k: {} for k, d in defn.data.items() if d.visibility == "owner"},
+        sets={k: set() for k, d in defn.data.items() if d.type == "set"},
+        revealed={k: set() for k, d in defn.data.items() if d.visibility == "owner"},
+    )
+
+
+def roles_of(defn: MachineDef, bindings: Bindings, agent: str) -> set[str]:
+    return {r for r, ids in bindings.members.items() if agent in ids}
+
+
+def eligible(defn: MachineDef, state: MachineState, agent: str) -> bool:
+    """In none of the pointer's skip sets. Assumes `agent` is already a member of the pointer's
+    role — callers filter by membership first (see `_rotation`)."""
+    p = defn.actor
+    if p is None:
+        return False
+    return not any(agent in state.sets.get(s, ()) for s in p.skip)
+
+
+def _rotation(defn: MachineDef, bindings: Bindings) -> tuple[str, ...]:
+    assert defn.actor is not None
+    # Host invariant, refused at launch otherwise: every role member is on the roster.
+    members = set(bindings.members.get(defn.actor.over, ()))
+    return tuple(a for a in bindings.roster if a in members)
+
+
+def advance_actor(defn: MachineDef, bindings: Bindings, state: MachineState, now_ms: int) -> None:
+    """Next eligible member after the current actor, wrapping; PARK at None if there is none.
+    From a parked pointer, start at the top of the rotation."""
+    if defn.actor is None:
+        return
+    order = _rotation(defn, bindings)
+    if not order:
+        state.actor, state.actor_since = None, now_ms
+        return
+    start = order.index(state.actor) + 1 if state.actor in order else 0
+    for i in range(len(order)):
+        cand = order[(start + i) % len(order)]
+        if eligible(defn, state, cand):
+            state.actor, state.actor_since = cand, now_ms
+            return
+    state.actor, state.actor_since = None, now_ms
+
+
+def set_actor(
+    defn: MachineDef, bindings: Bindings, state: MachineState, who: str | None, now_ms: int
+) -> str | None:
+    """Returns a rejection reason, or None on success. Refuses a stranger and a skipped member —
+    a referee typo must not give the floor to someone the pointer skips."""
+    if defn.actor is None:
+        return "this machine has no pointer"
+    if who is not None:
+        if who not in bindings.members.get(defn.actor.over, ()):
+            return f"{who!r} is not a member of {defn.actor.over!r}"
+        for s in defn.actor.skip:
+            if who in state.sets.get(s, ()):
+                return f"{who!r} is in skip set {s!r}"
+    state.actor, state.actor_since = who, now_ms
+    return None
+
+
+@dataclass(frozen=True)
+class Ctx:
+    """Per-call inputs. `escrow` maps round id -> agents who have sealed it; the service fetches
+    it before calling in, so the engine stays pure. `caller` is None when evaluating wake rules."""
+
+    caller: str | None
+    args: dict[str, Any]
+    escrow: dict[str, set[str]]
+
+
+def resolve(value: Any, ctx: Ctx, state: MachineState) -> Any:
+    if isinstance(value, str):
+        if value == "$caller":
+            return ctx.caller
+        if value.startswith("$args."):
+            return ctx.args.get(value[6:])
+        if value.startswith("$data."):
+            key = value[6:]
+            if key == "actor":
+                return state.actor
+            return state.data.get(key)
+    return value
+
+
+def _expected(
+    defn: MachineDef, bindings: Bindings, state: MachineState, over: str, minus: list[str]
+) -> set[str]:
+    members = set(bindings.members.get(over, ()))
+    for s in minus:
+        members -= state.sets.get(s, set())
+    return members
+
+
+def check_guard(
+    g: Guard, defn: MachineDef, bindings: Bindings, state: MachineState, ctx: Ctx
+) -> bool:
+    a = g.arg if isinstance(g.arg, dict) else {}
+    if g.name == "caller_is_actor":
+        return ctx.caller is not None and state.actor == ctx.caller
+    if g.name == "caller_in":
+        return ctx.caller in state.sets.get(str(g.arg), set())
+    if g.name == "caller_not_in":
+        return ctx.caller not in state.sets.get(str(g.arg), set())
+    if g.name == "data_present":
+        return state.actor is not None if g.arg == "actor" else str(g.arg) in state.data
+    if g.name == "data_equals":
+        key = a.get("key")
+        current = state.actor if key == "actor" else state.data.get(str(key))
+        return bool(current == resolve(a.get("value"), ctx, state))
+    if g.name == "data_set_empty":
+        return not state.sets.get(str(g.arg), set())
+    if g.name == "members_count":
+        n = len(_expected(defn, bindings, state, a["over"], a.get("minus", [])))
+        if "equals" in a:
+            return bool(n == a["equals"])
+        if "at_most" in a:
+            return bool(n <= a["at_most"])
+        if "at_least" in a:
+            return bool(n >= a["at_least"])
+        raise ValueError("members_count needs one of equals/at_most/at_least")
+    if g.name == "data_set_full":
+        expected = _expected(defn, bindings, state, a["over"], a.get("minus", []))
+        return expected <= state.sets.get(str(a["key"]), set())
+    if g.name == "escrow_complete":
+        round_id = resolve(a.get("round"), ctx, state)
+        expected = _expected(defn, bindings, state, a["over"], a.get("minus", []))
+        # A round that resolves to None becomes the key "None" and fails closed — nobody sealed it.
+        return expected <= ctx.escrow.get(str(round_id), set())
+    raise ValueError(f"unknown guard {g.name!r}")  # unreachable: MachineDef refused it at launch
+
+
+def guards_hold(
+    guards: list[Guard], defn: MachineDef, bindings: Bindings, state: MachineState, ctx: Ctx
+) -> tuple[bool, str | None]:
+    for g in guards:
+        if not check_guard(g, defn, bindings, state, ctx):
+            return False, g.name
+    return True, None
+
+
+def _member_or_reason(
+    defn: MachineDef, bindings: Bindings, who: Any
+) -> str | None:
+    """Values that name an agent must name one in the pointer's role (or any role if there is
+    no pointer). Junk would silently break skip sets and cardinality guards."""
+    role = defn.actor.over if defn.actor is not None else None
+    pool = set(bindings.members.get(role, ())) if role else {
+        a for ids in bindings.members.values() for a in ids}
+    if who not in pool:
+        return f"{who!r} is not a member of {role or 'any role'!r}"
+    return None
+
+
+def apply_effect(
+    e: Effect, defn: MachineDef, bindings: Bindings, state: MachineState, ctx: Ctx, now_ms: int
+) -> str | None:
+    a = e.arg if isinstance(e.arg, dict) else {}
+    if e.name == "advance_actor":
+        advance_actor(defn, bindings, state, now_ms)
+        return None
+    if e.name in {"add_to", "remove_from"}:
+        who = resolve(a.get("value"), ctx, state)
+        if (bad := _member_or_reason(defn, bindings, who)) is not None:
+            return bad
+        target = state.sets.setdefault(str(a["key"]), set())
+        (target.add if e.name == "add_to" else target.discard)(str(who))
+        return None
+    if e.name == "reset":
+        state.sets[str(e.arg)] = set()
+        return None
+    if e.name == "set":
+        state.data[str(a["key"])] = resolve(a.get("value"), ctx, state)
+        return None
+    if e.name == "unset":
+        state.data.pop(str(e.arg), None)
+        return None
+    if e.name == "set_actor":
+        who = resolve(e.arg, ctx, state)
+        return set_actor(defn, bindings, state, None if who is None else str(who), now_ms)
+    if e.name == "reveal":
+        key = str(a["key"])
+        sel = a.get("owners")
+        if isinstance(sel, dict):
+            owners = _expected(defn, bindings, state, sel["over"], sel.get("minus", []))
+        else:
+            who = resolve(sel, ctx, state)
+            owners = {str(who)} if who is not None else set()
+        state.revealed.setdefault(key, set()).update(owners)
+        return None
+    raise ValueError(f"unknown effect {e.name!r}")  # unreachable: refused at launch
+
+
+@dataclass(frozen=True)
+class Rejection:
+    check: str  # exists | from | by | guard | effect | authority | key | owner
+    detail: str
+
+
+@dataclass(frozen=True)
+class Outcome:
+    state: MachineState
+    payload: dict[str, Any]  # the GAME event, verbatim
+
+
+def _wake_ctx(escrow: dict[str, set[str]]) -> Ctx:
+    return Ctx(caller=None, args={}, escrow=escrow)
+
+
+def compute_wakes(
+    defn: MachineDef, bindings: Bindings, old: MachineState, new: MachineState,
+    escrow: dict[str, set[str]],
+) -> tuple[list[str], list[str]]:
+    """Edge-triggered: a `when` rule fires on false->true only, and never while `unless` holds.
+    `role: actor` fires when the pointer moved to a non-null actor. Deduplicated and sorted so
+    one event stamps one list, whatever order the rules were declared in.
+
+    Returns TWO lists — `(wake, wake_actor)`: the ids stamped by a ROLE rule, and the ids stamped
+    by the `actor` rule (today at most one). They are kept apart because the host treats them
+    differently: a role wake is delivered outright, an actor wake collapses to the actor of the
+    latest event in the tick (waking a player for a pointer that has already moved on would only
+    wake it again). The host cannot tell them apart from the ids alone — it used to try, by
+    comparing each id to the event's own actor, and a role rule whose targets included that actor
+    lost its wake without a trace (review I1). One id may legitimately appear in both lists."""
+    targets: set[str] = set()
+    actor_targets: set[str] = set()
+    ctx = _wake_ctx(escrow)
+    for w in defn.wake:
+        if w.after_s is not None:
+            continue  # the host's clock rule — never evaluated here
+        if w.role == "actor":
+            if new.actor is not None and new.actor != old.actor and guards_hold(
+                    w.when, defn, bindings, new, ctx)[0] and not (
+                    w.unless and guards_hold(w.unless, defn, bindings, new, ctx)[0]):
+                actor_targets.add(new.actor)
+            continue
+        now_true = guards_hold(w.when, defn, bindings, new, ctx)[0]
+        was_true = guards_hold(w.when, defn, bindings, old, ctx)[0]
+        blocked = bool(w.unless) and guards_hold(w.unless, defn, bindings, new, ctx)[0]
+        if now_true and not was_true and not blocked:
+            targets.update(bindings.members.get(w.role, ()))
+    return sorted(targets), sorted(actor_targets)
+
+
+def act(
+    defn: MachineDef, bindings: Bindings, state: MachineState, caller: str, transition: str,
+    args: dict[str, Any], escrow: dict[str, set[str]], now_ms: int,
+) -> Outcome | Rejection:
+    t = defn.transitions.get(transition)
+    if t is None:
+        return Rejection("exists", f"no transition {transition!r}")
+    if "any" not in t.from_ and state.state not in t.from_:
+        return Rejection("from", f"{transition!r} is not available from state {state.state!r}")
+    if t.by not in roles_of(defn, bindings, caller):
+        return Rejection("by", f"{transition!r} may only be fired by role {t.by!r}")
+    ctx = Ctx(caller=caller, args=dict(args), escrow=escrow)
+    ok, failed = guards_hold(t.guard, defn, bindings, state, ctx)
+    if not ok:
+        return Rejection("guard", str(failed))
+    new = state.copy()
+    for e in t.effects:
+        if (bad := apply_effect(e, defn, bindings, new, ctx, now_ms)) is not None:
+            return Rejection("effect", bad)
+    if t.to != "same":
+        new.state = t.to
+    wake, wake_actor = compute_wakes(defn, bindings, state, new, escrow)
+    payload = {
+        "op": "act", "transition": transition, "caller": caller, "args": dict(args),
+        "from": state.state, "to": new.state, "actor": new.actor, "log": t.log,
+        "wake": wake, "wake_actor": wake_actor,
+    }
+    return Outcome(new, payload)
+
+
+def set_value(
+    defn: MachineDef, bindings: Bindings, state: MachineState, caller: str, key: str,
+    value: Any, owner: str | None, escrow: dict[str, set[str]], now_ms: int,
+) -> Outcome | Rejection:
+    """`escrow` is the service's pre-fetched sealed-round map — the same one `act` takes — so a
+    `game_set` can wake a role whose wake rule reads `escrow_complete`, without the engine ever
+    touching IO itself."""
+    if not any(defn.is_referee_role(r) for r in roles_of(defn, bindings, caller)):
+        return Rejection("authority", "game_set is referee-only")
+    d = defn.data.get(key)
+    if d is None:
+        return Rejection("key", f"{key!r} is not a declared data key")
+    if d.type == "set":
+        return Rejection("key", f"{key!r} is a set — change it through a transition")
+    if d.visibility == "owner" and owner is None:
+        return Rejection("owner", f"{key!r} is an owner key: `owner` is required")
+    if d.visibility != "owner" and owner is not None:
+        return Rejection("owner", f"{key!r} is not an owner key: `owner` is forbidden")
+    if owner is not None and (bad := _member_or_reason(defn, bindings, owner)) is not None:
+        return Rejection("owner", bad)
+    new = state.copy()
+    if owner is not None:
+        new.owner_data.setdefault(key, {})[owner] = value
+        # A reveal disclosed one VALUE, not a standing right to read the key, so a fresh write
+        # re-conceals it. Nothing in the vocabulary can clear `revealed` — `reset` takes a set
+        # key and `unset` a public one — so without this a game with repeated rounds shows every
+        # later secret to everyone who saw the first disclosure. The poker table found it: after
+        # hand one's showdown, hand two's hole cards were public from the deal onward.
+        new.revealed.setdefault(key, set()).discard(owner)
+    else:
+        new.data[key] = value
+    wake, wake_actor = compute_wakes(defn, bindings, state, new, escrow)
+    payload = {
+        "op": "set", "key": key, "owner": owner, "value": value, "caller": caller,
+        "log": d.visibility, "wake": wake, "wake_actor": wake_actor,
+    }
+    return Outcome(new, payload)
+
+
+def reject_payload(
+    caller: str, transition: str, args: dict[str, Any], check: str, detail: str, log: str,
+) -> dict[str, Any]:
+    return {"op": "reject", "transition": transition, "caller": caller, "args": dict(args),
+            "check": check, "detail": detail, "log": log, "wake": [], "wake_actor": []}
+
+
+def _is_referee(defn: MachineDef, bindings: Bindings, caller: str) -> bool:
+    return any(defn.is_referee_role(r) for r in roles_of(defn, bindings, caller))
+
+
+def view(defn: MachineDef, bindings: Bindings, state: MachineState, caller: str) -> dict[str, Any]:
+    ref = _is_referee(defn, bindings, caller)
+    data: dict[str, Any] = {}
+    for key, d in defn.data.items():
+        if d.type == "set":
+            if d.visibility == "public" or ref:
+                data[key] = sorted(state.sets.get(key, set()))
+            continue
+        if d.visibility == "public":
+            if key in state.data:
+                data[key] = state.data[key]
+        elif d.visibility == "referee":
+            if ref and key in state.data:
+                data[key] = state.data[key]
+        else:  # owner
+            entries = state.owner_data.get(key, {})
+            shown = {o: v for o, v in entries.items()
+                     if ref or o == caller or o in state.revealed.get(key, set())}
+            data[key] = shown
+    return {"state": state.state, "actor": state.actor, "actor_since": state.actor_since,
+            "data": data}
+
+
+def log_row(
+    defn: MachineDef, bindings: Bindings, payload: dict[str, Any], caller: str
+) -> dict[str, Any] | None:
+    """Spec §3: what a participant's log view contains. A referee sees every row."""
+    if _is_referee(defn, bindings, caller):
+        return payload
+    op, log = payload.get("op"), payload.get("log", "public")
+    if op == "reject" and payload.get("check") == "exists":
+        return payload if payload.get("caller") == caller else None
+    if op in {"act", "reject"}:
+        return payload if log == "public" else None
+    if op == "set":
+        if log == "public":
+            return payload
+        if log == "owner":
+            return payload if payload.get("owner") == caller else None
+        return None
+    return None  # unknown op: fail closed
+
+
+def declaration_view(defn: MachineDef, bindings: Bindings, caller: str) -> dict[str, Any]:
+    out = defn.model_dump(by_alias=True, mode="json")
+    ref = _is_referee(defn, bindings, caller)
+    for rname, r in defn.roles.items():
+        if r.visibility == "hidden" and not ref and caller not in bindings.members.get(rname, ()):
+            out["roles"][rname]["members"] = "<hidden>"
+    return out
+
+
+class ReplayError(RuntimeError):
+    """The chronicle holds a GAME event the current declaration cannot re-apply."""
+
+
+def replay(
+    defn: MachineDef, bindings: Bindings, events: list[tuple[int, dict[str, Any]]], start_ms: int,
+) -> MachineState:
+    state = initial_state(defn, bindings, start_ms)
+    for i, (ts, p) in enumerate(events):
+        op = p.get("op")
+        if op == "reject":
+            continue
+        if op == "act":
+            # Escrow completion is re-checked as satisfied: the event exists because it held.
+            escrow = _escrow_that_held(defn, bindings, state, p)
+            out = act(defn, bindings, state, str(p["caller"]), str(p["transition"]),
+                      dict(p.get("args") or {}), escrow, ts)
+        elif op == "set":
+            out = set_value(defn, bindings, state, str(p["caller"]), str(p["key"]),
+                            p.get("value"), p.get("owner"), {}, ts)
+        else:
+            raise ReplayError(f"replay: event {i} has unknown op {op!r}")
+        if isinstance(out, Rejection):
+            raise ReplayError(f"replay: event {i} ({op} {p.get('transition') or p.get('key')})"
+                              f" no longer applies: {out.check} {out.detail}")
+        state = out.state
+    return state
+
+
+def _escrow_that_held(
+    defn: MachineDef, bindings: Bindings, state: MachineState, p: dict[str, Any]
+) -> dict[str, set[str]]:
+    """For replay only: every `escrow_complete` guard on the transition is treated as satisfied
+    by supplying the full expected set. The chronicle is the proof it held at the time."""
+    t = defn.transitions.get(str(p.get("transition")))
+    if t is None:
+        return {}
+    ctx = Ctx(caller=str(p.get("caller")), args=dict(p.get("args") or {}), escrow={})
+    out: dict[str, set[str]] = {}
+    for g in t.guard:
+        if g.name == "escrow_complete" and isinstance(g.arg, dict):
+            rid = str(resolve(g.arg.get("round"), ctx, state))
+            out[rid] = _expected(defn, bindings, state, g.arg["over"], g.arg.get("minus", []))
+    return out

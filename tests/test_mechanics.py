@@ -112,3 +112,14 @@ async def test_chronicle_holds_markers_then_payloads(chron: Chronicle):
     await escrow.reveal("1")
     reveal_evs = await chron.events("r1", kind="reveal")
     assert reveal_evs[0].payload["submissions"] == {"vela": "rock", "orin": "paper"}
+
+
+def test_the_game_verbs_are_registered_and_reserved():
+    """Mirror of the ruleset parity test: the builtin list and the server must never drift."""
+    from bearpit.core.tools import BUILTIN_VERBS
+    from bearpit.realmtools.server import build_app
+    app = build_app("s")
+    mcp = app.state.mcp  # exposed for tests in Step 3
+    names = {t.name for t in mcp._tool_manager.list_tools()}
+    assert {"game_state", "game_act", "game_set", "game_declaration"} <= names
+    assert {"game_state", "game_act", "game_set", "game_declaration"} <= BUILTIN_VERBS

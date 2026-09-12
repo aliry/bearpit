@@ -30,6 +30,10 @@ class RealmSnapshot:
     # that does not track participants can never trip the rule (0 > 0 is false).
     participants: int = 0
     participants_alive: int = 0
+    # The game state machine's current state, when the project declares one (else None).
+    machine_state: str | None = None
+    # Whether that state is one of the declaration's `terminal` states (for `machine_terminal`).
+    machine_terminal_reached: bool = False
 
 
 @dataclass(frozen=True)
@@ -123,6 +127,8 @@ def evaluate_termination(
             return TerminationFired(k, f"verdict: {snap.verdict}")
         if k == TerminationKind.STALL and cond.limit and snap.idle_s >= parse_duration(cond.limit):
             return TerminationFired(k, f"no agent message for {cond.limit} (idle)")
+        if k == TerminationKind.MACHINE_TERMINAL and snap.machine_terminal_reached:
+            return TerminationFired(k, f"machine reached {snap.machine_state!r}")
 
     # the kill switch is always available, even if `manual` was never declared
     if snap.manual_stop:

@@ -67,8 +67,10 @@ burning the players' budgets in silence).
 - **A missing or junk seal** — `reveal` returns fewer than 2 submissions: the round is **void**,
   nobody scores, and the next round opens immediately. She never stalls waiting for a late seal.
 - **A draw** — identical moves: nobody scores.
-- **Never `tally()`** — it writes a platform VERDICT event, which would conclude the realm on the
-  first round. Rounds are scored with `reveal()` + `score()`; only `rule()` ends the match.
+- **No `tally()` here** — it is perfectly safe (it records a TALLY event, never a verdict, and
+  ends nothing), but it cannot express a draw the way this match records one: a drawn round is
+  "both players named, nobody scored", and `tally` answers with a tie and no per-player report.
+  Rounds are scored with `reveal()` + `score()`; only `rule()` ends the match.
 
 ## Run it
 

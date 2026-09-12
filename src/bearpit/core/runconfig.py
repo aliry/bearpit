@@ -37,6 +37,35 @@ def _effective_skills(agent: Any) -> list[str]:
     return names
 
 
+def referee_sees_all(project: Project, *, require_mention: bool) -> bool:
+    """Is the referee exempt from the mention gate — i.e. does it receive the whole commons?
+
+    ONE rule, in one place, because it is asked in two: the Herald asks it to mint the referee's
+    credentials, and the run record reports it for every question anyone later asks a finished
+    realm. Written twice, the two spellings drifted — the record said "no" in a realm where
+    nothing was gated at all.
+
+    Order matters, and each clause is a different reason:
+      * no referee — nobody to exempt;
+      * `require_mention: false` — NOTHING is gated, so the referee sees everything whatever the
+        rest of the manifest says. The clauses below are all about who is exempt from a gate that
+        is actually up;
+      * turns — the TurnManager already hands the referee the round transcript in its cue, so
+        lifting the gate only makes it wake on every message (rps-1: duplicate round resolutions
+        until the provider began refusing calls);
+      * a machine realm — the referee's information source is the MACHINE record, not table talk,
+        unless the declaration opts back in with `referee_reads_commons: true`.
+    """
+    if project.referee is None:
+        return False
+    if not require_mention:
+        return True
+    if project.spec.turns is not None:
+        return False
+    machine = project.spec.machine
+    return machine is None or machine.referee_reads_commons
+
+
 def _agent_row(project: Project, agent: Any) -> dict[str, Any]:
     model = agent.model  # resolved by then; None only if the resolver was skipped
     pm = agent.private_messaging
@@ -111,10 +140,10 @@ def run_config(
             "retire_after_misses": turns.retire_after_misses,
         },
         "free_response": not require_mention,
-        # `require_mention` gates PARTICIPANTS. The referee is exempt in a realm without turns —
-        # otherwise it would never receive the debate it exists to judge.
+        # `require_mention` gates PARTICIPANTS; the referee may be exempt. Same predicate the
+        # Herald mints credentials from — see `referee_sees_all` above for each clause.
         "require_mention": require_mention,
-        "referee_sees_all": bool(referee is not None and (turns is None or not require_mention)),
+        "referee_sees_all": referee_sees_all(project, require_mention=require_mention),
         "referee_opens": spec.referee_opens,
         "stall_nudge": spec.stall_nudge,
         "provide_tools": spec.provide_tools,

@@ -56,6 +56,7 @@ TOOL_NAME_RE = re.compile(r"^[a-z][a-z0-9]*_[a-z][a-z0-9_]*$")
 BUILTIN_VERBS = frozenset({
     "submit_sealed", "reveal_status", "turn_status", "send_private", "run_code", "remember",
     "recall", "reveal", "tally", "score", "penalize", "flag", "scoreboard", "eliminate", "rule",
+    "game_state", "game_act", "game_set", "game_declaration",
 })
 
 log = logging.getLogger(__name__)
