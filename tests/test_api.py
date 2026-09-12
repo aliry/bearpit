@@ -873,3 +873,18 @@ def test_an_image_too_old_to_answer_is_refused_too(seeded, tmp_path):
         r = c.post("/api/realms", json={"package": str(tmp_path)})
     assert 400 <= r.status_code < 500, r.text
     assert r.json()["detail"]["container"] is None
+
+
+def test_the_preview_can_show_a_local_skill_not_just_the_builtins(seeded):
+    """`skill_contents` is what the read-only scenario preview shows when you click a skill pill.
+    It resolved a local skill from `<pkg>/skills/<ref>/SKILL.md` — a PROJECT-level path that no
+    package has, because the loader reads local skills from `agents/<id>/skills/<ref>/`. So every
+    local pill in the preview was clickable and empty, and only builtins ever showed text."""
+    app = create_app(chron=seeded, manager=FakeManager())
+    with TestClient(app) as c:
+        r = c.get("/api/packages/poker-table")
+    assert r.status_code == 200, r.text
+    contents = r.json()["skill_contents"]
+    assert "local:pot-odds" in contents, "a local skill must resolve for the preview"
+    assert "multiway trap" in contents["local:pot-odds"], "and carry its real text"
+    assert "builtin:competitor" in contents, "builtins still resolve"

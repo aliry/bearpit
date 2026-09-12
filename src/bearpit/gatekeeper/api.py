@@ -173,12 +173,10 @@ def _skill_content(source: str, ref: str, pkg_path: str) -> str:
     if source == "builtin":
         from bearpit.forge.skills import BUILTIN_SKILLS
         return BUILTIN_SKILLS.get(ref, "")
-    if source == "local":
-        import pathlib
-        try:
-            return (pathlib.Path(pkg_path) / "skills" / ref / "SKILL.md").read_text()
-        except OSError:
-            return ""
+    # A local skill is NOT resolved here: it lives at `agents/<id>/skills/<ref>/SKILL.md`, so it
+    # belongs to an agent rather than the package, and the loader has already read it into
+    # `AgentSpec.local_skills`. Reading it from a project-level path — which no package has —
+    # returned "" for every local skill, so the preview showed a clickable, empty pill.
     return ""
 
 
@@ -190,10 +188,14 @@ def serialize_project(project: Any, name: str, path: str) -> dict[str, Any]:
     for a in project.agents:
         for sk in a.skills:
             key = f"{sk.source}:{sk.ref}"
-            if key not in skill_contents:
-                content = _skill_content(str(sk.source), sk.ref, path)
-                if content:
-                    skill_contents[key] = content
+            if key in skill_contents:
+                continue
+            # a local skill comes from the agent the loader read it for; anything else from the
+            # platform library
+            content = (a.local_skills or {}).get(sk.ref, "") if str(sk.source) == "local" \
+                else _skill_content(str(sk.source), sk.ref, path)
+            if content:
+                skill_contents[key] = content
     # roster in display order (referee first), and each agent's resolved message color
     roster = sorted(project.agents, key=lambda a: 0 if ref and a.id == ref.id else 1)
     colors = resolve_agent_colors(roster)

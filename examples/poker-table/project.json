@@ -5,16 +5,22 @@
     "name": "poker-table",
     "description": "Six seats play no-limit hold'em hands at a table run by the Pitboss. Betting, streets and showdown are a declared game-state machine: the machine tracks whose action it is, closes a street only when everyone still in has matched the price, and reopens it for anyone a raise leaves behind. The Pitboss commits the deck before every deal, reveals hole cards only at showdown, and resolves the pot with poker_resolver.",
     "author": "bearpit",
-    "tags": ["game", "competitive", "hidden-hand", "state-machine", "poker"],
+    "tags": [
+      "game",
+      "competitive",
+      "hidden-hand",
+      "state-machine",
+      "poker"
+    ],
     "category": "Games"
   },
   "spec": {
     "goals": [
-      "Seats: play chips well this hand — read the table, size bets, and stay live to win ${hands,10} hands.",
+      "Seats: play chips well this hand \u2014 read the table, size bets, and stay live to win ${hands,10} hands.",
       "Pitboss: run the deck honestly, drive the machine through every street, and settle each hand to a clear pot award."
     ],
-    "guidelines": "A ${hands,10}-hand no-limit hold'em table. Six seats — Vega, Orion, Lyra, Rigel, Mira, Nova — and the Pitboss, who deals and does not play.\n\nThe machine tracks whose action it is. When the machine wakes you, call game_state() and read `actor` — it is either your id or nobody's. Acting out of turn is refused by the machine itself, not by manners.\n\nEach action on a street is check, call, raise or fold, and every call, raise or all_in carries `to:` — the TOTAL you will have put in on this street once the action stands, not the increment on top of what you already posted. A street closes once everyone still in the hand has matched the current price; a raise clears that and reopens the street for seats who had already acted, so a wake after a raise means the table owes chips again, not that something is broken.\n\nHole cards are private to their owner until the Pitboss reveals them at showdown, and only the hands still live at showdown are revealed — a folded hand stays folded, face down, forever.\n\nTable talk between actions is fine, but keep it to plain names — never an @mention of another seat. The @mention is reserved for the machine waking you and for the Pitboss naming whose action it is; six seats @mentioning each other would spiral into forced replies neither of you meant to send.",
-    "restrictions": "No seat may @mention another seat. Address the table by plain name — \"Vega, that was quick\" — never with an @handle; the @mention is reserved for the machine and the dealer.\n\nThe dealer @mentions exactly one seat: the one the machine is waiting on. Never a broadcast @mention to the whole table; a hand-opening post names seats in plain text instead.\n\nNobody posts their hole cards, and nobody posts a hand they have folded. A hand you folded is still live information — it names what you fold from that seat, and it takes two cards out of every other seat's equity maths — so it is never table talk.\n\nDo not act out of turn: if game_state() does not name you as `actor`, wait for the machine to wake you.",
+    "guidelines": "A ${hands,10}-hand no-limit hold'em table. Six seats \u2014 Vega, Orion, Lyra, Rigel, Mira, Nova \u2014 and the Pitboss, who deals and does not play.\n\nThe machine tracks whose action it is. When the machine wakes you, call game_state() and read `actor` \u2014 it is either your id or nobody's. Acting out of turn is refused by the machine itself, not by manners.\n\nEach action on a street is check, call, raise or fold, and every call, raise or all_in carries `to:` \u2014 the TOTAL you will have put in on this street once the action stands, not the increment on top of what you already posted. A street closes once everyone still in the hand has matched the current price; a raise clears that and reopens the street for seats who had already acted, so a wake after a raise means the table owes chips again, not that something is broken.\n\nHole cards are private to their owner until the Pitboss reveals them at showdown, and only the hands still live at showdown are revealed \u2014 a folded hand stays folded, face down, forever.\n\nTable talk between actions is fine, but keep it to plain names \u2014 never an @mention of another seat. The @mention is reserved for the machine waking you and for the Pitboss naming whose action it is; six seats @mentioning each other would spiral into forced replies neither of you meant to send.",
+    "restrictions": "No seat may @mention another seat. Address the table by plain name \u2014 \"Vega, that was quick\" \u2014 never with an @handle; the @mention is reserved for the machine and the dealer. The dealer @mentions exactly one seat: the one the machine is waiting on. Never a broadcast @mention to the whole table; a hand-opening post names seats in plain text instead. NEVER NAME A CARD \u2014 not the hand you are holding, not the hand you just folded, not at any point in the hand. A folded hand is still live information: it names what you fold from that seat and takes two cards out of every other seat's equity maths. The habit that breaks this rule is narrating your own action, so say the decision and drop the cards: write \"folded from early position, nothing worth defending\" and NOT \"folded Td2d from early position\"; write \"priced it at about 28% and the call wanted 13%\" and NOT \"AK was 28%\". Bluffing and table talk about a hand stay entirely legal \u2014 claiming a hand you do not have is good poker. Naming an actual card is not. Do not act out of turn: if game_state() does not name you as `actor`, wait for the machine to wake you.",
     "environment": {
       "network_egress": "model_only",
       "allow_side_channels": false,
@@ -24,9 +30,17 @@
       }
     },
     "termination": [
-      {"type": "machine_terminal"},
-      {"type": "duration", "limit": "5h"},
-      {"type": "stall", "limit": "30m"}
+      {
+        "type": "machine_terminal"
+      },
+      {
+        "type": "duration",
+        "limit": "5h"
+      },
+      {
+        "type": "stall",
+        "limit": "30m"
+      }
     ],
     "parameters": {
       "hands": {
@@ -41,94 +55,512 @@
         "kind": "state-machine",
         "machine": {
           "roles": {
-            "dealer": {"members": "referee"},
-            "player": {"members": "participants"}
+            "dealer": {
+              "members": "referee"
+            },
+            "player": {
+              "members": "participants"
+            }
           },
-          "states": ["waiting", "preflop", "flop", "turn_st", "river", "showdown", "settled", "done"],
+          "states": [
+            "waiting",
+            "preflop",
+            "flop",
+            "turn_st",
+            "river",
+            "showdown",
+            "settled",
+            "done"
+          ],
           "initial": "waiting",
-          "terminal": ["done"],
-          "actor": {"over": "player", "skip": ["out", "all_in", "acted"]},
-          "participant_effects": ["reset", "set"],
+          "terminal": [
+            "done"
+          ],
+          "actor": {
+            "over": "player",
+            "skip": [
+              "out",
+              "all_in",
+              "acted"
+            ]
+          },
+          "participant_effects": [
+            "reset",
+            "set"
+          ],
           "referee_reads_commons": false,
           "data": {
-            "hole":        {"visibility": "owner"},
-            "board":       {"visibility": "public"},
-            "pot":         {"visibility": "public"},
-            "stacks":      {"visibility": "public"},
-            "bet_level":   {"visibility": "public"},
-            "hand":        {"visibility": "public"},
-            "seed_commit": {"visibility": "public"},
-            "out":         {"visibility": "public", "type": "set"},
-            "all_in":      {"visibility": "public", "type": "set"},
-            "acted":       {"visibility": "public", "type": "set"}
+            "hole": {
+              "visibility": "owner"
+            },
+            "board": {
+              "visibility": "public"
+            },
+            "pot": {
+              "visibility": "public"
+            },
+            "stacks": {
+              "visibility": "public"
+            },
+            "bet_level": {
+              "visibility": "public"
+            },
+            "hand": {
+              "visibility": "public"
+            },
+            "seed_commit": {
+              "visibility": "public"
+            },
+            "out": {
+              "visibility": "public",
+              "type": "set"
+            },
+            "all_in": {
+              "visibility": "public",
+              "type": "set"
+            },
+            "acted": {
+              "visibility": "public",
+              "type": "set"
+            }
           },
           "transitions": {
-            "deal": {"from": "waiting", "to": "preflop", "by": "dealer",
-                     "guard": [{"data_present": "seed_commit"}],
-                     "effects": [{"reset": "out"}, {"reset": "all_in"}, {"reset": "acted"},
-                                 {"set": {"key": "bet_level", "value": "$args.bet_level"}},
-                                 {"set_actor": "$args.first"}]},
-            "check": {"from": ["preflop", "flop", "turn_st", "river"], "to": "same", "by": "player",
-                      "guard": ["caller_is_actor", {"caller_not_in": "acted"}],
-                      "effects": [{"add_to": {"key": "acted", "value": "$caller"}}, "advance_actor"]},
-            "call": {"from": ["preflop", "flop", "turn_st", "river"], "to": "same", "by": "player",
-                     "guard": ["caller_is_actor", {"caller_not_in": "acted"}],
-                     "effects": [{"add_to": {"key": "acted", "value": "$caller"}}, "advance_actor"]},
-            "raise": {"from": ["preflop", "flop", "turn_st", "river"], "to": "same", "by": "player",
-                      "guard": ["caller_is_actor", {"caller_not_in": "acted"}],
-                      "effects": [{"reset": "acted"}, {"add_to": {"key": "acted", "value": "$caller"}},
-                                  {"set": {"key": "bet_level", "value": "$args.to"}}, "advance_actor"]},
-            "fold": {"from": ["preflop", "flop", "turn_st", "river"], "to": "same", "by": "player",
-                     "guard": ["caller_is_actor", {"caller_not_in": "acted"}],
-                     "effects": [{"add_to": {"key": "out", "value": "$caller"}},
-                                 {"add_to": {"key": "acted", "value": "$caller"}}, "advance_actor"]},
-            "all_in": {"from": ["preflop", "flop", "turn_st", "river"], "to": "same", "by": "player",
-                       "guard": ["caller_is_actor", {"caller_not_in": "acted"}],
-                       "effects": [{"add_to": {"key": "all_in", "value": "$caller"}},
-                                   {"add_to": {"key": "acted", "value": "$caller"}}, "advance_actor"]},
-            "fold_for": {"from": ["preflop", "flop", "turn_st", "river"], "to": "same", "by": "dealer",
-                         "guard": [{"data_equals": {"key": "actor", "value": "$args.player"}}],
-                         "effects": [{"add_to": {"key": "out", "value": "$args.player"}},
-                                     {"add_to": {"key": "acted", "value": "$args.player"}},
-                                     "advance_actor"]},
-            "reopen": {"from": ["preflop", "flop", "turn_st", "river"], "to": "same", "by": "dealer",
-                       "effects": [{"remove_from": {"key": "acted", "value": "$args.player"}},
-                                   {"set_actor": "$args.player"}]},
-            "advance": {"from": "preflop", "to": "flop", "by": "dealer",
-                        "guard": [{"data_set_full": {"key": "acted", "over": "player",
-                                                     "minus": ["out", "all_in"]}}],
-                        "effects": [{"reset": "acted"}, {"set": {"key": "bet_level", "value": "0"}},
-                                    {"set_actor": "$args.first"}]},
-            "advance2": {"from": "flop", "to": "turn_st", "by": "dealer",
-                         "guard": [{"data_set_full": {"key": "acted", "over": "player",
-                                                      "minus": ["out", "all_in"]}}],
-                         "effects": [{"reset": "acted"}, {"set": {"key": "bet_level", "value": "0"}},
-                                     {"set_actor": "$args.first"}]},
-            "advance3": {"from": "turn_st", "to": "river", "by": "dealer",
-                         "guard": [{"data_set_full": {"key": "acted", "over": "player",
-                                                      "minus": ["out", "all_in"]}}],
-                         "effects": [{"reset": "acted"}, {"set": {"key": "bet_level", "value": "0"}},
-                                     {"set_actor": "$args.first"}]},
-            "to_showdown": {"from": ["preflop", "flop", "turn_st", "river"], "to": "showdown",
-                            "by": "dealer",
-                            "effects": [{"reveal": {"key": "hole",
-                                                    "owners": {"over": "player", "minus": ["out"]}}}]},
-            "award": {"from": ["preflop", "flop", "turn_st", "river"], "to": "settled", "by": "dealer",
-                      "guard": [{"members_count": {"over": "player", "minus": ["out"], "equals": 1}}]},
-            "settle": {"from": "showdown", "to": "settled", "by": "dealer"},
-            "next_hand": {"from": "settled", "to": "waiting", "by": "dealer",
-                          "effects": [{"unset": "seed_commit"}]},
-            "finish": {"from": "settled", "to": "done", "by": "dealer"}
+            "deal": {
+              "from": "waiting",
+              "to": "preflop",
+              "by": "dealer",
+              "guard": [
+                {
+                  "data_present": "seed_commit"
+                }
+              ],
+              "effects": [
+                {
+                  "reset": "out"
+                },
+                {
+                  "reset": "all_in"
+                },
+                {
+                  "reset": "acted"
+                },
+                {
+                  "set": {
+                    "key": "bet_level",
+                    "value": "$args.bet_level"
+                  }
+                },
+                {
+                  "set_actor": "$args.first"
+                }
+              ]
+            },
+            "check": {
+              "from": [
+                "preflop",
+                "flop",
+                "turn_st",
+                "river"
+              ],
+              "to": "same",
+              "by": "player",
+              "guard": [
+                "caller_is_actor",
+                {
+                  "caller_not_in": "acted"
+                }
+              ],
+              "effects": [
+                {
+                  "add_to": {
+                    "key": "acted",
+                    "value": "$caller"
+                  }
+                },
+                "advance_actor"
+              ]
+            },
+            "call": {
+              "from": [
+                "preflop",
+                "flop",
+                "turn_st",
+                "river"
+              ],
+              "to": "same",
+              "by": "player",
+              "guard": [
+                "caller_is_actor",
+                {
+                  "caller_not_in": "acted"
+                }
+              ],
+              "effects": [
+                {
+                  "add_to": {
+                    "key": "acted",
+                    "value": "$caller"
+                  }
+                },
+                "advance_actor"
+              ]
+            },
+            "raise": {
+              "from": [
+                "preflop",
+                "flop",
+                "turn_st",
+                "river"
+              ],
+              "to": "same",
+              "by": "player",
+              "guard": [
+                "caller_is_actor",
+                {
+                  "caller_not_in": "acted"
+                }
+              ],
+              "effects": [
+                {
+                  "reset": "acted"
+                },
+                {
+                  "add_to": {
+                    "key": "acted",
+                    "value": "$caller"
+                  }
+                },
+                {
+                  "set": {
+                    "key": "bet_level",
+                    "value": "$args.to"
+                  }
+                },
+                "advance_actor"
+              ]
+            },
+            "fold": {
+              "from": [
+                "preflop",
+                "flop",
+                "turn_st",
+                "river"
+              ],
+              "to": "same",
+              "by": "player",
+              "guard": [
+                "caller_is_actor",
+                {
+                  "caller_not_in": "acted"
+                }
+              ],
+              "effects": [
+                {
+                  "add_to": {
+                    "key": "out",
+                    "value": "$caller"
+                  }
+                },
+                {
+                  "add_to": {
+                    "key": "acted",
+                    "value": "$caller"
+                  }
+                },
+                "advance_actor"
+              ]
+            },
+            "all_in": {
+              "from": [
+                "preflop",
+                "flop",
+                "turn_st",
+                "river"
+              ],
+              "to": "same",
+              "by": "player",
+              "guard": [
+                "caller_is_actor",
+                {
+                  "caller_not_in": "acted"
+                }
+              ],
+              "effects": [
+                {
+                  "add_to": {
+                    "key": "all_in",
+                    "value": "$caller"
+                  }
+                },
+                {
+                  "add_to": {
+                    "key": "acted",
+                    "value": "$caller"
+                  }
+                },
+                "advance_actor"
+              ]
+            },
+            "fold_for": {
+              "from": [
+                "preflop",
+                "flop",
+                "turn_st",
+                "river"
+              ],
+              "to": "same",
+              "by": "dealer",
+              "guard": [
+                {
+                  "data_equals": {
+                    "key": "actor",
+                    "value": "$args.player"
+                  }
+                }
+              ],
+              "effects": [
+                {
+                  "add_to": {
+                    "key": "out",
+                    "value": "$args.player"
+                  }
+                },
+                {
+                  "add_to": {
+                    "key": "acted",
+                    "value": "$args.player"
+                  }
+                },
+                "advance_actor"
+              ]
+            },
+            "reopen": {
+              "from": [
+                "preflop",
+                "flop",
+                "turn_st",
+                "river"
+              ],
+              "to": "same",
+              "by": "dealer",
+              "effects": [
+                {
+                  "remove_from": {
+                    "key": "acted",
+                    "value": "$args.player"
+                  }
+                },
+                {
+                  "set_actor": "$args.player"
+                }
+              ]
+            },
+            "advance": {
+              "from": "preflop",
+              "to": "flop",
+              "by": "dealer",
+              "guard": [
+                {
+                  "data_set_full": {
+                    "key": "acted",
+                    "over": "player",
+                    "minus": [
+                      "out",
+                      "all_in"
+                    ]
+                  }
+                }
+              ],
+              "effects": [
+                {
+                  "reset": "acted"
+                },
+                {
+                  "set": {
+                    "key": "bet_level",
+                    "value": "0"
+                  }
+                },
+                {
+                  "set_actor": "$args.first"
+                }
+              ]
+            },
+            "advance2": {
+              "from": "flop",
+              "to": "turn_st",
+              "by": "dealer",
+              "guard": [
+                {
+                  "data_set_full": {
+                    "key": "acted",
+                    "over": "player",
+                    "minus": [
+                      "out",
+                      "all_in"
+                    ]
+                  }
+                }
+              ],
+              "effects": [
+                {
+                  "reset": "acted"
+                },
+                {
+                  "set": {
+                    "key": "bet_level",
+                    "value": "0"
+                  }
+                },
+                {
+                  "set_actor": "$args.first"
+                }
+              ]
+            },
+            "advance3": {
+              "from": "turn_st",
+              "to": "river",
+              "by": "dealer",
+              "guard": [
+                {
+                  "data_set_full": {
+                    "key": "acted",
+                    "over": "player",
+                    "minus": [
+                      "out",
+                      "all_in"
+                    ]
+                  }
+                }
+              ],
+              "effects": [
+                {
+                  "reset": "acted"
+                },
+                {
+                  "set": {
+                    "key": "bet_level",
+                    "value": "0"
+                  }
+                },
+                {
+                  "set_actor": "$args.first"
+                }
+              ]
+            },
+            "to_showdown": {
+              "from": [
+                "preflop",
+                "flop",
+                "turn_st",
+                "river"
+              ],
+              "to": "showdown",
+              "by": "dealer",
+              "effects": [
+                {
+                  "reveal": {
+                    "key": "hole",
+                    "owners": {
+                      "over": "player",
+                      "minus": [
+                        "out"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "award": {
+              "from": [
+                "preflop",
+                "flop",
+                "turn_st",
+                "river"
+              ],
+              "to": "settled",
+              "by": "dealer",
+              "guard": [
+                {
+                  "members_count": {
+                    "over": "player",
+                    "minus": [
+                      "out"
+                    ],
+                    "equals": 1
+                  }
+                }
+              ]
+            },
+            "settle": {
+              "from": "showdown",
+              "to": "settled",
+              "by": "dealer"
+            },
+            "next_hand": {
+              "from": "settled",
+              "to": "waiting",
+              "by": "dealer",
+              "effects": [
+                {
+                  "unset": "seed_commit"
+                }
+              ]
+            },
+            "finish": {
+              "from": "settled",
+              "to": "done",
+              "by": "dealer"
+            }
           },
           "wake": [
-            {"role": "actor",
-             "unless": [{"members_count": {"over": "player", "minus": ["out"], "equals": 1}}]},
-            {"role": "dealer",
-             "when": [{"data_set_full": {"key": "acted", "over": "player",
-                                         "minus": ["out", "all_in"]}}]},
-            {"role": "dealer",
-             "when": [{"members_count": {"over": "player", "minus": ["out"], "equals": 1}}]},
-            {"role": "dealer", "after_s": 240}
+            {
+              "role": "actor",
+              "unless": [
+                {
+                  "members_count": {
+                    "over": "player",
+                    "minus": [
+                      "out"
+                    ],
+                    "equals": 1
+                  }
+                }
+              ]
+            },
+            {
+              "role": "dealer",
+              "when": [
+                {
+                  "data_set_full": {
+                    "key": "acted",
+                    "over": "player",
+                    "minus": [
+                      "out",
+                      "all_in"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "role": "dealer",
+              "when": [
+                {
+                  "members_count": {
+                    "over": "player",
+                    "minus": [
+                      "out"
+                    ],
+                    "equals": 1
+                  }
+                }
+              ]
+            },
+            {
+              "role": "dealer",
+              "after_s": 240
+            }
           ]
         }
       }
