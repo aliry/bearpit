@@ -629,3 +629,53 @@ async def test_a_reactive_referee_can_actually_see_the_round_it_is_asked_to_judg
     # it is still the REACTIVE cue — seeing the round must not turn it into a game master
     assert "let another round run" in cue
     assert "Resolve the round NOW" not in cue
+
+
+async def test_a_reactive_referee_is_told_which_round_finished(chron):
+    """`turn_status.last_completed_round` is derived from a TURN event with
+    `event: round_complete`, and that event was only chronicled inside the `_drives` branch. Every
+    reactive-referee realm therefore reported 0 forever, no matter how many rounds had finished.
+
+    The referee's rubric says resolve `last_completed_round`. Reading 0, it concludes nothing has
+    completed and waits — while the rotation keeps opening rounds. Measured in the chronicle:
+
+        debate-arena-6947dc  reached round 3   round_complete events: 0
+        debate-fix-check3    reached round 11  round_complete events: 0
+        q91-check            reached round 7   round_complete events: 0
+        among-us-* (driving) rounds 3-7        round_complete events: 3-7  ✅
+
+    q91-check's judge said it in plain text: "Watching only — nothing new completed to score
+    (last_completed_round=0)". Three agents kept debating for five rounds past the rubric's two,
+    at real spend per round, because nothing ever told the judge a round had ended.
+
+    The boundary is chronicled BEFORE the next grant either way: `read_turn_status` takes `round`
+    and `current` from the LATEST event, so writing it afterwards would report a realm with nobody
+    holding the floor.
+    """
+    mgr, bus, _ = _mgr(chron, drives=False)
+    await mgr.start()
+    await mgr.observe(["pro"])
+    await mgr.observe(["pro", "con"])  # round 1 complete
+
+    events = await chron.events("r", kind=EventKind.TURN)
+    completed = [e for e in events if e.payload.get("event") == "round_complete"]
+    assert completed, "a reactive referee is never told a round ended"
+    assert completed[-1].payload["completed"] == 1
+
+    # ...and the floor must still be attributable: the boundary event may not be the last word.
+    assert events[-1].payload.get("current"), "turn_status would report nobody holding the floor"
+
+
+async def test_turn_status_reports_the_finished_round_to_a_reactive_referee(chron):
+    """End-to-end through the tool the referee actually calls, not just the event shape."""
+    from bearpit.realmtools.service import read_turn_status
+
+    mgr, _, _ = _mgr(chron, drives=False)
+    await mgr.start()
+    await mgr.observe(["pro"])
+    await mgr.observe(["pro", "con"])  # round 1 complete
+
+    status = await read_turn_status(chron, "r")
+    assert status["last_completed_round"] == 1, "the referee is asked to resolve round 0 forever"
+    assert status["round"] == 2  # the one now open
+    assert status["current"]  # somebody holds the floor
