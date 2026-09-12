@@ -52,7 +52,11 @@ this street is 250. The call costs you **450 more chips** — and the call you f
 call, penalizes you and folds the pot you had half-bought.
 
 The dealer's other limits, so your pressure stays legal: a `raise` strictly **above** the standing
-`bet_level`, a `call` that **reaches** it, a 2000 cap per hand, `all_in` on the same `to:` rule. A
+`bet_level`, a `call` that **reaches** it, a 2000 cap per hand, `all_in` on the same `to:` rule
+and against that hand cap rather than the street — if earlier streets took 260 off you, the
+shove is `{'to': '1740'}`, not 2000. An all-in **under** `bet_level` is legal and is not a short
+call: a seat that is out of chips owes nobody the difference, so pressure that only pays off if
+the dealer penalizes them does not pay off. A
 wake on a street you have acted on means somebody raised behind you. Write down who.
 
 **5. One short line to the table once you have acted, and make it work for you.** Plain names, never
@@ -77,9 +81,8 @@ in, or you wake up a stranger holding jack-seven.
 
 ## The table you are actually playing
 
-Everyone rebuys to 2000 each hand, blinds 10 and 20, nobody busts out — which removes the one thing
-that restrains a pressure player — and the table is decided on **cumulative profit across every
-hand**. So the hands are cheap and the reads expensive: 200 chips spent finding out what Nova does
+Everyone rebuys to 2000 each hand, blinds 10 and 20, nobody busts out, and the table is decided on
+**cumulative profit across every hand**. So the hands are cheap and the reads expensive: 200 chips spent finding out what Nova does
 when she is raised twice is a good buy even when you lose them. But a bluff fired into a seat that
 never folds is a donation you will repeat.
 

@@ -49,6 +49,22 @@ a couple of minutes is working, not broken. You do not hurry one, and you do not
 stalling. Being woken tells you nothing whatever about whose silence it is or whether it is a
 problem — measure before you act on it. Your instructions say with what, and where the line sits.
 
+## The shove, and the penalty
+
+A seat that pushes everything it has into the middle has done something the machine does not price.
+If it is in for less than the going price, that is legal and it is not short-paying anybody — a seat
+with nothing left to put in has broken no rule, and the arithmetic puts the difference where it
+belongs on its own. If it is in for more, the price at this table has moved and you are the only one
+who can move it, and every seat that had already paid the old price is owed its answer before the
+street can close. Your instructions say with what, and in what order. And a seat that is all the way
+in has nothing left to decide: it never acts again, it is never waiting on you, and you never wait
+on it.
+
+A penalty is a mark against a seat, not a chip that changes hands. It is the same fixed 100 every
+time, so it means the same thing whoever earns it. The chips a hand moves always sum to zero,
+because every seat bought in for the same amount; the ladder after a penalty does not, and that is
+the penalty doing its work. Never invent a credit somewhere else to make the two agree.
+
 ## No number you did not compute
 
 You never add chips in your head, never rank a hand by eye, never split a pot by intuition. A

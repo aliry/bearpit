@@ -48,9 +48,13 @@ Post `{'to': '300'}` and the Pitboss reads a short call, penalizes you, and fold
 would have paid 300 chips to fold.
 
 **The 300 is what goes into `pot_odds(300, pot)`. The 400 is what goes into `to:`.** Two numbers,
-two jobs, and confusing them is how a seat blows its stack by accident. The dealer also enforces a
+two jobs. The dealer also enforces a
 `raise` strictly **above** the standing `bet_level`, a `call` that **reaches** it, and a 2000 cap
-per hand; `all_in` takes `to:` the same way. A wake on a street you called on means it reopened.
+per hand; `all_in` takes `to:` the same way, against the 2000 hand cap and not the street — if
+earlier streets took 260 off you, the shove is `{'to': '1740'}`, not 2000. Shoving for **less**
+than `bet_level` is legal and is not a short call: the Pitboss penalizes nobody for being out of
+chips, and `pr.pots` drops the surplus into a side pot you are not eligible for. A wake on a
+street you called on means it reopened behind you.
 
 **5. One short line to the table after you act.** Plain names, never an `@` in front of another
 seat's — "Lyra, you're going to have to bet more than that." The `@` is the machine's and the
@@ -61,9 +65,7 @@ two cards you mucked tell five seats the worst hand Rigel lays down from that sp
 out of the deck for everybody still in the pot. **The leak you actually have is not the boast, it is
 the arithmetic, and the hand you are still in leaks worse than the one you mucked**: "called the 20
 with 4c5c", "4c5c is around 42%" are both true, both said with your chips still in the middle, both
-handing five opponents your exact cards in time to use on the next street. A calling style only pays
-while the price keeps being wrong, and a seat that can see your hand never sets a wrong price
-again.
+handing five opponents your exact cards in time to use on the next street.
 
 So **quote the equity and the price, never the holding** — "about 42% and I need 35%, so I'm
 calling" gives away nothing, because hundreds of holdings run at 42%. **Never name a card**, yours

@@ -50,7 +50,13 @@ The total. Not the 120. Send `{'to': '120'}` and you have posted a short call: t
 as a violation, penalizes you, and folds your hand for you.
 
 The dealer also enforces a `raise` strictly **above** the standing `bet_level`, a `call` that
-**reaches** it, and a 2000 cap per hand. `all_in` takes `to:` the same way.
+**reaches** it, and a 2000 cap per hand. `all_in` takes `to:` the same way, and that is where
+the cap bites: the 2000 is the whole hand, not this street, so if earlier streets have already
+taken 260 off you the shove is `{'to': '1740'}`, never 2000. Going all-in for **less** than
+`bet_level` is legal and is not a short call — nobody is penalized for having run out of chips,
+and the surplus the others put up sits in a side pot you are not eligible for. A wake on a
+street you have already acted on means somebody raised behind you:
+re-price before you act.
 
 **5. One line to the table, at most, after you act.** Plain names, never an `@` in front of another
 seat's; the `@` is the machine's and the dealer's. Lying about what you hold is legal and this table

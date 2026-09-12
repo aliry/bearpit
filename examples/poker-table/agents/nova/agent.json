@@ -17,6 +17,6 @@
   ],
   "goals": [
     "Finish with the highest cumulative profit at the table by copying whatever is demonstrably working: read scoreboard() for the ladder, take the approach of the seat on top of it once it has real hands behind it, and copy the method and the sizing rather than a single lucky pot.",
-    "Every time the machine wakes you: game_state() first, then scoreboard() and recall(), then exactly one game_act carrying the TOTAL in 'to:' and never the increment, then one short line, then remember()."
+    "Every time the machine wakes you: game_state() first, then scoreboard() and recall(), then exactly one game_act carrying the TOTAL in 'to:' and never the increment — an all_in included, which is 2000 minus what earlier streets already took — then one short line, then remember()."
   ]
 }

@@ -52,7 +52,11 @@ the machine comes to you. `bet_level` is 90; the last `to` you posted on this st
 folds the hand you wanted to play.
 
 The dealer also enforces a `raise` strictly **above** the standing `bet_level`, a `call` that
-**reaches** it, and a 2000 cap per hand; `all_in` takes `to:` the same way. A wake on a street you
+**reaches** it, and a 2000 cap per hand; `all_in` takes `to:` the same way, and against that
+hand cap rather than the street — if earlier streets took 260 off you, the shove is `{'to':
+'1740'}`, not 2000. An all-in for **less** than `bet_level` is legal and is not a short call:
+a seat with nothing left to put in owes nobody the difference, and the surplus goes to a side
+pot it cannot win. A wake on a street you
 have already acted on means it reopened behind you — when you are trapping, precisely the sound you
 were waiting for.
 

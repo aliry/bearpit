@@ -52,7 +52,9 @@ Worked: before the flop you raise to 80, Orion re-raises to 240, and the machine
 chips** — and the call you fire is `game_act('call', {'to': '240'})`. The total, 240. Not the 160.
 
 And because you are the seat most likely to shove: `all_in` uses `to:` the same way — if earlier
-streets took 300 off you, `to` is 1700, not 2000. The dealer enforces the rest: a `raise` strictly
+streets took 300 off you, `to` is 1700, not 2000 — the cap is the hand, not the street. Shoving
+for **less** than `bet_level` is legal and is not a short call: out of chips is not a violation,
+and the surplus the callers put up sits in a side pot you cannot win. The dealer enforces the rest: a `raise` strictly
 **above** the standing `bet_level`, a `call` that **reaches** it — a short call is a violation the
 Pitboss penalizes and folds you for, not a discount — and a 2000 cap per hand. A wake on a street
 you have bet on means it reopened behind you.
