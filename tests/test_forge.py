@@ -254,6 +254,43 @@ async def test_realmtools_wired_for_mechanic_project():
     assert "vela" in themis_id[3]
 
 
+async def test_a_machine_realm_seeds_the_game_tools_paragraph_into_every_live_agent():
+    """Task 17 fix round 1: config.py's unit test only proves render_hermes_home() CAN produce the
+    paragraph when called directly with machine=True. It never asserts that the live chain —
+    Forge._provision_agents -> RealmContext(machine=...) -> HermesAdapter.provision ->
+    render_hermes_home — actually wires that flag through. A dropped `machine=realm.machine` kwarg
+    in adapter.py would leave every live agent blind to the tools while that unit test stayed
+    green."""
+    from bearpit.core.machine import MachineDef
+    from bearpit.core.schema import Mechanic
+
+    runtime = FakeRuntime()
+    ledger = Ledger(_ks(), FakeLiteLLM(), "http://litellm:4000")
+    forge = Forge(runtime, ledger)
+    project = _project()  # has a referee (themis) and two participants (vela, orin)
+    project.spec.mechanics = [
+        Mechanic(kind="state-machine", machine=MachineDef.model_validate({
+            "roles": {"ref": {"members": "referee"}, "player": {"members": "participants"}},
+            "states": ["a", "b"],
+            "initial": "a",
+            "transitions": {"go": {"from": "a", "to": "b", "by": "ref"}},
+        }))
+    ]
+    creds = _matrix([a.id for a in project.agents])
+
+    await forge.provision_realm(
+        "r-machine", project, creds, bus_homeserver="http://conduit:6167",
+        proxy_url="http://litellm:4000", commons_room="!commons:realm.local",
+    )
+
+    vela_soul = runtime.volumes["realm-r-machine--vela"]["SOUL.md"]
+    assert "game_state" in vela_soul and "game_act" in vela_soul
+    assert "game_set" not in vela_soul  # participant: no referee-only write tool
+
+    themis_soul = runtime.volumes["realm-r-machine--themis"]["SOUL.md"]
+    assert "game_set" in themis_soul  # referee: also gets the write tool
+
+
 async def test_realmtools_wired_for_private_messaging_only_project():
     # a purely collaborative project (no referee, no mechanic) still needs realmtools if any agent
     # can DM — that's how they get the send_private tool.

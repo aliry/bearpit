@@ -259,6 +259,31 @@ async def test_mirror_dedups_across_polls():
     await chron.close()
 
 
+async def test_mirror_never_chronicles_an_event_without_a_timestamp_at_epoch_0():
+    """`messages()` orders by (ts_ms, id), so a 1970 row sorts to the FRONT of the transcript and
+    the TurnManager's index cursor then consumes an already-seen entry — skipping the real speaker
+    and stalling the floor. A missing/zero origin_server_ts is stamped `now` instead."""
+    mx = FakeMatrix()
+    herald = Herald(mx, server_name="realm.local", homeserver="h")
+    await herald.ensure_system("pw")
+    room = "!c:realm.local"
+    mx.seed_events(room, [
+        {"type": "m.room.message", "sender": "@vela:realm.local", "event_id": "$e1",
+         "origin_server_ts": 1000, "content": {"body": "first"}},
+        {"type": "m.room.message", "sender": "@orin:realm.local", "event_id": "$e2",
+         "content": {"body": "no timestamp"}},  # a server that sent none
+        {"type": "m.room.message", "sender": "@orin:realm.local", "event_id": "$e3",
+         "origin_server_ts": 0, "content": {"body": "zero timestamp"}},
+    ])
+    chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+    assert await herald.mirror("r", room, chron) == 3
+    rows = await chron.messages("r")
+    assert [m.body for m in rows] == ["first", "no timestamp", "zero timestamp"]
+    assert all(m.ts_ms > 0 for m in rows)  # nothing landed at epoch 0
+    assert rows[1].ts_ms > rows[0].ts_ms and rows[2].ts_ms > rows[0].ts_ms
+    await chron.close()
+
+
 async def test_wait_for_agents_gates_on_membership():
     mx = FakeMatrix()
     herald = Herald(mx, server_name="realm.local", homeserver="h")
@@ -439,3 +464,87 @@ async def test_a_referee_in_a_TURNS_realm_stays_mention_gated():
     await herald.ensure_system("syspw")
     bus = await herald.provision_bus("r1", project, require_mention=True)
     assert bus.creds["themis"].require_mention is True
+
+
+async def test_a_machine_realm_gates_the_referee_unless_it_declares_otherwise():
+    """A dealer's information source is the machine; table talk would only interrupt it. A judge
+    that must weigh speech opts back in with referee_reads_commons: true."""
+    from bearpit.core.schema import AgentRole
+
+    def agent(aid, role=AgentRole.PARTICIPANT):
+        model = ModelRef(provider="azure", model="m", api_key_ref="azure-main")
+        kw = {"rubric": "score them"} if role == AgentRole.REFEREE else {}
+        return AgentSpec(id=aid, model=model, role=role, **kw)
+
+    def machine_project(referee_reads_commons):
+        machine = {
+            "roles": {"ref": {"members": "referee"}, "player": {"members": "participants"}},
+            "states": ["a", "b"], "initial": "a",
+            "transitions": {"go": {"from": "a", "to": "b", "by": "ref"}},
+            "referee_reads_commons": referee_reads_commons,
+        }
+        return Project(
+            metadata=ProjectMeta(name="deal"),
+            spec={"mechanics": [{"kind": "state-machine", "machine": machine}]},
+            agents=[agent("p1"), agent("p2"), agent("ref", AgentRole.REFEREE)],
+        )
+
+    async def provision(project):
+        mx = FakeMatrix()
+        herald = Herald(mx, server_name="realm.local", homeserver="http://conduit:6167")
+        await herald.ensure_system("syspw")
+        return await herald.provision_bus("r1", project, require_mention=True)
+
+    gated = await provision(machine_project(False))
+    assert gated.creds["ref"].require_mention is True
+    reads = await provision(machine_project(True))
+    assert reads.creds["ref"].require_mention is False
+
+
+def _machine_project(referee_reads_commons):
+    from bearpit.core.schema import AgentRole
+
+    def agent(aid, role=AgentRole.PARTICIPANT):
+        model = ModelRef(provider="azure", model="m", api_key_ref="azure-main")
+        kw = {"rubric": "score them"} if role == AgentRole.REFEREE else {}
+        return AgentSpec(id=aid, model=model, role=role, **kw)
+
+    machine = {
+        "roles": {"ref": {"members": "referee"}, "player": {"members": "participants"}},
+        "states": ["a", "b"], "initial": "a",
+        "transitions": {"go": {"from": "a", "to": "b", "by": "ref"}},
+        "referee_reads_commons": referee_reads_commons,
+    }
+    return Project(
+        metadata=ProjectMeta(name="deal"),
+        spec={"mechanics": [{"kind": "state-machine", "machine": machine}]},
+        agents=[agent("p1"), agent("p2"), agent("ref", AgentRole.REFEREE)],
+    )
+
+
+async def test_the_referee_gate_reads_the_same_in_the_run_record_and_on_the_bus():
+    """Two spellings of one rule — what the run RECORD says about the referee (`referee_sees_all`)
+    and what actually reaches its credentials — and they disagreed. With `require_mention: false`
+    nothing is gated at all, so the referee does see everything; the record said False anyway
+    whenever the machine had not opted into commons. A run record that contradicts the realm it
+    describes is worse than no record: every question anyone asks a finished realm is asked of it.
+
+    The machine conjunct only ever meant something when mention gating was ON."""
+    from bearpit.core.runconfig import referee_sees_all, run_config
+
+    for require_mention in (True, False):
+        for reads_commons in (True, False):
+            project = _machine_project(reads_commons)
+            mx = FakeMatrix()
+            herald = Herald(mx, server_name="realm.local", homeserver="http://conduit:6167")
+            await herald.ensure_system("syspw")
+            bus = await herald.provision_bus("r1", project, require_mention=require_mention)
+            case = (require_mention, reads_commons)
+            sees = not require_mention or reads_commons
+            assert referee_sees_all(project, require_mention=require_mention) is sees, case
+            cfg = run_config(project, "x", require_mention=require_mention)
+            assert cfg["referee_sees_all"] is sees, case
+            # ...and the gate itself: an exempt referee is never mention-gated, and nobody is
+            # gated at all when require_mention is off.
+            assert bus.creds["ref"].require_mention is (require_mention and not sees), case
+            assert bus.creds["p1"].require_mention is require_mention, case

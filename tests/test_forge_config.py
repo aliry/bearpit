@@ -2,16 +2,22 @@
 
 import yaml
 
-from bearpit.core.schema import AgentSpec, ModelRef
+from bearpit.core.schema import AgentRole, AgentSpec, ModelRef
 from bearpit.forge.adapters.hermes.config import MatrixCreds, render_hermes_home
 from bearpit.ledger import AgentCredential
 
 
-def _render(require_mention: bool = True, persona: str | None = "# Vela\nWin.") -> dict[str, str]:
+def _render(
+    require_mention: bool = True,
+    persona: str | None = "# Vela\nWin.",
+    machine: bool = False,
+    referee: bool = False,
+) -> dict[str, str]:
     agent = AgentSpec(
         id="vela",
         model=ModelRef(provider="azure", model="gpt-5.4-mini", api_key_ref="azure-main"),
         persona=persona,
+        role=AgentRole.REFEREE if referee else AgentRole.PARTICIPANT,
     )
     cred = AgentCredential(virtual_key="vk-1", model_name="r--vela", proxy_url="http://litellm:4000")
     matrix = MatrixCreds(
@@ -24,7 +30,8 @@ def _render(require_mention: bool = True, persona: str | None = "# Vela\nWin.") 
     )
     roster = ["@vela:realm.local", "@orin:realm.local"]
     return render_hermes_home(
-        agent, cred, matrix, roster=roster, guidelines="Be fair.", restrictions="No sabotage."
+        agent, cred, matrix, roster=roster, guidelines="Be fair.", restrictions="No sabotage.",
+        machine=machine,
     )
 
 
@@ -292,3 +299,15 @@ def test_a_busy_agent_queues_its_messages_instead_of_abandoning_its_work():
     assert "HERMES_GATEWAY_BUSY_INPUT_MODE=queue" in env, (
         "an interrupted agent restarts from scratch and can be starved indefinitely"
     )
+
+
+def test_a_machine_realm_tells_every_agent_about_the_game_tools_and_the_wake_notice():
+    """Scenario-contract §20: a tool nobody is told about is a tool nobody calls."""
+    files = _render(machine=True)
+    soul = files["SOUL.md"]
+    for tool in ("game_state", "game_act", "game_declaration"):
+        assert tool in soul
+    assert "the machine is waiting on you" in soul
+    assert "game_set" not in _render(machine=True, referee=False)["SOUL.md"]
+    assert "game_set" in _render(machine=True, referee=True)["SOUL.md"]
+    assert "game_state" not in _render(machine=False)["SOUL.md"]

@@ -48,6 +48,8 @@ class EventKind(StrEnum):
     # (deliberately — a socket there would turn any bug in it into host root); the HOST executes it,
     # exactly as it already brokers PRIVATE messages, and answers with EXEC_RESULT {id, exit, out}.
     EXEC = "exec"
+    MACHINE = "machine"  # a realm's game-state-machine declaration + host-resolved role bindings
+    GAME = "game"  # one machine transition/write/reject {op, transition|key, caller, ..., wake}
     EXEC_RESULT = "exec_result"
     # an agent invoked a granted tool {id, agent, tool, args} (ADR-004). Same broker shape as EXEC
     # and for the same reason: realmtools holds no API keys, so the HOST — which holds the keystore
@@ -103,8 +105,11 @@ class Chronicle:
         ts_ms: int | None = None,
     ) -> int:
         async with self._sf() as s:
+            # `is not None`, not `or`: ts_ms=0 is a legitimate epoch instant (a replay, an import,
+            # a test clock), and coalescing it to "now" silently rewrote the caller's timestamp.
             ev = Event(
-                realm_id=realm_id, kind=kind, payload=payload or {}, ts_ms=ts_ms or _now_ms()
+                realm_id=realm_id, kind=kind, payload=payload or {},
+                ts_ms=ts_ms if ts_ms is not None else _now_ms(),
             )
             s.add(ev)
             await s.commit()
@@ -122,7 +127,7 @@ class Chronicle:
         async with self._sf() as s:
             m = Message(
                 realm_id=realm_id, channel=channel, sender=sender, body=body,
-                attachments=list(attachments), ts_ms=ts_ms or _now_ms(),
+                attachments=list(attachments), ts_ms=ts_ms if ts_ms is not None else _now_ms(),
             )
             s.add(m)
             await s.commit()

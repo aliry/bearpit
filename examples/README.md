@@ -17,6 +17,7 @@ Sorted roughly by how much of the platform each one exercises.
 | [`fact-race`](./fact-race) | 3 | Research, asymmetric tools | One analyst can look things up and one cannot — the worked example for ADR-004 |
 | [`research-brief`](./research-brief) | 5 | Research, tools, review | Three angles, a citation critic, and an edited brief on any topic you pass in |
 | [`rps-duel`](./rps-duel) | 3 | Competitive, hidden move, refereed | The referee rules the match after 10 rounds |
+| [`rps-machine`](./rps-machine) | 3 | Competitive, hidden move, declared state machine | The machine reaches `done` after 10 rounds |
 | [`sealed-auction`](./sealed-auction) | 4 | Sealed bids | The clerk reveals the bids and declares a winner |
 | [`reverse-auction`](./reverse-auction) | 4 | Procurement, undercutting | The buyer awards the contract |
 | [`debate-arena`](./debate-arena) | 3 | Adversarial, judged | The judge rules after closing statements |

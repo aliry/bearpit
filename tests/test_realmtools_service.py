@@ -1,5 +1,8 @@
 """Realmtools tokens + EscrowService (#39): identity can't be spoofed, role gates, hidden moves."""
 
+from contextlib import asynccontextmanager
+from typing import Any
+
 import pytest
 
 from bearpit.chronicle import Chronicle, EventKind
@@ -399,3 +402,116 @@ async def test_the_chronicle_is_connected_once_per_process_not_once_per_session(
         f"connected {connects['n']} times for 3 sessions — one engine, and therefore one "
         f"connection pool, is leaked per session"
     )
+
+
+@asynccontextmanager
+async def _as(app: Any, token: str) -> Any:
+    """Drive the real app as one caller, over an in-process MCP session (mirrors
+    tests/test_tool_broker.py:349-364; copied here since tests/ is not a package)."""
+    import httpx
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamable_http_client
+
+    async with (
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://localhost",
+                          headers={"Authorization": f"Bearer {token}"}) as hc,
+        streamable_http_client("http://localhost/mcp", http_client=hc) as (r, w, _),
+        ClientSession(r, w) as session,
+    ):
+        await session.initialize()
+        yield session
+
+
+async def test_game_tools_over_a_real_session_respect_identity(caplog):
+    """Token -> role -> machine: a player acts, a player is refused game_set, values never reach
+    the audit log.
+
+    That last clause is the one with teeth. The audit trail goes to stdout (docker logs), where
+    anyone watching the realm can read it, and a hidden hand written through `game_set` is
+    exactly the kind of value the whole machine exists to keep hidden — so the log records the
+    CALL and the result's SHAPE, never a value or an argument. Asserted with sentinels rather
+    than by reading `_result_shape`: the guarantee is about what comes out."""
+    import json
+    import logging
+
+    from test_machine_service import MACHINE  # the shared declaration; tests/ is on sys.path
+
+    from bearpit.realmtools.server import build_app
+    from bearpit.realmtools.tokens import mint_token
+
+    chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+    await chron.append_event("r", EventKind.MACHINE, MACHINE)
+    app = build_app(SECRET, chronicle=chron)
+    dealer = mint_token("r", "dealer", is_referee=True, secret=SECRET, roster=["a", "b"])
+    a = mint_token("r", "a", is_referee=False, secret=SECRET)
+    caplog.set_level(logging.INFO, logger="realmtools.audit")
+    async with app.router.lifespan_context(app):
+        async with _as(app, dealer) as s:
+            r = await s.call_tool("game_act", {"transition": "deal",
+                                               "args": {"first": "a", "note": "arg-sentinel"}})
+            assert json.loads(r.content[0].text)["actor"] == "a"
+            r = await s.call_tool("game_set", {"key": "hole", "value": "AhKh-sentinel",
+                                               "owner": "a"})
+            assert "error" not in json.loads(r.content[0].text)
+        async with _as(app, a) as s:
+            r = await s.call_tool("game_set", {"key": "pot", "value": 1})
+            assert json.loads(r.content[0].text)["error"] == "rejected"
+            r = await s.call_tool("game_state", {})
+            body = json.loads(r.content[0].text)
+            assert body["data"]["hole"] == {"a": "AhKh-sentinel"} and body["actor"] == "a"
+            r = await s.call_tool("game_declaration", {})
+            assert "transitions" in json.loads(r.content[0].text)
+    audit = "\n".join(rec.getMessage() for rec in caplog.records
+                      if rec.name == "realmtools.audit")
+    assert "game_set('hole')" in audit and "game_act('deal')" in audit  # the calls ARE recorded
+    assert "AhKh-sentinel" not in audit  # ...the owner value the dealer wrote is not
+    assert "arg-sentinel" not in audit   # ...nor a transition argument
+    await chron.close()
+
+
+async def test_a_game_tool_without_a_valid_token_answers_like_every_other_tool():
+    """`who(ctx)` raises PermissionError on a token it cannot verify. Every escrow/notes/code
+    tool catches that and answers `{"error": ...}`; the four game tools let it escape into
+    FastMCP, which turns it into a protocol-level tool error — a different shape for the same
+    condition, and one an agent has to learn separately (review M8). The denial is audited either
+    way; what the CALLER sees is what differed."""
+    import json
+
+    from test_machine_service import MACHINE
+
+    from bearpit.realmtools.server import build_app
+
+    chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+    await chron.append_event("r", EventKind.MACHINE, MACHINE)
+    app = build_app(SECRET, chronicle=chron)
+    denied = "no valid realmtools token on this request"
+    async with app.router.lifespan_context(app), _as(app, "not-a-real-token") as s:
+        for tool, args in (("game_state", {}), ("game_act", {"transition": "deal"}),
+                           ("game_set", {"key": "pot", "value": 1}), ("game_declaration", {})):
+            r = await s.call_tool(tool, args)
+            assert not r.isError, tool
+            assert json.loads(r.content[0].text) == {"error": denied}, tool
+    await chron.close()
+
+
+async def test_a_corrupt_chronicle_is_a_clean_tool_error_not_a_stack_trace():
+    """A GAME row the current declaration cannot re-apply raises ReplayError from `_load` — the
+    tool must translate that into a clean `{"error": ...}`, not let FastMCP surface the raw
+    exception text (which can carry transition/key names and rejection detail) to the caller."""
+    import json
+
+    from test_machine_service import MACHINE
+
+    from bearpit.realmtools.server import build_app
+    from bearpit.realmtools.tokens import mint_token
+
+    chron = await Chronicle.connect("sqlite+aiosqlite:///:memory:")
+    await chron.append_event("r", EventKind.MACHINE, MACHINE)
+    await chron.append_event("r", EventKind.GAME, {"op": "act"})  # malformed: no caller/transition
+    app = build_app(SECRET, chronicle=chron)
+    a = mint_token("r", "a", is_referee=False, secret=SECRET)
+    async with app.router.lifespan_context(app), _as(app, a) as s:
+        r = await s.call_tool("game_state", {})
+        assert not r.isError
+        assert json.loads(r.content[0].text) == {"error": "game state unavailable"}
+    await chron.close()

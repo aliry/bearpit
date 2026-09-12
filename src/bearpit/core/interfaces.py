@@ -34,6 +34,7 @@ class RealmContext:
     bus_homeserver: str  # e.g. Matrix homeserver URL
     commons_room: str
     shared_folder: str | None = None
+    machine: bool = False  # the project declares a game state machine (scenario-contract §20)
     extra: dict[str, Any] = field(default_factory=dict)
 
 
