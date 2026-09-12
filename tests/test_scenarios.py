@@ -284,3 +284,38 @@ def test_raw_github_url_forms():
         "https://raw.githubusercontent.com/org/repo/main/x/SKILL.md")
     assert sc._raw_github_url("https://raw.githubusercontent.com/o/r/main/a.md") == (
         "https://raw.githubusercontent.com/o/r/main/a.md")
+
+
+def test_saving_a_scenario_keeps_each_agent_its_resource_files(tmp_path):
+    """The editor rebuilds a package from its payload, so anything the payload omits is DELETED on
+    save — silently, and only noticed when the realm runs. Saving `poker-table` through the editor
+    dropped `poker_resolver.py` and `equity.py`, leaving a dealer that could not add up a pot and
+    two seats whose personas tell them to consult a calculator that is no longer there.
+
+    Same shape as #58, one folder over: the editor showed the thing, the package stopped carrying
+    it. Round-trip the real package, because a fixture with one file would not have caught it."""
+    from bearpit.core import load_package
+    from bearpit.gatekeeper import scenarios as sc
+    from bearpit.gatekeeper.api import serialize_project
+
+    src = load_package("examples/poker-table")
+    payload = serialize_project(src, "poker-table", "examples/poker-table")
+    for a in payload["agents"]:  # the editor sends budget as a dict, serialize emits a float
+        br = a.get("budget_ref") or {}
+        a["budget"] = {"max_usd": br.get("max_usd"),
+                       "on_exhausted": br.get("on_exhausted", "starve_then_kill"),
+                       "grace_period": br.get("grace_period")}
+
+    sc.write_scenario(tmp_path, "poker-rt", payload)
+    after = load_package(str(tmp_path / "poker-rt"))
+
+    def by_id(project, aid):
+        return next(a for a in project.agents if a.id == aid)
+
+    for aid, fname in (("pitboss", "poker_resolver.py"), ("vega", "equity.py"),
+                       ("rigel", "equity.py")):
+        assert by_id(after, aid).resource_files.get(fname) == \
+            by_id(src, aid).resource_files.get(fname), f"{aid} lost {fname}"
+    # and the local skills it was saved with are still there, byte for byte
+    assert by_id(after, "vega").local_skills["pot-odds"] == \
+        by_id(src, "vega").local_skills["pot-odds"]

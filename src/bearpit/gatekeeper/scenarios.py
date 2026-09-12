@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from bearpit.core import PackageError, load_package
+from bearpit.core.package import _contained
 from bearpit.forge.skills import BUILTIN_SKILLS
 
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
@@ -146,6 +147,17 @@ def write_scenario(base: Path, name: str, data: dict[str, Any]) -> dict[str, Any
                     shutil.copytree(src, dest)
                 else:
                     raise ScenarioError(f"custom skill {s['ref']!r} not found in your library")
+
+            # an agent's own resource files (`resources/<name>`) — the loader reads them back
+            # into `resource_files`. They are NOT in agent.json, so a save that does not rewrite
+            # them deletes them, silently and completely.
+            for rel, text in (agent.get("resources") or {}).items():
+                rel = str(rel).strip().lstrip("/")
+                dest = adir / "resources" / rel
+                if not _contained(dest, adir / "resources"):
+                    raise ScenarioError(f"resource {rel!r} escapes the agent's resources folder")
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_text(str(text))
 
         load_package(str(tmp))  # validate before committing
     except PackageError as exc:

@@ -245,6 +245,11 @@ def serialize_project(project: Any, name: str, path: str) -> dict[str, Any]:
                 # attribute: {ref: SKILL.md}. Per-agent on purpose — the deduped
                 # `skill_contents` map below feeds the read-only viewer, a different thing.
                 "local_skills": dict(a.local_skills or {}),
+                # ...and the files it ships in its own container. The editor rebuilds a package
+                # from this payload, so anything absent here is DELETED on the next save: saving
+                # poker-table used to drop poker_resolver.py and equity.py, leaving a dealer that
+                # could not add up a pot. Same shape of bug as #58, one folder over.
+                "resources": dict(a.resource_files or {}),
                 # ...and its tool grants, or the editor shows "no tools" for an agent that has
                 # them and silently drops them on the next save (#58)
                 "tools": list(a.tools),
