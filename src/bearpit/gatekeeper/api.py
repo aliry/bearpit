@@ -1128,9 +1128,15 @@ def create_app(
                 "error": "the realmtools container is not running this code",
                 "host": check.host,
                 "container": check.container,
-                "hint": f"{check.detail}. A stale image does not fail loudly — it produces a "
-                        f"well-formed verdict computed by code you are not looking at. Resend "
-                        f"with allow_stale_image=true only if you meant to run the old build.",
+                # Lead with the remedy. An operator who has just been refused needs the command
+                # first and the rationale second; the previous wording explained the danger at
+                # length and never once said what to type.
+                "hint": f"{check.detail}. Rebuild and restart it: `docker compose -f "
+                        f"deploy/docker-compose.yaml build realmtools && docker compose -f "
+                        f"deploy/docker-compose.yaml up -d realmtools`. A stale image does not "
+                        f"fail loudly — it produces a well-formed verdict computed by code you "
+                        f"are not looking at. Resend with allow_stale_image=true only if you "
+                        f"meant to run the old build.",
             },
         )
 
