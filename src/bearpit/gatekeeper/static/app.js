@@ -247,14 +247,27 @@ function skillPill(ref, onClick) {
   return el("span", { class: `skill-pill ${src}`, onclick: onClick, title: "View skill" },
     el("span", { class: "src", text: src }), name || src);
 }
-async function showSkill(source, ref) {
+async function showSkill(source, ref, preloaded) {
   let s;
-  try { s = await api(`/api/skills/${source}/${encodeURIComponent(ref)}`); }
-  catch (e) { return fail("Couldn't load skill", e.message); }
+  // A LOCAL skill lives inside the package, at agents/<id>/skills/<ref>/SKILL.md — it is not in
+  // the platform library, so asking the library for it 404s and the reader is told the skill
+  // cannot be loaded when the text is sitting in the payload the page already fetched. Callers
+  // that hold the text pass it; only the library page has nothing to pass.
+  if (preloaded != null && preloaded !== "") {
+    s = { content: preloaded, files: ["SKILL.md"] };
+  } else {
+    try { s = await api(`/api/skills/${source}/${encodeURIComponent(ref)}`); }
+    catch (e) {
+      return fail("Couldn't load skill", source === "local"
+        ? `${ref} is a local skill: its text lives in the scenario that carries it, not in your Skills library.`
+        : e.message);
+    }
+  }
   const files = (s.files && s.files.length) ? s.files : ["SKILL.md"];
   const pre = el("pre", { class: "skill-md", text: s.content });
   const cache = { "SKILL.md": s.content };
   const base = `/api/skills/${source}/${encodeURIComponent(ref)}`;
+  if (preloaded != null && preloaded !== "") files.length = 1;  // no library folder to browse
   let body = pre;
   if (files.length > 1) {  // Agent-Skills folder: show a file browser
     const list = el("div", { class: "skill-files" });
@@ -1869,7 +1882,10 @@ function agentBlock(S, a, i, skills, keyRefs, redraw, installedTools) {
   const drawSkills = () => {
     clear(skillWrap);
     a.skills.forEach((s, si) => skillWrap.append(el("span", { class: `skill-pill ${s.split(":")[0]}` },
-      el("span", { onclick: () => showSkill(...s.split(":")) }, s),
+      el("span", { onclick: () => {
+        const [src, ref] = String(s).split(":");
+        showSkill(src, ref, src === "local" ? (a.local_skills || {})[ref] : undefined);
+      } }, s),
       el("span", { style: "cursor:pointer;color:var(--faint)", onclick: () => {
         const [src, ref] = String(s).split(":");
         a.skills.splice(si, 1);
@@ -2097,7 +2113,7 @@ route(/^\/scenarios\/view\/(.+)$/, async (name) => {
   const roster = el("div", { class: "panel" },
     el("div", { class: "panel-head" }, el("h2", null, "Roster"),
       el("span", { class: "mono-micro", text: `${(d.agents || []).length} agents` })));
-  (d.agents || []).forEach((a) => roster.append(agentDetailCard(a)));
+  (d.agents || []).forEach((a) => roster.append(agentDetailCard(a, d.skill_contents || {})));
   wrap.append(roster);
   return wrap;
 });
@@ -2135,7 +2151,7 @@ function setupPanel(d) {
   return p;
 }
 
-function agentDetailCard(a) {
+function agentDetailCard(a, skillContents) {
   const isRef = a.role === "referee";
   const br = a.budget_ref || {};
   const tier = a.model_category || a.model || "medium";
@@ -2147,7 +2163,8 @@ function agentDetailCard(a) {
   if ((a.skills || []).length) {
     body.append(el("div", { class: "mono-micro", style: "margin-bottom:6px", text: "Skills" }));
     body.append(el("div", { class: "pill-list", style: "margin-bottom:12px" },
-      ...a.skills.map((s) => skillPill(s, () => showSkill(...s.split(":"))))));
+      ...a.skills.map((s) => skillPill(s, () => showSkill(...s.split(":"),
+        (skillContents || {})[s])))));
   }
   if (a.persona) body.append(labelBlock("Persona", a.persona));
   if (isRef && a.rubric) body.append(labelBlock("Rubric", a.rubric));
