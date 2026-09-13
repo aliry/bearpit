@@ -150,6 +150,32 @@ def test_a_manifest_using_a_removed_field_still_loads_with_a_warning(tmp_path):
     assert p.spec.environment.shared_folder.enabled is True   # the real setting survives
 
 
+def test_a_compiled_cache_is_not_advertised_as_a_reference_file(tmp_path):
+    """`resources` is the NAME list the birth prompt reads out to the agent ("REFERENCE FILES have
+    been placed in your container at /opt/data/resources: ..."), while `resource_files` is what is
+    actually seeded — and that one skips anything non-UTF-8. A `__pycache__/*.pyc` therefore got
+    announced to the agent and then was not there. Any package whose resources are importable
+    Python grows one the first time anything imports them."""
+    from bearpit.core.package import load_package
+
+    root = tmp_path / "pkg"
+    res = root / "agents" / "vela" / "resources"
+    (res / "__pycache__").mkdir(parents=True)
+    (res / "solver.py").write_text("def go():\n    return 1\n")
+    (res / "__pycache__" / "solver.cpython-312.pyc").write_bytes(b"\x00\x01binary")
+    (root / "project.json").write_text(json.dumps({
+        "apiVersion": "bearpit/v1alpha1", "kind": "Project",
+        "metadata": {"name": "p"}, "spec": {"goals": ["g"]},
+    }))
+    (root / "agents" / "vela" / "agent.json").write_text(json.dumps({
+        "id": "vela", "name": "Vela", "role": "participant"}))
+    (root / "agents" / "vela" / "persona.md").write_text("you are vela")
+
+    vela = load_package(root).agents[0]
+    assert vela.resources == ["resources/solver.py"]
+    assert list(vela.resource_files) == ["solver.py"]
+
+
 def test_a_symlinked_resource_pointing_outside_the_package_is_refused(tmp_path):
     """Packages are portable and shareable, and load_package runs HOST-SIDE. A package that ships
     `agents/x/resources/leak.txt -> /etc/passwd` would otherwise be read verbatim and seeded into

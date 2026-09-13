@@ -236,6 +236,7 @@ class Forge:
                 bus_homeserver=bus_homeserver,
                 commons_room=commons_room,
                 shared_folder=shared_volume,
+                machine=project.spec.machine is not None,
             )
             handle = adapter.provision(agent, ctx)
             handles[agent.id] = handle  # record BEFORE start(): if start() throws, the container

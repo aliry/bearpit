@@ -19,14 +19,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from fastapi import Body, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import Body, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, ValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from bearpit.chronicle import Chronicle, EventKind
+from bearpit.chronicle.audit import audit_realm
 from bearpit.core import PackageError, Turns, load_package
 from bearpit.core.colors import resolve_agent_colors
+from bearpit.core.machine import MachineDef
 from bearpit.core.params import ParameterError
 from bearpit.core.params import bind as bind_params
 from bearpit.core.params import missing_values as missing_param_values
@@ -34,6 +36,7 @@ from bearpit.core.params import resolve_values as resolve_param_values
 from bearpit.core.params import scan as scan_params
 from bearpit.core.params import validate_values as validate_param_values
 from bearpit.core.schema import Project
+from bearpit.forge.staleness import check_realmtools_image
 from bearpit.gatekeeper import scenarios as sc
 from bearpit.gatekeeper.auth import (
     COOKIE_NAME,
@@ -45,6 +48,9 @@ from bearpit.gatekeeper.auth import (
 )
 from bearpit.gatekeeper.manager import CapacityError, RealmManager
 from bearpit.gatekeeper.service import build_platform
+from bearpit.realmtools.machine import Bindings, declaration_view
+from bearpit.realmtools.machine_service import MACHINE_VERSION
+from bearpit.realmtools.timeline import build_timeline
 from bearpit.scribe.backend import DEFAULT_MODEL, LLMBackend
 from bearpit.scribe.history import HistoryStore, compact
 from bearpit.scribe.loop import ScribeLoop
@@ -88,6 +94,24 @@ class TurnsConfig(BaseModel):
     silence_timeout_s: float = 90.0
 
 
+def apply_turns_override(declared: Turns | None, override: TurnsConfig) -> Turns | None:
+    """Apply the launch UI's turn override on top of what the scenario declared.
+
+    The modal exposes exactly two knobs — on/off and the silence timeout — so those are the only
+    two things it may change. Everything else (min_rounds_before_verdict, referee_cue,
+    retire_after_misses, policy/advance/enforcement/order) is the scenario author's decision and
+    must survive the round-trip.
+
+    This used to build a fresh `Turns(silence_timeout_s=...)`, which reset every other field to
+    its schema default. debate-arena's `min_rounds_before_verdict: 2` — the guard that stops its
+    judge calling a winner before both rounds finish — became 0 on every UI launch.
+    """
+    if not override.enabled:
+        return None
+    base = declared if declared is not None else Turns()
+    return base.model_copy(update={"silence_timeout_s": override.silence_timeout_s})
+
+
 class CreateRealm(BaseModel):
     package: str  # path to a project package or flat manifest
     realm_id: str | None = None
@@ -104,6 +128,10 @@ class CreateRealm(BaseModel):
     # ...and once more for a tool grant that breaks realm isolation or hands a third party realm
     # content (ADR-004 §7). Contained tools launch silently; these do not.
     allow_elevated_tools: bool = False
+    # ...and once more for a realmtools image that is not the code in this tree. A stale image is
+    # the only failure here that announces itself with nothing: the realm runs, concludes, and
+    # writes a well-formed verdict computed by code nobody is looking at.
+    allow_stale_image: bool = False
 
 
 class ScribeSessionCreate(BaseModel):
@@ -149,12 +177,10 @@ def _skill_content(source: str, ref: str, pkg_path: str) -> str:
     if source == "builtin":
         from bearpit.forge.skills import BUILTIN_SKILLS
         return BUILTIN_SKILLS.get(ref, "")
-    if source == "local":
-        import pathlib
-        try:
-            return (pathlib.Path(pkg_path) / "skills" / ref / "SKILL.md").read_text()
-        except OSError:
-            return ""
+    # A local skill is NOT resolved here: it lives at `agents/<id>/skills/<ref>/SKILL.md`, so it
+    # belongs to an agent rather than the package, and the loader has already read it into
+    # `AgentSpec.local_skills`. Reading it from a project-level path — which no package has —
+    # returned "" for every local skill, so the preview showed a clickable, empty pill.
     return ""
 
 
@@ -166,10 +192,14 @@ def serialize_project(project: Any, name: str, path: str) -> dict[str, Any]:
     for a in project.agents:
         for sk in a.skills:
             key = f"{sk.source}:{sk.ref}"
-            if key not in skill_contents:
-                content = _skill_content(str(sk.source), sk.ref, path)
-                if content:
-                    skill_contents[key] = content
+            if key in skill_contents:
+                continue
+            # a local skill comes from the agent the loader read it for; anything else from the
+            # platform library
+            content = (a.local_skills or {}).get(sk.ref, "") if str(sk.source) == "local" \
+                else _skill_content(str(sk.source), sk.ref, path)
+            if content:
+                skill_contents[key] = content
     # roster in display order (referee first), and each agent's resolved message color
     roster = sorted(project.agents, key=lambda a: 0 if ref and a.id == ref.id else 1)
     colors = resolve_agent_colors(roster)
@@ -216,6 +246,16 @@ def serialize_project(project: Any, name: str, path: str) -> dict[str, Any]:
                 "budget_ref": a.budget.model_dump(mode="json"),
                 "private_messaging": a.private_messaging.model_dump(mode="json"),
                 "skills": [f"{sk.source}:{sk.ref}" for sk in a.skills],
+                # ...and the TEXT of this agent's own local skills, so the editor can edit
+                # them in place. `local_skills` is loader state (exclude=True) but a plain
+                # attribute: {ref: SKILL.md}. Per-agent on purpose — the deduped
+                # `skill_contents` map below feeds the read-only viewer, a different thing.
+                "local_skills": dict(a.local_skills or {}),
+                # ...and the files it ships in its own container. The editor rebuilds a package
+                # from this payload, so anything absent here is DELETED on the next save: saving
+                # poker-table used to drop poker_resolver.py and equity.py, leaving a dealer that
+                # could not add up a pot. Same shape of bug as #58, one folder over.
+                "resources": dict(a.resource_files or {}),
                 # ...and its tool grants, or the editor shows "no tools" for an agent that has
                 # them and silently drops them on the next save (#58)
                 "tools": list(a.tools),
@@ -1055,6 +1095,45 @@ def create_app(
             ],
         }
 
+    def _check_image(allow: bool) -> None:
+        """Refuse to launch against a realmtools container that is not running this code.
+
+        The container is a BUILT image with no source mount, so `up -d` alone does not redeploy
+        it. When it drifts nothing says so — the realm runs, concludes, and writes a well-formed
+        verdict. It has happened twice, once turning an among-us run into a spurious "crew win".
+
+        Fails closed: a container too old to answer, or a Docker error, refuses the same as a
+        mismatch. The whole point is not to proceed on something unverified."""
+        if allow:
+            return
+        from bearpit.core.settings import load_settings
+
+        # `mgr.platform.runtime`, spelled out. An earlier version reached for `mgr.runtime`, which
+        # does not exist, so `getattr(..., None)` made this guard a silent no-op — the very shape
+        # of failure it is here to catch. A missing attribute now means a test double, and the
+        # API-level test below proves the wiring on the real one.
+        try:
+            runtime = get_manager().platform.runtime
+        except AttributeError:
+            return  # a test double with no container runtime
+        container = load_settings().realmtools_container
+        if runtime is None or not container:
+            return  # a host-only deployment with no realmtools container to check
+        check = check_realmtools_image(runtime, container)
+        if check.matches:
+            return
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "the realmtools container is not running this code",
+                "host": check.host,
+                "container": check.container,
+                "hint": f"{check.detail}. A stale image does not fail loudly — it produces a "
+                        f"well-formed verdict computed by code you are not looking at. Resend "
+                        f"with allow_stale_image=true only if you meant to run the old build.",
+            },
+        )
+
     def _check_provider(allow: bool) -> None:
         """Refuse to launch on a provider the operator did not choose.
 
@@ -1101,23 +1180,36 @@ def create_app(
             )
 
     def _check_elevated(project: Project, allow: bool) -> None:
-        """Consent for a grant whose blast radius reaches past the realm (ADR-004 §7).
+        """Consent for a power the user has to CHOOSE: a tool grant whose blast radius reaches
+        past the realm (ADR-004 §7), and a machine that lets participants write the game's own
+        state (`participant_effects`).
 
         Two tiers, because a warning shown on every research scenario stops being a warning — the
         #47 lesson. Contained tools (web_search, web_fetch) are metered, chronicled and cannot
         reach past the platform, so they launch silently and stay visible in the run record.
+
+        `participant_effects` sits in the first tier for a different reason: it is the user
+        picking law over physics for that game (architecture principle 3). A refereeless
+        self-dealt table is a legitimate experiment — and not one anybody should discover they
+        launched. Same door, same consent flag, so there is one thing to say yes to.
         """
         from bearpit.core.tools import elevated_grants
 
         risky = elevated_grants(project)
-        if not risky or allow:
+        machine = project.spec.machine
+        effects = list(machine.participant_effects) if machine is not None else []
+        if (not risky and not effects) or allow:
             return
         raise HTTPException(
             status_code=400,
             detail={
-                "error": "this scenario grants tools that need your consent",
+                "error": "this scenario grants powers that need your consent",
                 "elevated": [{"agent": a, "tools": ts} for a, ts in sorted(risky.items())],
-                "hint": "these reach past the realm — remove the grants, or resend with "
+                # The machine's opt-in, named as it is spelled in the manifest so the answer to
+                # "where did this come from?" is one search.
+                "machine_participant_effects": effects,
+                "hint": "tool grants here reach past the realm, and participant_effects lets "
+                        "players write the machine's own state — remove them, or resend with "
                         "allow_elevated_tools=true to run with them",
             },
         )
@@ -1125,6 +1217,7 @@ def create_app(
     @app.post("/api/realms")
     async def create_realm(req: CreateRealm) -> dict[str, Any]:
         _check_provider(req.allow_provider_fallback)
+        _check_image(req.allow_stale_image)
         try:
             project = load_package(req.package)
         except (PackageError, FileNotFoundError) as exc:
@@ -1158,10 +1251,7 @@ def create_app(
         _check_tools(project)
         _check_elevated(project, req.allow_elevated_tools)
         if req.turns is not None:  # UI override: enable/disable turns for this run
-            turns = (
-                Turns(silence_timeout_s=req.turns.silence_timeout_s)
-                if req.turns.enabled else None
-            )
+            turns = apply_turns_override(project.spec.turns, req.turns)
             project = project.model_copy(
                 update={"spec": project.spec.model_copy(update={"turns": turns})}
             )
@@ -1197,6 +1287,13 @@ def create_app(
         elif not status["active"] and status["state"] in NON_TERMINAL:
             # a non-terminal state with no live task = the run was cut off (e.g. server restart)
             status["state"] = "interrupted"
+        # What this run's own record says about whether its result means anything (#90). A realm
+        # can report success and be worthless — four archived ones hold verdicts scored on content
+        # no participant posted — and nothing else on this page would say so.
+        status["integrity"] = [
+            {"code": f.code, "detail": f.detail}
+            for f in await audit_realm(get_chron(), realm_id)
+        ]
         return status
 
     @app.get("/api/realms/{realm_id}/transcript")
@@ -1215,6 +1312,55 @@ def create_app(
             {"ts": m.ts_ms, "channel": m.channel, "sender": m.sender, "body": m.body}
             for m in msgs[-limit:]
         ]}
+
+    @app.get("/api/realms/{realm_id}/machine")
+    async def realm_machine(
+        realm_id: str, as_: str | None = Query(None, alias="as")
+    ) -> dict[str, Any]:
+        """The realm's game state and how it got there, through one seat's eyes.
+
+        Read-only, and rebuilt from the chronicle on every call rather than read from the live
+        runner: that way it works identically on a finished realm, and a live realm's growing
+        timeline can never be served from a stale cache.
+        """
+        machines = await get_chron().events(realm_id, kind=EventKind.MACHINE)
+        if not machines:
+            return {"machine": None}
+        head = machines[-1]  # LAST wins: a realm id can be reused.
+        if head.payload.get("version") != MACHINE_VERSION:
+            return {"machine": None}
+        try:
+            defn = MachineDef.model_validate(head.payload["declaration"])
+        except ValidationError:
+            # Launch validation grows stricter, so a declaration legal when chronicled can be
+            # refused by the schema that reloads it. Never let pydantic's text, which names
+            # transitions and keys, reach a caller.
+            return {"machine": None}
+        members: dict[str, list[str]] = head.payload.get("members") or {}
+        referee = head.payload.get("referee")
+        bindings = Bindings(
+            members={r: tuple(ids) for r, ids in members.items()},
+            roster=tuple(head.payload.get("roster") or ()),
+            referee=referee,
+        )
+        # Not just the role members: a declaration may bind no role's `members` to "referee" (the
+        # referee never plays a seat, only rules on it), in which case `members` alone would never
+        # contain them. The referee is always a valid `?as=`, whether or not the machine gave them
+        # a role, so a seat set built from roles alone would 400 the referee's own default view.
+        role_seats = {a for ids in members.values() for a in ids}
+        seats = sorted(role_seats | ({referee} if referee else set()))
+        caller = as_ or referee or (seats[0] if seats else "")
+        if caller not in seats:
+            # Fail closed and loudly. Falling through would silently serve the participant view
+            # for a typo'd id, which reads as "this seat saw nothing".
+            raise HTTPException(400, "unknown seat")
+        raw = await get_chron().events(realm_id, kind=EventKind.GAME)
+        events = [(e.ts_ms, e.payload) for e in raw if e.id > head.id]
+        built = build_timeline(defn, bindings, events, start_ms=head.ts_ms, caller=caller)
+        return {"machine": {
+            "declaration": declaration_view(defn, bindings, caller),
+            "as": caller, "seats": seats, **built,
+        }}
 
     @app.get("/api/realms/{realm_id}/events")
     async def realm_events(
@@ -1292,7 +1438,7 @@ def create_app(
     @app.post("/api/realms/{realm_id}/rerun")
     async def rerun_realm(
         realm_id: str, mode: str = "snapshot", allow_provider_fallback: bool = False,
-        allow_elevated_tools: bool = False,
+        allow_elevated_tools: bool = False, allow_stale_image: bool = False,
     ) -> dict[str, Any]:
         """Run this realm again. Two honestly-different things, and the caller must choose.
 
@@ -1315,6 +1461,7 @@ def create_app(
         if mode not in ("snapshot", "latest"):
             raise HTTPException(status_code=400, detail="mode must be 'snapshot' or 'latest'")
         _check_provider(allow_provider_fallback)
+        _check_image(allow_stale_image)
 
         events = await get_chron().events(realm_id, kind=EventKind.LIFECYCLE)
         snap = next((e.payload for e in events if e.payload.get("project")), None)

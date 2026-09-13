@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 import yaml
 
-from bearpit.core.schema import AgentSpec
+from bearpit.core.schema import AgentRole, AgentSpec
 from bearpit.forge.skills import skill_texts
 from bearpit.herald.types import MatrixCreds
 from bearpit.ledger import AgentCredential
@@ -169,6 +169,7 @@ def render_hermes_home(
     allow_side_channels: bool = True,
     dm_rooms: dict[str, str] | None = None,
     shared_folder: bool = False,
+    machine: bool = False,
 ) -> dict[str, str]:
     """Return {relative_path: content} for the agent's HERMES_HOME (SOUL.md, config.yaml, .env)."""
     default_soul = f"# {agent.name or agent.id}\n\nYou are an autonomous agent in Bearpit."
@@ -196,6 +197,30 @@ def render_hermes_home(
                  "This is yours already — you do not need to look it up.")
         for name, text in skills.items():
             soul += f"\n\n## Skill: {name}\n\n{text.strip()}"
+
+    if machine:
+        # Scenario-contract §20: a tool nobody is told about is a tool nobody calls. SOUL.md is the
+        # one per-agent text the runtime always injects into the model (see the skills comment
+        # above), so the game tools are announced here rather than in the system prompt — every
+        # backend gets it, and no turn is ever spent reading a file. This text carries no scenario
+        # words: it describes the platform's tools and the wake notice, nothing about any game.
+        soul += (
+            "\n\n## The game state machine\n\n"
+            "THIS REALM RUNS A GAME STATE MACHINE. Your moves are `game_act(transition, args)`; "
+            "the platform checks a move is legal and refuses it otherwise, naming why. "
+            "`game_state()` is your view — the current state, whose move it is (`actor`), the data "
+            "you may see, and the log of moves so far; `game_declaration()` lists every "
+            "transition, who may fire it and when. You cannot see other players' hidden data; "
+            "do not claim to. When it is your move you will be @mentioned with 'the machine is "
+            "waiting on you' — call `game_state`, then act. Talk in the Commons whenever you like; "
+            "only MOVES are sequenced."
+        )
+        if agent.role == AgentRole.REFEREE:
+            soul += (
+                " As referee you also hold `game_set(key, value, owner=)` to write declared data "
+                "after you compute it (with `run_code` or a shipped resolver) — the machine never "
+                "computes anything itself."
+            )
 
     config: dict[str, object] = {
         "model": {
@@ -263,6 +288,13 @@ def render_hermes_home(
         f"MATRIX_TOOLS_ALLOW_INVITES={'true' if allow_side_channels else 'false'}",
         "HERMES_YOLO_MODE=1",  # C14: no human-approval gate for autonomous agents
         "HERMES_EXEC_ASK=false",  # C14
+        # Hermes defaults this to `interrupt` — a message arriving mid-inference ABORTS the call
+        # and restarts. Correct for a chat client, a starvation bug for an always-on realm agent:
+        # a frequently-addressed agent never finishes, and every abort discards spend already
+        # incurred on a partial answer. `queue` finishes the turn, then drains the backlog in
+        # arrival order (Hermes caps pending at 32/session). See #91 — a judge needing 150s to
+        # compose a verdict was interrupted 11 times and dragged a 2-round scenario to round 10.
+        "HERMES_GATEWAY_BUSY_INPUT_MODE=queue",
     ]
     if matrix.require_mention:
         env += ["MATRIX_REQUIRE_MENTION=true", "MATRIX_THREAD_REQUIRE_MENTION=true"]  # C3 anti-loop

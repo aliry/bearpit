@@ -191,6 +191,21 @@ def test_outputs_are_fetched_once_and_only_after_the_realm_stops() -> None:
     assert 'const FINISHED = new Set(["archived", "failed"])' in js
 
 
+def test_the_launch_consent_banner_reads_both_halves_of_the_refusal() -> None:
+    """The launch dialog's consent banner is keyed off the refusal's fields. `elevated` is now
+    always present (possibly empty) and a machine's `participant_effects` ride beside it — so a
+    banner that tests `if (elevated)` fires on an empty array and shows an empty warning, and one
+    that never reads the new field leaves the operator pressing Launch with no idea what they are
+    consenting to. There is no JS runtime in this suite; this is the guard."""
+    js = _app_js()
+    assert "machine_participant_effects" in js, (
+        "the consent banner must render the machine's opt-in"
+    )
+    assert "elevated.length || effects.length" in js, (
+        "an empty `elevated` array is truthy — the banner must test length, not presence"
+    )
+
+
 # --- one Forge, many realms ---------------------------------------------------------------------
 async def test_a_realm_that_declares_no_outputs_inherits_none_from_the_realm_before_it(
     tmp_path,
@@ -256,3 +271,48 @@ async def test_the_warden_chronicles_exactly_what_teardown_returned(tmp_path) ->
     assert "captured = await self._forge.teardown_realm(handles, grace=grace) or []" in src
     forge_src = (Path(__file__).resolve().parents[1] / "src/bearpit/forge/forge.py").read_text()
     assert "self.captured_outputs" not in forge_src
+
+
+def _msg_kind(body: str) -> str:
+    """Run the console's real `msgKind` against a body, via node — a source grep would only prove
+    the words are present, not that the classification actually fires."""
+    import json
+    import re
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if node is None:  # pragma: no cover - CI without node
+        pytest.skip("node not available")
+    js = _app_js()
+    m = re.search(r"^function msgKind\(m\) \{.*?^\}", js, re.S | re.M)
+    assert m, "msgKind not found in app.js"
+    call = f"msgKind({{sender:'@x:realm.local',body:{json.dumps(body)}}})"
+    script = m.group(0) + f"\nprocess.stdout.write({call})"
+    return subprocess.run([node, "-e", script], capture_output=True, text=True, check=True).stdout
+
+
+@pytest.mark.parametrize("body", [
+    "⚡ Interrupting current task. I'll respond to your message shortly.",
+    "⚡ Interrupting current task (2 min elapsed, iteration 1/90). I'll respond shortly.",
+    "⏳ Working — 3 min — iteration 1/90, waiting for provider response (streaming)",
+    "Operation interrupted: waiting for model response (6.0s elapsed).",
+])
+def test_runtime_narration_is_never_shown_as_something_an_agent_said(body: str) -> None:
+    """`msgKind` classifies runtime narration as `activity` so the Conversation view can hide it.
+
+    It listed the words "Interrupting current task" but anchored them with `^[*\\s>]*`, and the
+    runtime emits the line as "⚡ Interrupting current task…". ⚡ is not in that character class and
+    was missing from the emoji rule on the line above, so the most common narration line of all
+    fell through to `chat` — rendered as though the agent had said it.
+
+    That is how an operator watching debate-arena-6947dc saw 36 interrupt notices in the transcript.
+    `warden/turns.py` already lists ⚡ as a runtime marker; only the console disagreed.
+    """
+    assert _msg_kind(body) == "activity", f"{body!r} was shown as agent speech"
+
+
+def test_real_agent_speech_is_still_classified_as_chat() -> None:
+    """The filter must not swallow an argument that happens to open with emphasis or a quote."""
+    assert _msg_kind("**1. Proximity drives velocity.** Startups live or die on speed.") == "chat"
+    assert _msg_kind("> PRO claims remote hiring widens the pool. True, and irrelevant.") == "chat"

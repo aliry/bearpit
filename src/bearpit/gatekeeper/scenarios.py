@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from bearpit.core import PackageError, load_package
+from bearpit.core.package import _contained
 from bearpit.forge.skills import BUILTIN_SKILLS
 
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
@@ -69,6 +70,20 @@ def _agent_files(agent: dict[str, Any]) -> tuple[dict[str, Any], str]:
     return out, persona
 
 
+def _local_skill_dest(adir: Path, ref: str) -> Path:
+    """Where one local skill is written inside an agent: agents/<id>/skills/<ref>/.
+
+    A ref names exactly ONE folder there. The loader refuses an escaping ref with a PackageError,
+    but by then the files have already been written — so refuse it here, before anything lands.
+    """
+    parts = [q for q in re.split(r"[\\/]+", ref) if q]
+    if len(parts) != 1 or parts[0].startswith(".") or len(parts[0]) > 100:
+        raise ScenarioError(
+            f"invalid local skill ref {ref!r} (one folder name, lowercase letters, numbers, dashes)"
+        )
+    return adir / "skills" / parts[0]
+
+
 def write_scenario(base: Path, name: str, data: dict[str, Any]) -> dict[str, Any]:
     """Write a scenario package from the editor payload, validate it, and return its summary.
     Writes to a temp dir then swaps, so a bad edit never corrupts the existing package."""
@@ -106,13 +121,43 @@ def write_scenario(base: Path, name: str, data: dict[str, Any]) -> dict[str, Any
             # bundle each custom (local) skill INTO the agent's own skills/ dir (the loader resolves
             # local skills per-agent), so the exported package is self-contained. Copy the WHOLE
             # skill folder — SKILL.md plus any scripts/references/assets it ships with.
+            #
+            # An EDITED local skill is written HERE, into this agent, and never back into the
+            # global library: the loader's truth is already per-agent, so editing this scenario's
+            # copy of `pot-odds` must not rewrite it for every other scenario that attached it.
+            inline = agent.get("local_skills")
+            inline = inline if isinstance(inline, dict) else {}
             for s in aj["skills"]:
                 if s["source"] != "local":
                     continue
+                dest = _local_skill_dest(adir, str(s["ref"]))
                 src = _skill_local_dir(s["ref"])
-                if not (src / "SKILL.md").is_file():
+                in_library = (src / "SKILL.md").is_file()
+                text = str(inline.get(s["ref"]) or "")
+                if text.strip():
+                    # The edit replaces SKILL.md only. Any scripts/references the library copy
+                    # ships with still come along, or editing one line of prose would silently
+                    # strip a multi-file skill down to its brief.
+                    if in_library:
+                        shutil.copytree(src, dest)
+                    else:
+                        dest.mkdir(parents=True, exist_ok=True)
+                    dest.joinpath("SKILL.md").write_text(text)
+                elif in_library:
+                    shutil.copytree(src, dest)
+                else:
                     raise ScenarioError(f"custom skill {s['ref']!r} not found in your library")
-                shutil.copytree(src, adir / "skills" / s["ref"])
+
+            # an agent's own resource files (`resources/<name>`) — the loader reads them back
+            # into `resource_files`. They are NOT in agent.json, so a save that does not rewrite
+            # them deletes them, silently and completely.
+            for rel, text in (agent.get("resources") or {}).items():
+                rel = str(rel).strip().lstrip("/")
+                dest = adir / "resources" / rel
+                if not _contained(dest, adir / "resources"):
+                    raise ScenarioError(f"resource {rel!r} escapes the agent's resources folder")
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_text(str(text))
 
         load_package(str(tmp))  # validate before committing
     except PackageError as exc:

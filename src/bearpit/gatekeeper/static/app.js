@@ -247,14 +247,27 @@ function skillPill(ref, onClick) {
   return el("span", { class: `skill-pill ${src}`, onclick: onClick, title: "View skill" },
     el("span", { class: "src", text: src }), name || src);
 }
-async function showSkill(source, ref) {
+async function showSkill(source, ref, preloaded) {
   let s;
-  try { s = await api(`/api/skills/${source}/${encodeURIComponent(ref)}`); }
-  catch (e) { return fail("Couldn't load skill", e.message); }
+  // A LOCAL skill lives inside the package, at agents/<id>/skills/<ref>/SKILL.md — it is not in
+  // the platform library, so asking the library for it 404s and the reader is told the skill
+  // cannot be loaded when the text is sitting in the payload the page already fetched. Callers
+  // that hold the text pass it; only the library page has nothing to pass.
+  if (preloaded != null && preloaded !== "") {
+    s = { content: preloaded, files: ["SKILL.md"] };
+  } else {
+    try { s = await api(`/api/skills/${source}/${encodeURIComponent(ref)}`); }
+    catch (e) {
+      return fail("Couldn't load skill", source === "local"
+        ? `${ref} is a local skill: its text lives in the scenario that carries it, not in your Skills library.`
+        : e.message);
+    }
+  }
   const files = (s.files && s.files.length) ? s.files : ["SKILL.md"];
   const pre = el("pre", { class: "skill-md", text: s.content });
   const cache = { "SKILL.md": s.content };
   const base = `/api/skills/${source}/${encodeURIComponent(ref)}`;
+  if (preloaded != null && preloaded !== "") files.length = 1;  // no library folder to browse
   let body = pre;
   if (files.length > 1) {  // Agent-Skills folder: show a file browser
     const list = el("div", { class: "skill-files" });
@@ -484,25 +497,116 @@ route(/^\/realm\/(.+)$/, async (id) => {
   const layout = el("div", { class: "realm-layout" }, feed, stats);
 
   const head = el("div");
+  const integrityBox = el("div");  // what the run's own record says about its result (#90)
   const banner = el("div");  // prominent outcome once the realm concludes
+  const gameBox = el("div");  // a machine realm's current state + the seat it is read through
   const wrap = el("div", null,
     el("div", { class: "crumb" }, el("a", { href: "#/realms" }, "Realms"), "›",
       el("span", { class: "mono", text: id })),
-    head, banner, layout);
+    head, integrityBox, banner, gameBox, layout);
 
   // Fetched at most once per visit, and deliberately BEFORE the rail is rendered: realmStats
   // rebuilds the entire rail every 2s, so a card inserted asynchronously AFTER that render
   // made the whole rail jump on every single poll.
-  let seen = 0, lastState = null, lastOutcome = null, outputs = null;
+  let lastState = null, lastOutcome = null, lastIntegrity = null, outputs = null;
+  // The feed carries two records of the same run — what the agents SAID and what the machine
+  // DID — merged on the one field they share, `ts`. Both are held here because the lens redraws
+  // the feed from the machine alone: what was said is the same whoever reads it, so re-fetching
+  // the transcript to redraw it would be a second copy of the same conversation.
+  let feedMsgs = [], feedChannels = {}, machine = null, lens = null, lastGameSig = null;
+  let shown = [];   // the merged rows currently IN the feed, in order
+
+  // Read the timeline through another seat. The transcript is deliberately NOT re-fetched: only
+  // what the machine will show changes with the lens, never the conversation.
+  async function setLens(seat) {
+    if (!seat || seat === lens) return;
+    let next;
+    try {
+      next = await api(`/api/realms/${encodeURIComponent(id)}/machine`
+        + `?as=${encodeURIComponent(seat)}`);
+    } catch { return; }   // a lens that will not load leaves the reader on the one they had
+    lens = seat;
+    machine = next.machine || null;
+    renderGame();
+    shown = [];           // another seat is another story: every row is redrawn, not appended to
+    renderFeed();
+  }
+
+  function renderGame() {
+    const sig = machine ? JSON.stringify([machine.as, machine.seats, machine.state]) : "";
+    if (sig === lastGameSig) return;   // a <select> rebuilt under the cursor closes itself
+    lastGameSig = sig;
+    clear(gameBox);
+    if (machine) gameBox.append(gameStateBlock(machine, id, setLens));
+  }
+
+  function renderFeed() {
+    const next = mergeFeedRows(feedMsgs, machine);
+    // Appending only the tail is what keeps the reader's place across a 2s poll, and it is only
+    // sound while what is on screen is still a PREFIX of the merged rows. A lens change, or a
+    // transcript that lost its head to the fetch limit, is a redraw rather than an append.
+    let append = next.length >= shown.length;
+    if (append) {
+      for (let i = 0; i < shown.length; i++) {
+        if (shown[i].ts !== next[i].ts || shown[i].kind !== next[i].kind) { append = false; break; }
+      }
+    }
+    if (!append) shown = [];
+    const firstDraw = !shown.length;
+    if (firstDraw) clear(feedScroll);
+    if (!next.length) {
+      feedScroll.append(el("div", { class: "feed-empty" }, "Waiting for the first message…"));
+      return;
+    }
+    // capture pin state BEFORE appending — the new lines change scrollHeight
+    const wasPinned = firstDraw || atBottom();
+    const grew = next.length > shown.length;
+    for (const r of next.slice(shown.length)) {
+      // gameLine returns null for a row it cannot read; append() would render that as "null".
+      const line = r.kind === "game" ? gameLine(r, id, agentColors)
+        : feedLine(r.msg, referee, id, feedChannels, agentColors);
+      if (line) feedScroll.append(line);
+    }
+    shown = next;
+    if (grew) {
+      if (wasPinned) feedScroll.scrollTop = feedScroll.scrollHeight;
+      else jumpPill.classList.remove("hidden");  // reader is up in history — don't yank them down
+    }
+  }
+
   async function tick() {
-    let status, tr;
-    try { [status, tr] = await Promise.all([api(`/api/realms/${encodeURIComponent(id)}`),
-      api(`/api/realms/${encodeURIComponent(id)}/transcript?limit=400`)]); }
+    let status, tr, mach;
+    // The machine rides along in the same batch but cannot poison it: a realm with no machine, an
+    // older host, or a 500 must leave the rest of this page exactly as it is. `undefined` means
+    // "could not ask" and keeps whatever was already on screen; `null` means "this realm has no
+    // machine" and is the answer, not a failure.
+    const askedAs = lens;
+    const machineReq = api(`/api/realms/${encodeURIComponent(id)}/machine`
+      + (lens ? `?as=${encodeURIComponent(lens)}` : ""))
+      .then((r) => r.machine || null, () => undefined);
+    try { [status, tr, mach] = await Promise.all([api(`/api/realms/${encodeURIComponent(id)}`),
+      api(`/api/realms/${encodeURIComponent(id)}/transcript?limit=400`), machineReq]); }
     catch (e) { return; }
     // header (only rebuild on state change)
     if (status.state !== lastState) {
       lastState = status.state;
       clear(head); head.append(realmHead(id, status, referee));
+    }
+    // What this run's own record says about whether its result means anything (#90). It sits ABOVE
+    // the outcome deliberately: a realm can report success and be worthless, and the outcome is
+    // exactly the thing not to read first when it can.
+    const integrity = status.integrity || [];
+    const intKey = integrity.map(f => f.code).join(",");
+    if (intKey !== lastIntegrity) {
+      lastIntegrity = intKey;
+      clear(integrityBox);
+      if (integrity.length) integrityBox.append(el("div", { class: "integrity-banner" },
+        el("span", { class: "integrity-ic" }, "⚠"),
+        el("div", null,
+          el("div", { class: "mono-micro", text: "Check this run before trusting its result" }),
+          ...integrity.map(f => el("div", { class: "integrity-line" },
+            el("span", { class: "integrity-code", text: f.code }),
+            el("span", { text: " " + f.detail }))))));
     }
     // prominent outcome banner (only when it changes)
     if (status.outcome !== lastOutcome) {
@@ -519,23 +623,13 @@ route(/^\/realm\/(.+)$/, async (id) => {
       catch { outputs = []; }   // a realm that cannot list outputs still renders its rail
     }
     clear(stats); stats.append(realmStats(status, id, outputs || []));
-    // feed: append only new lines
-    const msgs = tr.messages || [];
-    if (seen === 0 && !msgs.length) {
-      feedScroll.append(el("div", { class: "feed-empty" }, "Waiting for the first message…"));
-    }
-    const firstLoad = seen === 0;
-    if (firstLoad) clear(feedScroll);
-    const channels = tr.channels || {};
-    // capture pin state BEFORE appending — the new lines change scrollHeight
-    const wasPinned = firstLoad || atBottom();
-    for (const m of msgs.slice(seen))
-      feedScroll.append(feedLine(m, referee, id, channels, agentColors));
-    if (msgs.length > seen) {
-      seen = msgs.length;
-      if (wasPinned) feedScroll.scrollTop = feedScroll.scrollHeight;
-      else jumpPill.classList.remove("hidden");  // reader is up in history — don't yank them down
-    }
+    // feed: the conversation and the machine's own moves, in one order
+    feedMsgs = tr.messages || [];
+    feedChannels = tr.channels || {};
+    // A tick that started before a lens change must not put the old seat's view back on screen.
+    if (mach !== undefined && askedAs === lens) machine = mach;
+    renderGame();
+    renderFeed();
     refreshCapacity();
   }
   poll(tick, 2000);
@@ -550,7 +644,10 @@ function msgKind(m) {
   const s = m.sender || "", b = m.body || "";
   if (/^\s*\[operator/i.test(b)) return "operator";
   if (/(^|@)system/i.test(s)) return "system";
-  if (/^[*\s>]*(📚|⚙️?|🛠️?|🔧|⏳|🔌|📖|🗂️?|↻)/u.test(b)) return "activity";
+  // ⚡ leads the runtime's interruption line and was the one marker missing here, so
+  // "⚡ Interrupting current task…" — the most frequent narration of all — rendered as agent
+  // speech. warden/turns.py already treats ⚡ as a runtime marker.
+  if (/^[*\s>]*(📚|⚙️?|🛠️?|🔧|⏳|⚡|🔌|📖|🗂️?|↻)/u.test(b)) return "activity";
   if (/^[*\s>]*(Reading skill|mcp[_-]|Working\s*[—–-]|Interrupting current task|Operation interrupted)/i
     .test(b)) return "activity";
   return "chat";
@@ -574,6 +671,128 @@ function feedLine(m, referee, realmId, channels, agentColors) {
     el("div", { class: "msg" },
       dm && el("span", { class: "dm-tag", title: `private: ${dm}` }, `🔒 ${dm}`),
       el("span", { style: tint }, m.body || "")));
+}
+
+/* ---------- a game machine's moves, read alongside the conversation ----------
+   Nothing here knows what any scenario is about: every word on the page — the state, the actor,
+   the keys, the transitions — comes from that realm's own declaration. An op or a change kind
+   this console does not recognise renders as NOTHING, never as "undefined": a timeline is a
+   record, and a record that invents a word is worse than one that leaves a gap. */
+
+// One value, small enough to sit on a feed line. Owner maps arrive as objects and sets as arrays.
+function gmVal(v) {
+  if (v === null || v === undefined) return "—";
+  if (Array.isArray(v)) return v.length ? v.join(", ") : "∅";
+  if (typeof v === "object") {
+    return Object.entries(v).map(([k, x]) => `${k} ${gmVal(x)}`).join(" · ") || "—";
+  }
+  if (v === "") return '""';
+  return String(v);
+}
+
+// What one change did, formatted by its `kind` alone — the declaration already decided what shape
+// each key has, so this needs no schema. A kind this console does not know returns null, and a
+// null renders as nothing at all.
+function gmChange(c, emptied) {
+  if (!c || typeof c !== "object") return null;
+  if (c.kind === "state") return `state ${gmVal(c.from)} → ${gmVal(c.to)}`;
+  if (c.kind === "actor") return `actor → ${gmVal(c.to)}`;
+  if (c.kind === "value") return `${c.key} ${gmVal(c.from)} → ${gmVal(c.to)}`;
+  if (c.kind === "owner") return `${c.key} {${c.owner}: ${gmVal(c.to)}}`;
+  if (c.kind === "set") {
+    if (emptied && emptied.has(c.key)) return `${c.key} reset`;
+    const parts = [];
+    if ((c.added || []).length) parts.push("+" + c.added.join(", "));
+    if ((c.removed || []).length) parts.push("−" + c.removed.join(", "));
+    return parts.length ? `${c.key} ${parts.join(" ")}` : null;
+  }
+  return null;
+}
+
+// The transcript and the machine timeline in one order. They are merged on `ts` (both are epoch
+// milliseconds) and on nothing else. The sort is stable, so a message keeps its place ahead of the
+// move it announces when the two share a millisecond.
+function mergeFeedRows(msgs, machine) {
+  const rows = (msgs || []).map((m) => ({ ts: Number(m.ts) || 0, kind: "msg", msg: m }));
+  // A `set` change carries only the delta, so "this emptied the set" — a reset — cannot be read
+  // off a single row. Track each set forward through the timeline instead. The tracking can only
+  // fall SHORT (a row this seat may not see never arrives), and falling short renders the plain
+  // ± list: the accurate rendering, just the less compact one.
+  const held = new Map();
+  for (const r of (machine && machine.timeline) || []) {
+    const changes = Array.isArray(r && r.changes) ? r.changes : [];
+    const emptied = new Set();
+    for (const c of changes) {
+      if (!c || c.kind !== "set") continue;
+      const cur = held.get(c.key) || new Set();
+      const before = cur.size;
+      for (const m of c.removed || []) cur.delete(m);
+      if (before && !cur.size && !(c.added || []).length) emptied.add(c.key);
+      for (const m of c.added || []) cur.add(m);
+      held.set(c.key, cur);
+    }
+    rows.push({ ts: Number(r && r.ts) || 0, kind: "game", changes, emptied,
+      payload: (r && r.payload) || {} });
+  }
+  rows.sort((a, b) => a.ts - b.ts);
+  return rows;
+}
+
+// One move, on the same two-column grid as a message so the page reads as a single column of
+// events rather than two logs side by side.
+function gameLine(row, realmId, agentColors) {
+  const p = row.payload || {};
+  const op = p.op;
+  const who = p.caller ? agentLabel(p.caller, realmId) : "machine";
+  const color = agentColors ? agentColors[who] : null;
+  const head = [];
+  if (op === "act") {
+    head.push(el("b", { class: "gm-name", text: String(p.transition ?? "") }));
+    const args = Object.entries(p.args || {}).map(([k, v]) => `${k}=${gmVal(v)}`).join("  ");
+    if (args) head.push(el("span", { class: "gm-args", text: args }));
+  } else if (op === "set") {
+    head.push(el("span", { class: "gm-verb", text: "set" }),
+      el("b", { class: "gm-name", text: String(p.key ?? "") }));
+    if (p.owner) head.push(el("span", { class: "gm-args", text: `{${p.owner}}` }));
+  } else if (op === "reject") {
+    // Often the most informative row on the page: it says what an agent TRIED to do and why the
+    // machine would not let it. Never folded in with the moves that succeeded.
+    head.push(el("span", { class: "gm-verb", text: "refused" }));
+    if (p.transition) head.push(el("b", { class: "gm-name", text: String(p.transition) }));
+    const why = [p.check, p.detail].filter(Boolean).join(" · ");
+    if (why) head.push(el("span", { class: "gm-why", text: why }));
+  }
+  // an unknown op keeps its changes and says nothing else — fail closed, never guess a verb
+  const bits = (row.changes || []).map((c) => gmChange(c, row.emptied)).filter(Boolean);
+  // …and a row with nothing this console can read is no row at all, rather than a blank line
+  // under an agent's name. Unrecognised must yield LESS than recognised, never a puzzle.
+  if (!head.length && !bits.length) return null;
+  return el("div", { class: `feed-line game kind-game${op === "reject" ? " refused" : ""}` },
+    el("div", { class: "who", style: color ? `color:${color}` : "", text: who }),
+    el("div", { class: "msg gm" }, ...head,
+      ...bits.map((t) => el("span", { class: "gm-chg", text: t }))));
+}
+
+// The machine's state right now, plus the seat it is being read through. A participant's lens
+// shows strictly less than the referee's, so WHICH seat is selected is part of reading the page.
+function gameStateBlock(machine, realmId, onLens) {
+  const st = machine.state || {};
+  const kv = (k, v) => el("span", { class: "gs-kv" },
+    el("span", { class: "gs-k", text: k }), el("span", { class: "gs-v", text: v }));
+  const box = el("div", { class: "game-state" },
+    el("span", { class: "mono-micro", text: "Game state" }),
+    el("span", { class: "gs-state", text: gmVal(st.state) }),
+    kv("actor", gmVal(st.actor)));
+  for (const [k, v] of Object.entries(st.data || {})) box.append(kv(k, gmVal(v)));
+  // a chronicle that stopped replaying is served as a good prefix plus a reason; say the reason
+  if (machine.error) box.append(el("span", { class: "gs-err", text: machine.error }));
+  const sel = el("select", { class: "lens-sel", onchange: (e) => onLens(e.currentTarget.value) },
+    ...(machine.seats || []).map((s) => el("option", { value: s }, agentLabel(s, realmId))));
+  // AFTER the options exist: a <select> drops a value it has no option for.
+  sel.value = machine.as || "";
+  box.append(el("span", { class: "gs-lens" },
+    el("span", { class: "mono-micro", text: "Viewing as" }), sel));
+  return box;
 }
 
 function realmHead(id, s, referee) {
@@ -1111,14 +1330,22 @@ function launchModal(packages, preselect) {
             close(); ok("Realm launched", r.realm_id);
             location.hash = `#/realm/${encodeURIComponent(r.realm_id)}`;
           } catch (e) {
-            const elevated = e.detail && e.detail.elevated;
-            if (elevated) {
-              // A grant that reaches past the realm. Same shape as an empty parameter and a
-              // substituted provider: explained in place, and it takes a second press.
+            const elevated = (e.detail && e.detail.elevated) || [];
+            const effects = (e.detail && e.detail.machine_participant_effects) || [];
+            if (elevated.length || effects.length) {
+              // A grant that reaches past the realm, or a machine whose PLAYERS may write its
+              // own state. Same shape as an empty parameter and a substituted provider:
+              // explained in place, and it takes a second press. Both are the same consent, so
+              // one banner lists whichever of them this scenario actually asks for — an empty
+              // list is not a warning worth showing.
               toolConsent = true;
               paramBox.prepend(el("div", { class: "param-warn" },
-                el("strong", null, "This scenario grants tools that reach past the realm. "),
-                elevated.map((g) => `${g.agent}: ${g.tools.join(", ")}`).join(" · "),
+                elevated.length ? el("div", null,
+                  el("strong", null, "Tools that reach past the realm: "),
+                  elevated.map((g) => `${g.agent}: ${g.tools.join(", ")}`).join(" · ")) : null,
+                effects.length ? el("div", null,
+                  el("strong", null, "Players may write the machine's own state: "),
+                  `participant_effects: ${effects.join(", ")}`) : null,
                 el("div", { class: "hint" }, "Press Launch anyway to continue.")));
               setTimeout(() => btn.replaceChildren("Launch anyway"), 0);
               return;
@@ -1219,6 +1446,7 @@ const INFO = {
   gracePeriod: "For starve_then_kill: how long to keep the agent alive after its budget is spent, "
     + "e.g. 5m.",
   skills: "SKILL.md briefs that give the agent its role and capabilities. Click a skill to read it.",
+  localSkills: "The text of this agent's local skills. A local skill is a SKILL.md the agent carries: it is inlined into its brief and seeded as a file in its container.\n\nEditing here changes THIS scenario only — the copy in your Skills library, and every other scenario that attached it, is untouched.\n\nA skill edited here is saved inside the agent (agents/<id>/skills/<ref>/SKILL.md), so the exported package carries its own copy.",
   tools: "Capabilities this agent may use, granted per agent (ADR-004). One agent that can research and one that cannot is a scenario in itself.\n\nTools run on the host, never inside the agent's container, and every call is recorded with its cost. A tool marked ⚠ reaches past the realm and asks for your confirmation at launch.\n\nSet per-tool limits under spec.tools in the JSON, e.g. max_calls_per_agent.",
   persona: "The agent's private character brief (persona.md). Only this agent sees it.",
   rubric: "The referee's private judging criteria — how it scores or decides. Only the referee sees "
@@ -1254,7 +1482,10 @@ function detailToState(d) {
         require_mention: e.require_mention !== false, allow_side_channels: !!e.allow_side_channels },
       referee_opens: !!d.referee_opens, provide_tools: d.provide_tools !== false,
       stall_nudge: !!d.stall_nudge,
-      turns: d.turns ? { silence_timeout_s: d.turns.silence_timeout_s ?? 90,
+      // Same rule as `parameters` above: policy/advance/enforcement/order have no field in this
+      // editor, so they must be carried through rather than dropped — rebuilding the object from
+      // the four edited fields silently reverted them to their schema defaults.
+      turns: d.turns ? { ...d.turns, silence_timeout_s: d.turns.silence_timeout_s ?? 90,
         referee_cue: d.turns.referee_cue || "round",
         min_rounds_before_verdict: d.turns.min_rounds_before_verdict ?? 0,
         retire_after_misses: d.turns.retire_after_misses ?? 0 } : null,
@@ -1273,6 +1504,9 @@ function detailToState(d) {
         private_messaging: { enabled: !!(a.private_messaging || {}).enabled,
           include_referee: !!(a.private_messaging || {}).include_referee },
         skills: a.skills || [], tools: a.tools || [], persona: a.persona || "", rubric: a.rubric || "", goals: a.goals || [],
+        // the SKILL.md text of this agent's OWN local skills ({ref: text}) — edited in
+        // the roster and written back into this agent, never into the skill library
+        local_skills: a.local_skills || {},
         color: a.color || null,
       };
     }),
@@ -1745,6 +1979,7 @@ function rosterPanel(S, skills, keyRefs, installedTools) {
       budget: { max_usd: 2.0, on_exhausted: "starve_then_kill", grace_period: "5m" },
       private_messaging: { enabled: false, include_referee: false },
       skills: role === "referee" ? ["builtin:referee-basics"] : ["builtin:agent-basics"],
+      local_skills: {},
       persona: "", rubric: "", goals: [] });
     draw();
   };
@@ -1786,13 +2021,64 @@ function privateMsgControl(a) {
 
 function agentBlock(S, a, i, skills, keyRefs, redraw, installedTools) {
   const isRef = a.role === "referee";
+
+  /* Local skills. A local skill is a SKILL.md the AGENT carries — on disk at
+     agents/<id>/skills/<ref>/SKILL.md, inlined into its brief and seeded as a file in its
+     container. Its text is therefore scenario state, not library state: it is edited here and
+     written back into this agent, never into the global library. */
+  a.local_skills = a.local_skills || {};
+  const localWrap = el("div");
+  const localSkills = el("details", { class: "local-skills" },
+    el("summary", null,
+      el("b", { text: "Local skills" }),
+      el("span", { class: "inline-note", text: "the SKILL.md text this agent carries" }),
+      infoIcon(INFO.localSkills),
+      el("span", { class: "fold-mark" }, "›")),
+    el("div", { class: "local-skills-body" },
+      el("p", { class: "inline-note", style: "margin:0 0 10px" },
+        "Editing here changes this scenario only — the copy in your Skills library is untouched."),
+      localWrap));
+  // A newly attached skill starts from the library copy, so the author edits the real thing
+  // rather than a blank box. Fire-and-forget: the row renders now, the text lands when it lands.
+  const seedFromLibrary = (ref, box) => {
+    api(`/api/skills/local/${encodeURIComponent(ref)}`).then((sk) => {
+      if (a.local_skills[ref] != null || !sk || !sk.content) return;
+      a.local_skills[ref] = sk.content;
+      if (!box.value) box.value = sk.content;
+    }).catch(() => {});  // no library copy: this skill lives only in this scenario
+  };
+  const drawLocalSkills = () => {
+    clear(localWrap);
+    const refs = a.skills.filter((s) => String(s).startsWith("local:"))
+      .map((s) => String(s).slice("local:".length));
+    localSkills.hidden = !refs.length;   // nothing to edit, nothing to show
+    for (const ref of refs) {
+      const box = el("textarea", { class: "mono", rows: 14, value: a.local_skills[ref] ?? "",
+        placeholder: `# ${ref}\n\nWhat this skill tells the agent to do.`,
+        oninput: (e) => { a.local_skills[ref] = e.target.value; } });
+      if (a.local_skills[ref] == null) seedFromLibrary(ref, box);
+      localWrap.append(el("details", { class: "skill-edit" },
+        el("summary", null, el("span", { class: "skill-pill local", text: ref }),
+          el("span", { class: "fold-mark" }, "›")),
+        el("div", { class: "skill-edit-body" }, box)));
+    }
+  };
+
   const skillWrap = el("div", { class: "pill-list", style: "margin-bottom:8px" });
   const drawSkills = () => {
     clear(skillWrap);
     a.skills.forEach((s, si) => skillWrap.append(el("span", { class: `skill-pill ${s.split(":")[0]}` },
-      el("span", { onclick: () => showSkill(...s.split(":")) }, s),
-      el("span", { style: "cursor:pointer;color:var(--faint)", onclick: () => { a.skills.splice(si, 1); drawSkills(); } }, " ✕"))));
+      el("span", { onclick: () => {
+        const [src, ref] = String(s).split(":");
+        showSkill(src, ref, src === "local" ? (a.local_skills || {})[ref] : undefined);
+      } }, s),
+      el("span", { style: "cursor:pointer;color:var(--faint)", onclick: () => {
+        const [src, ref] = String(s).split(":");
+        a.skills.splice(si, 1);
+        if (src === "local") delete a.local_skills[ref];  // its editor goes with it
+        drawSkills(); } }, " ✕"))));
     if (!a.skills.length) skillWrap.append(el("span", { class: "inline-note", text: "no skills" }));
+    drawLocalSkills();   // one editor per attached local skill, always in step with the pills
   };
   drawSkills();
   const skillPicker = el("select", null,
@@ -1866,6 +2152,7 @@ function agentBlock(S, a, i, skills, keyRefs, redraw, installedTools) {
       textField("Grace period", a.budget, "grace_period", { ph: "5m", info: INFO.gracePeriod, maxlength: 20 })),
     privateMsgControl(a),
     el("div", { class: "field" }, fieldLabel("Skills", { info: INFO.skills }), skillWrap, skillPicker),
+    localSkills,
     el("div", { class: "field" }, fieldLabel("Tools", { info: INFO.tools }), toolWrap, toolPicker),
     textField("Persona", a, "persona", { area: true, rows: 3, info: INFO.persona, maxlength: 50000,
       ph: "The agent's private character brief (persona.md)." }),
@@ -2012,7 +2299,7 @@ route(/^\/scenarios\/view\/(.+)$/, async (name) => {
   const roster = el("div", { class: "panel" },
     el("div", { class: "panel-head" }, el("h2", null, "Roster"),
       el("span", { class: "mono-micro", text: `${(d.agents || []).length} agents` })));
-  (d.agents || []).forEach((a) => roster.append(agentDetailCard(a)));
+  (d.agents || []).forEach((a) => roster.append(agentDetailCard(a, d.skill_contents || {})));
   wrap.append(roster);
   return wrap;
 });
@@ -2050,7 +2337,7 @@ function setupPanel(d) {
   return p;
 }
 
-function agentDetailCard(a) {
+function agentDetailCard(a, skillContents) {
   const isRef = a.role === "referee";
   const br = a.budget_ref || {};
   const tier = a.model_category || a.model || "medium";
@@ -2062,7 +2349,8 @@ function agentDetailCard(a) {
   if ((a.skills || []).length) {
     body.append(el("div", { class: "mono-micro", style: "margin-bottom:6px", text: "Skills" }));
     body.append(el("div", { class: "pill-list", style: "margin-bottom:12px" },
-      ...a.skills.map((s) => skillPill(s, () => showSkill(...s.split(":"))))));
+      ...a.skills.map((s) => skillPill(s, () => showSkill(...s.split(":"),
+        (skillContents || {})[s])))));
   }
   if (a.persona) body.append(labelBlock("Persona", a.persona));
   if (isRef && a.rubric) body.append(labelBlock("Rubric", a.rubric));

@@ -2,16 +2,22 @@
 
 import yaml
 
-from bearpit.core.schema import AgentSpec, ModelRef
+from bearpit.core.schema import AgentRole, AgentSpec, ModelRef
 from bearpit.forge.adapters.hermes.config import MatrixCreds, render_hermes_home
 from bearpit.ledger import AgentCredential
 
 
-def _render(require_mention: bool = True, persona: str | None = "# Vela\nWin.") -> dict[str, str]:
+def _render(
+    require_mention: bool = True,
+    persona: str | None = "# Vela\nWin.",
+    machine: bool = False,
+    referee: bool = False,
+) -> dict[str, str]:
     agent = AgentSpec(
         id="vela",
         model=ModelRef(provider="azure", model="gpt-5.4-mini", api_key_ref="azure-main"),
         persona=persona,
+        role=AgentRole.REFEREE if referee else AgentRole.PARTICIPANT,
     )
     cred = AgentCredential(virtual_key="vk-1", model_name="r--vela", proxy_url="http://litellm:4000")
     matrix = MatrixCreds(
@@ -24,7 +30,8 @@ def _render(require_mention: bool = True, persona: str | None = "# Vela\nWin.") 
     )
     roster = ["@vela:realm.local", "@orin:realm.local"]
     return render_hermes_home(
-        agent, cred, matrix, roster=roster, guidelines="Be fair.", restrictions="No sabotage."
+        agent, cred, matrix, roster=roster, guidelines="Be fair.", restrictions="No sabotage.",
+        machine=machine,
     )
 
 
@@ -271,3 +278,36 @@ def test_a_shared_folder_realm_tells_the_agent_the_folder_exists_and_how_to_use_
         agent, cred, matrix, realmtools=rt, shared_folder=False)["config.yaml"]
     )["agent"]["system_prompt"]
     assert "/realm/shared" not in without
+
+
+def test_a_busy_agent_queues_its_messages_instead_of_abandoning_its_work():
+    """Hermes defaults `busy_input_mode` to `interrupt`: a message arriving mid-inference ABORTS
+    the in-flight call and restarts. In a chat client that is right — the human wants an answer to
+    what they just said. In an always-on realm it is a starvation bug.
+
+    debate-fix-check3's judge needed 150s+ to compose a verdict. Both debaters had rested and were
+    posting only short "I rest my case" notes, but each @-mentions the judge, and each one threw
+    away the partial verdict. 11 of its 24 messages were "⚡ Interrupting current task"; the realm
+    ran to ROUND 10 for a scenario whose rubric expects 2, and only concluded when a gap in the
+    mentions happened to let one inference through.
+
+    `queue` finishes the current task and then takes the backlog in arrival order (Hermes caps it
+    at 32 pending per session, so it cannot grow unbounded). The spend already incurred on a
+    partial answer is kept rather than discarded, which is also why this is not merely cosmetic.
+    """
+    env = _render()[".env"]
+    assert "HERMES_GATEWAY_BUSY_INPUT_MODE=queue" in env, (
+        "an interrupted agent restarts from scratch and can be starved indefinitely"
+    )
+
+
+def test_a_machine_realm_tells_every_agent_about_the_game_tools_and_the_wake_notice():
+    """Scenario-contract §20: a tool nobody is told about is a tool nobody calls."""
+    files = _render(machine=True)
+    soul = files["SOUL.md"]
+    for tool in ("game_state", "game_act", "game_declaration"):
+        assert tool in soul
+    assert "the machine is waiting on you" in soul
+    assert "game_set" not in _render(machine=True, referee=False)["SOUL.md"]
+    assert "game_set" in _render(machine=True, referee=True)["SOUL.md"]
+    assert "game_state" not in _render(machine=False)["SOUL.md"]

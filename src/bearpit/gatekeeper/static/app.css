@@ -190,6 +190,28 @@ select { appearance: none; background-image:
 .disclose { margin-left: auto; color: var(--faint); transition: transform .2s; }
 .agent-block[open] .disclose { transform: rotate(90deg); }
 
+/* ---- local skills: the SKILL.md an agent carries, edited where the scenario is authored ---- */
+.local-skills { border: 1px solid var(--line); border-radius: var(--r); background: var(--void);
+  margin-bottom: 16px; overflow: hidden; }
+.local-skills[hidden] { display: none; }
+.local-skills > summary { list-style: none; cursor: pointer; padding: 10px 13px; display: flex;
+  align-items: center; gap: 9px; user-select: none; font-size: 12.5px; color: var(--dim); }
+.local-skills > summary::-webkit-details-marker { display: none; }
+.local-skills[open] > summary { border-bottom: 1px solid var(--line); background: var(--panel-2); }
+.local-skills-body { padding: 13px; }
+.skill-edit { border: 1px solid var(--line-soft); border-radius: 8px; background: var(--panel-2);
+  margin-bottom: 8px; overflow: hidden; }
+.skill-edit:last-child { margin-bottom: 0; }
+.skill-edit > summary { list-style: none; cursor: pointer; padding: 8px 10px; display: flex;
+  align-items: center; gap: 9px; user-select: none; }
+.skill-edit > summary::-webkit-details-marker { display: none; }
+.skill-edit-body { padding: 0 10px 10px; }
+.skill-edit textarea { min-height: 200px; }
+/* its own chevron: .disclose is a descendant rule on the agent block, so a nested fold needs a
+   mark of its own or it renders permanently open */
+.fold-mark { margin-left: auto; color: var(--faint); transition: transform .2s; }
+details[open] > summary > .fold-mark { transform: rotate(90deg); }
+
 /* ---- live realm feed (the signature) ---- */
 .realm-layout { display: grid; grid-template-columns: 1fr 300px; gap: 20px; align-items: start; }
 .feed { background: #090b10; border: 1px solid var(--line); border-radius: var(--r-lg);
@@ -232,7 +254,8 @@ select { appearance: none; background-image:
 /* Conversation view hides system turn-cues + Hermes activity narration (skill reads, tool calls) */
 .feed.mode-conversation .feed-line.kind-system,
 .feed.mode-conversation .feed-line.kind-activity { display: none; }
-.feed.mode-conversation .feed-scroll:not(:has(.kind-chat, .kind-operator))::after {
+.feed.mode-conversation
+  .feed-scroll:not(:has(.kind-chat, .kind-operator, .kind-game, .feed-empty))::after {
   content: "No messages yet — the agents are getting set up. Switch to Full log to watch."; display: block;
   color: var(--faint); text-align: center; padding: 44px 24px; font-size: 13px; }
 .feed-mode { display: flex; gap: 2px; background: var(--void); border: 1px solid var(--line);
@@ -242,6 +265,37 @@ select { appearance: none; background-image:
   transition: background .14s, color .14s; }
 .feed-mode-btn:hover { color: var(--text); }
 .feed-mode-btn.active { background: var(--panel-2); color: var(--text); }
+
+/* ---- a game machine: its state above the feed, its moves inside it ----
+   A move sits on the same two-column grid as a message (.feed-line), so the page reads as ONE
+   column of events; only the colour and weight say which record a row came from. */
+.game-state { display: flex; flex-wrap: wrap; align-items: baseline; gap: 7px 13px;
+  margin-bottom: 16px; padding: 10px 15px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: var(--r-lg); font-size: 12.5px; }
+.game-state .gs-state { font-family: var(--mono); font-size: 12px; color: var(--teal);
+  background: rgba(53,208,165,.10); border-radius: 6px; padding: 1px 8px; }
+.gs-kv { display: inline-flex; align-items: baseline; gap: 6px; }
+.gs-kv .gs-k { font-family: var(--mono); font-size: 10.5px; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--faint); }
+.gs-kv .gs-v { color: var(--text); }
+.game-state .gs-err { color: var(--rose); font-size: 12px; }
+.gs-lens { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; }
+.lens-sel { background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+  border-radius: 7px; padding: 3px 8px; font-family: var(--mono); font-size: 11.5px; }
+.feed-line.game .who { color: var(--faint); }
+.feed-line.game .msg.gm { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 10px;
+  white-space: normal; color: var(--dim); font-size: 12.5px; }
+.gm-verb { font-family: var(--mono); font-size: 10.5px; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--faint); }
+.gm-name { color: var(--text); font-weight: 640; }
+.gm-args, .gm-why { font-family: var(--mono); font-size: 11.5px; color: var(--dim); }
+.gm-chg { font-family: var(--mono); font-size: 11.5px; color: var(--iris);
+  background: var(--iris-glow); border-radius: 5px; padding: 0 7px; }
+/* A refusal is the machine saying no. It reads as a refusal or it reads as a move — there is no
+   third option, and a reader skimming for what went wrong needs to find it without stopping. */
+.feed-line.game.refused .gm-verb { color: var(--rose); }
+.feed-line.game.refused .gm-why { color: var(--rose-dim); }
+.feed-line.game.refused .msg.gm { border-left: 2px solid var(--rose-dim); padding-left: 9px; }
 
 .outcome-banner { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; padding: 14px 18px;
   background: rgba(53,208,165,.09); border: 1px solid rgba(53,208,165,.32); border-radius: var(--r-lg); }
@@ -707,3 +761,13 @@ select { appearance: none; background-image:
   color: var(--amber);
 }
 .param-table-row .hint { display: block; margin-top: 3px; }
+
+/* A run can report success and be worthless (#90). Amber, above the outcome, and never hidden
+   behind a click: the whole failure is that nothing on the page said anything was wrong. */
+.integrity-banner { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 12px;
+  padding: 12px 16px; border-radius: 10px; background: rgba(224,168,77,.08);
+  border: 1px solid var(--amber-dim, rgba(224,168,77,.35)); }
+.integrity-banner .integrity-ic { font-size: 18px; color: var(--amber); line-height: 1.4; }
+.integrity-line { font-size: 13px; color: var(--text); margin-top: 5px; }
+.integrity-code { font-family: var(--mono, ui-monospace, monospace); font-size: 11.5px;
+  color: var(--amber); background: rgba(224,168,77,.12); padding: 1px 6px; border-radius: 4px; }

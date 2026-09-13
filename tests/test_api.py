@@ -226,6 +226,73 @@ def test_create_and_stop(seeded, tmp_path):
         assert c.post("/api/realms", json={"package": "/nope"}).status_code == 400
 
 
+def _participant_effects_package(tmp_path):
+    """A machine whose PLAYERS may write the game's own data — the opt-in the spec says is
+    surfaced at launch the way elevated tool grants are (§2)."""
+    (tmp_path / "project.json").write_text(json.dumps({
+        "metadata": {"name": "self-dealt"},
+        "spec": {
+            "termination": [{"type": "manual"}],
+            "mechanics": [{"kind": "state-machine", "machine": {
+                "roles": {"ref": {"members": "referee"},
+                          "player": {"members": "participants"}},
+                "states": ["a", "b"], "initial": "a",
+                "participant_effects": ["set"],
+                "data": {"pot": {"visibility": "public"}},
+                "transitions": {"go": {"from": "a", "to": "b", "by": "player",
+                                       "effects": [{"set": {"key": "pot",
+                                                            "value": "$args.n"}}]}},
+            }}],
+        },
+        "agents": [
+            {"id": "ref", "role": "referee", "rubric": "score them",
+             "model": {"provider": "azure", "model": "m", "api_key_ref": "azure-main"}},
+            {"id": "vela",
+             "model": {"provider": "azure", "model": "m", "api_key_ref": "azure-main"}},
+        ],
+    }))
+    return tmp_path
+
+
+def test_participant_effects_take_consent_at_launch(seeded, tmp_path):
+    """`participant_effects` is the user choosing LAW over physics for their game: the players
+    may now rewrite the machine's own data, which is a refereeless self-dealt table and a
+    legitimate experiment — but it is a choice, and one nobody makes by accident. It goes through
+    the same door as an elevated tool grant (ADR-004 §7): refused once, naming what it is, and
+    launched on the same `allow_elevated_tools` consent."""
+    app = create_app(chron=seeded, manager=FakeManager())
+    pkg = str(_participant_effects_package(tmp_path))
+    with TestClient(app) as c:
+        blocked = c.post("/api/realms", json={"package": pkg})
+        allowed = c.post("/api/realms", json={"package": pkg, "allow_elevated_tools": True})
+    assert 400 <= blocked.status_code < 500, blocked.text
+    detail = blocked.json()["detail"]
+    assert "participant_effects" in json.dumps(detail)
+    assert detail["machine_participant_effects"] == ["set"]
+    assert "allow_elevated_tools" in detail["hint"]
+    assert allowed.status_code == 200, allowed.text
+
+
+def test_a_machine_without_participant_effects_launches_silently(seeded, tmp_path):
+    """The consent only means something if the ordinary machine realm never sees it (#47)."""
+    from test_core_schema import _machine_spec
+
+    (tmp_path / "project.json").write_text(json.dumps({
+        "metadata": {"name": "refereed"},
+        "spec": {"termination": [{"type": "manual"}], "mechanics": [_machine_spec()]},
+        "agents": [
+            {"id": "ref", "role": "referee", "rubric": "score them",
+             "model": {"provider": "azure", "model": "m", "api_key_ref": "azure-main"}},
+            {"id": "vela",
+             "model": {"provider": "azure", "model": "m", "api_key_ref": "azure-main"}},
+        ],
+    }))
+    app = create_app(chron=seeded, manager=FakeManager())
+    with TestClient(app) as c:
+        r = c.post("/api/realms", json={"package": str(tmp_path)})
+    assert r.status_code == 200, r.text
+
+
 def _editor_payload(name="ui-game"):
     return {
         "metadata": {"name": name, "description": "made in the UI"},
@@ -282,6 +349,62 @@ def test_zip_import_via_api(seeded, tmp_path, monkeypatch):
                    files={"file": ("zebra.zip", buf.getvalue(), "application/zip")})
         assert r.status_code == 200 and r.json()["name"] == "zebra"
         assert "zebra" in {p["name"] for p in c.get("/api/packages").json()["packages"]}
+
+
+def test_a_scenarios_local_skills_round_trip_through_the_editor(seeded, tmp_path, monkeypatch):
+    """A local skill is a SKILL.md the AGENT carries, so its text is scenario state. The editor has
+    to be able to read it, change it, and save it back — into that agent, in that scenario. The
+    library copy (and every other scenario that attached the same ref) stays as it was."""
+    monkeypatch.setenv("BEARPIT_SCENARIOS_DIR", str(tmp_path / "scen"))
+    monkeypatch.setenv("BEARPIT_SKILLS_DIR", str(tmp_path / "skills"))  # deliberately EMPTY
+    app = create_app(chron=seeded, manager=FakeManager())
+    with TestClient(app) as c:
+        d = c.get("/api/packages/poker-table").json()
+        vega = next(a for a in d["agents"] if a["id"] == "vega")
+        # the editor gets the text, per agent, not just the ref
+        assert "pot-odds" in vega["local_skills"]
+        assert "Pricing a hand" in vega["local_skills"]["pot-odds"]
+        assert "table-notes" in next(a for a in d["agents"] if a["id"] == "mira")["local_skills"]
+
+        body = _editor_body(d)
+        edited = next(a for a in body["agents"] if a["id"] == "vega")
+        edited["local_skills"]["pot-odds"] += "\n\nAlways price the river.\n"
+        assert c.put("/api/packages/poker-table", json=body).status_code == 200
+
+        after = c.get("/api/packages/poker-table").json()
+        again = next(a for a in after["agents"] if a["id"] == "vega")
+        assert again["local_skills"]["pot-odds"].endswith("Always price the river.\n")
+        assert "Pricing a hand" in again["local_skills"]["pot-odds"], "an edit, not a replacement"
+        # the edit is this agent's alone: rigel attaches the same ref and did not change
+        rigel = next(a for a in after["agents"] if a["id"] == "rigel")
+        assert "Always price the river." not in rigel["local_skills"]["pot-odds"]
+        # ...and the library (empty here) was never written to
+        assert not (tmp_path / "skills").exists()
+        # the bundled example is a read-only template; the edit went to the user dir
+        assert (tmp_path / "scen" / "poker-table" / "agents" / "vega" / "skills" / "pot-odds"
+                / "SKILL.md").is_file()
+
+
+def _editor_body(d):
+    """The detail payload as the scenario editor hands it back on save (see detailToState/save in
+    app.js): skills as "source:ref" strings, and each agent's own local skill text."""
+    return {
+        "metadata": {"name": d["title"], "description": d["description"], "tags": d["tags"],
+                     "author": d["author"], "category": d["category"]},
+        "spec": {"goals": d["goals"], "guidelines": d["guidelines"],
+                 "restrictions": d["restrictions"], "parameters": d["parameters"],
+                 "termination": d["termination"], "mechanics": d["mechanics"],
+                 "turns": d["turns"], "referee_opens": d["referee_opens"],
+                 "provide_tools": d["provide_tools"], "stall_nudge": d["stall_nudge"],
+                 "environment": {**d["environment"],
+                                 "shared_folder": {"enabled": d["environment"]["shared_folder"]}}},
+        "agents": [{"id": a["id"], "name": a["name"], "role": a["role"],
+                    "model_category": a["model_category"], "budget": a["budget_ref"],
+                    "private_messaging": a["private_messaging"], "persona": a["persona"],
+                    "rubric": a["rubric"], "goals": a["goals"], "skills": a["skills"],
+                    "tools": a["tools"], "local_skills": a["local_skills"]}
+                   for a in d["agents"]],
+    }
 
 
 def test_skills_api(seeded, tmp_path, monkeypatch):
@@ -421,6 +544,17 @@ def test_free_for_all_realm_reports_no_turns_and_a_seeing_referee():
     cfg = run_config(project, AZURE, require_mention=True)
     assert cfg["turns"] is None                 # free-for-all
     assert cfg["referee_sees_all"] is True      # the judge is exempt from the mention gate here
+
+
+def test_referee_sees_all_honours_referee_reads_commons():
+    from test_core_schema import _machine_spec, _project
+
+    from bearpit.core.runconfig import run_config
+
+    p = _project({"mechanics": [_machine_spec()]})   # referee_reads_commons defaults False
+    assert run_config(p, provider="x", require_mention=True)["referee_sees_all"] is False
+    p2 = _project({"mechanics": [_machine_spec(referee_reads_commons=True)]})
+    assert run_config(p2, provider="x", require_mention=True)["referee_sees_all"] is True
 
 
 def test_rerun_snapshot_replays_the_run_and_ignores_later_edits(seeded):
@@ -614,3 +748,143 @@ def test_editing_a_scenario_preserves_its_parameter_metadata(seeded, tmp_path, m
         )
         assert after["parameters"]["target"]["default"] == "99"
         assert after["parameters"]["target"]["max"] == 100
+
+
+def test_the_turns_override_keeps_everything_the_scenario_declared():
+    """The launch modal offers exactly two knobs — on/off and the silence timeout — but the
+    endpoint rebuilt `Turns()` from that one field, so every OTHER setting the scenario declared
+    silently reverted to its schema default.
+
+    debate-arena declares `min_rounds_before_verdict: 2` precisely so its judge cannot call a
+    winner before both rounds finish. Launching it from the UI reset that to 0, and the run
+    (debate-arena-6947dc) recorded `min_rounds: 0` in every TURN event. The judge duly ended the
+    realm on scores for rounds it had never seen.
+
+    policy/advance/enforcement/order happen to share their defaults with debate-arena, which is
+    why this stayed invisible; a scenario that sets any of them non-default loses it outright.
+    """
+    from bearpit.core.schema import Turns
+    from bearpit.gatekeeper.api import TurnsConfig, apply_turns_override
+
+    declared = Turns(
+        min_rounds_before_verdict=2, referee_cue="turn", retire_after_misses=3,
+        silence_timeout_s=240,
+    )
+    merged = apply_turns_override(declared, TurnsConfig(enabled=True, silence_timeout_s=120))
+
+    assert merged is not None
+    assert merged.silence_timeout_s == 120, "the UI's own knob must still win"
+    assert merged.min_rounds_before_verdict == 2, "the verdict guard was silently dropped"
+    assert merged.referee_cue == declared.referee_cue
+    assert merged.retire_after_misses == 3
+
+
+def test_the_turns_override_can_still_turn_turns_off_and_on():
+    from bearpit.core.schema import Turns
+    from bearpit.gatekeeper.api import TurnsConfig, apply_turns_override
+
+    declared = Turns(min_rounds_before_verdict=2)
+    assert apply_turns_override(declared, TurnsConfig(enabled=False)) is None
+    # a scenario with NO turns, switched on from the UI, gets the schema defaults + the knob
+    fresh = apply_turns_override(None, TurnsConfig(enabled=True, silence_timeout_s=45))
+    assert fresh is not None and fresh.silence_timeout_s == 45
+    assert fresh.min_rounds_before_verdict == 0
+
+
+class _StubPlatform:
+    """Just enough for the image guard to find a container runtime, the way the real
+    `RealmManager.platform.runtime` does."""
+
+    def __init__(self, runtime):
+        self.runtime = runtime
+
+
+class _StubRuntime:
+    def __init__(self, answer, exit_code=0):
+        self._answer, self._exit = answer, exit_code
+
+    def exec_python(self, container_id, code, *, timeout_s=30, user="10000"):
+        return self._exit, self._answer
+
+
+def _manager_with_image(answer, exit_code=0):
+    mgr = FakeManager()
+    mgr.platform = _StubPlatform(_StubRuntime(answer, exit_code))
+    return mgr
+
+
+def test_a_launch_is_refused_when_realmtools_is_not_running_this_code(seeded, tmp_path):
+    """A stale realmtools image is the one failure here that announces itself with nothing: the
+    realm runs, concludes, and writes a well-formed verdict computed by code nobody is looking at.
+    It has happened twice, once turning an among-us run into a spurious "crew win" (#106).
+
+    This test exists because the guard's first wiring reached for `mgr.runtime`, which does not
+    exist — `getattr(..., None)` then made the whole check a silent no-op, and every other test
+    still passed because a test double has no runtime either. Only a manager that DOES expose one
+    can tell the difference.
+    """
+    (tmp_path / "project.json").write_text(json.dumps({
+        "metadata": {"name": "plain"},
+        "spec": {"termination": [{"type": "manual"}]},
+        "agents": [{"id": "solo", "role": "participant",
+                    "model": {"provider": "azure", "model": "m", "api_key_ref": "azure-main"}}],
+    }))
+    pkg = str(tmp_path)
+    app = create_app(chron=seeded, manager=_manager_with_image("ffffffffffff\n"))
+    with TestClient(app) as c:
+        blocked = c.post("/api/realms", json={"package": pkg})
+        allowed = c.post("/api/realms", json={"package": pkg, "allow_stale_image": True})
+    assert 400 <= blocked.status_code < 500, blocked.text
+    detail = blocked.json()["detail"]
+    assert detail["container"] == "ffffffffffff"
+    assert detail["host"] and detail["host"] != detail["container"]
+    assert "allow_stale_image" in detail["hint"]
+    assert allowed.status_code == 200, "the operator may still run the old build deliberately"
+
+
+def test_an_image_that_matches_this_tree_launches_silently(seeded, tmp_path):
+    """The guard only means something if an up-to-date deployment never sees it."""
+    from bearpit.core.buildid import source_fingerprint
+
+    (tmp_path / "project.json").write_text(json.dumps({
+        "metadata": {"name": "plain"},
+        "spec": {"termination": [{"type": "manual"}]},
+        "agents": [{"id": "solo", "role": "participant",
+                    "model": {"provider": "azure", "model": "m", "api_key_ref": "azure-main"}}],
+    }))
+    app = create_app(chron=seeded, manager=_manager_with_image(source_fingerprint() + "\n"))
+    with TestClient(app) as c:
+        r = c.post("/api/realms", json={"package": str(tmp_path)})
+    assert r.status_code == 200, r.text
+
+
+def test_an_image_too_old_to_answer_is_refused_too(seeded, tmp_path):
+    """The check lives in the code it checks, so an image predating it cannot report at all. That
+    failure is conclusive and must refuse, not pass."""
+    (tmp_path / "project.json").write_text(json.dumps({
+        "metadata": {"name": "plain"},
+        "spec": {"termination": [{"type": "manual"}]},
+        "agents": [{"id": "solo", "role": "participant",
+                    "model": {"provider": "azure", "model": "m", "api_key_ref": "azure-main"}}],
+    }))
+    app = create_app(chron=seeded, manager=_manager_with_image(
+        "ModuleNotFoundError: No module named 'bearpit.core.buildid'", exit_code=1))
+    with TestClient(app) as c:
+        r = c.post("/api/realms", json={"package": str(tmp_path)})
+    assert 400 <= r.status_code < 500, r.text
+    assert r.json()["detail"]["container"] is None
+
+
+def test_the_preview_can_show_a_local_skill_not_just_the_builtins(seeded):
+    """`skill_contents` is what the read-only scenario preview shows when you click a skill pill.
+    It resolved a local skill from `<pkg>/skills/<ref>/SKILL.md` — a PROJECT-level path that no
+    package has, because the loader reads local skills from `agents/<id>/skills/<ref>/`. So every
+    local pill in the preview was clickable and empty, and only builtins ever showed text."""
+    app = create_app(chron=seeded, manager=FakeManager())
+    with TestClient(app) as c:
+        r = c.get("/api/packages/poker-table")
+    assert r.status_code == 200, r.text
+    contents = r.json()["skill_contents"]
+    assert "local:pot-odds" in contents, "a local skill must resolve for the preview"
+    assert "multiway trap" in contents["local:pot-odds"], "and carry its real text"
+    assert "builtin:competitor" in contents, "builtins still resolve"

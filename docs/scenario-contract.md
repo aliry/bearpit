@@ -112,7 +112,8 @@ Its `model_category` should be `large` — it does the most reasoning of anyone.
 
 The tools an agent can actually call are: the realmtools MCP set (`submit_sealed`, `reveal`,
 `reveal_status`, `turn_status`, `send_private`, `score`, `penalize`, `flag`, `scoreboard`,
-`eliminate`, `rule`, `tally`, `run_code`, `remember`, `recall`). **That is the whole list.**
+`eliminate`, `rule`, `tally`, `run_code`, `remember`, `recall`, `game_state`, `game_act`,
+`game_declaration` — participants; `game_set` — referee only). **That is the whole list.**
 No web search, no browser, no shell, no `write_file`. A persona that tells an agent to "research
 online" or "save a file" is instructing it to do something impossible — and the model will either
 hallucinate having done it, or announce that it can't and stall.
@@ -134,10 +135,35 @@ because a judge that cannot see the debate cannot judge it.
 You do NOT need to work around this in a scenario, and you must not "fix" it by setting
 `require_mention: false` realm-wide unless you actually want every agent to react to every message.
 
+**A realm with `turns` must leave the gate closed** (`require_mention: true`, the default). This is
+enforced by a test over every example. Herald narrows the exemption with
+`gated = require_mention and not (aid == ref_id and ref_sees_all)` — so a `false` `require_mention`
+ungates *everyone*, referee included, and the narrowing term never runs.
+
 > Found by adversarial review of every example: in a free-for-all realm nobody @mentions the judge,
 > so debate-arena / pitch-contest / market-scan-duel / relay-story had a referee that never received
 > a single thing it was supposed to score. Turns realms hid it — the TurnManager hands the referee
 > the round transcript in its cue.
+
+> The claim above — that the cue carries the round transcript — was only true of a **driving**
+> referee (`referee_opens: true`). A reactive one got a bare "Round N is complete" and, being
+> mention-gated like everyone else, therefore saw *nothing at all* of the round it was scoring. That
+> is the defect `require_mention: false` was reached for. Both referees now get the round's messages;
+> `referee_opens` decides only how directive the rest of the cue is.
+
+> Then five turns realms were "fixed" with `require_mention: false` anyway, and debate-arena-6947dc
+> ran the consequence to completion. The referee is exempt from the floor mute, so once ungated it
+> answered every message; each answer woke the floor-holder mid-inference, whose runtime aborted and
+> posted "⚡ Interrupting current task" — itself a new message that woke the referee again. 36 of 141
+> messages were interrupt notices, the judge posted 65 "I'll wait for the round-complete cue"
+> replies, and **neither debater ever landed a single argument**. The judge scored two rounds it had
+> never seen ("rebuttal content not visible in transcript to me" — 4 points awarded regardless) and
+> declared a winner. A realm can fail this way while every container stays healthy and the run
+> reports success.
+
+> **Exception — machine realms.** A realm that declares a `state-machine` mechanic gates its referee
+> unless the machine sets `referee_reads_commons: true`: a dealer's information source is the
+> machine, and table talk would only interrupt it. A referee that must weigh speech opts back in.
 
 ## 13. Budget the clock: stall must not fire during normal play
 
@@ -311,3 +337,19 @@ Two things follow:
 - **A declared file that is never written is recorded as `missing`, and that is a result.**
   `triad-build` has concluded with four good section files and no assembled `design.md`. The record
   says so, the console shows it struck through, and the referee's verdict can be read against it.
+
+## 22. A machine realm has one attention system, and its clock lives on the host
+
+A `state-machine` mechanic sequences MOVES at the tool; the Herald floor sequences SPEECH. Run
+poker-shaped realms with `turns: null` — the commons stays open for table talk and only acting is
+gated. Wake rules and `turns` cannot both be set (refused at launch).
+
+The engine has no clock. The one time-based rule, `{role, after_s: N}`, is evaluated by the host
+as "no GAME event for N seconds" and only NUDGES; it never acts for anyone. Size N by §13: a
+resolver `run_code` may block 90 s on a real pipeline, so the floor is 240 s and the default is
+the floor. A referee that stalls past it is woken once; a rubric that chains its structural steps
+(`showdown → resolver → settle → next_hand → deal`) never needs it.
+
+> Found in the design reviews, not a run: the first draft woke the dealer on its own structural
+> transitions and re-woke it every tick while it computed — each notice landing mid-inference
+> aborted the very task it was meant to continue.

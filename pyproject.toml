@@ -70,6 +70,13 @@ extend-exclude = ["spikes", "deploy"]  # throwaway spike/poc scripts have no qua
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
+[tool.ruff.lint.per-file-ignores]
+# Card notation reads as a hand, not as a list: `"As Ks Qs Js Ts".split()` is a straight flush at
+# a glance where `["As", "Ks", "Qs", "Js", "Ts"]` is five strings to parse. SIM905 would have us
+# write the second, and these two files are nothing but hands.
+"tests/test_poker_resolver.py" = ["SIM905"]
+"tests/test_poker_equity.py" = ["SIM905"]
+
 [tool.ruff.lint.flake8-bugbear]
 # Framework defaults: both return an immutable descriptor, not a shared mutable. B008 only
 # fires on a mutable ANNOTATION, so `--param: list[str]` trips it where `--yes: bool` does not.

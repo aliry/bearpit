@@ -59,6 +59,7 @@ class Warden:
         grace: timedelta = timedelta(seconds=10),
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         on_conclude: Callable[[], Awaitable[None]] | None = None,
+        reconcile_spend: Callable[[], Awaitable[None]] | None = None,
     ) -> ConcludeResult:
         await self._chron.append_event(
             realm_id, EventKind.LIFECYCLE,
@@ -82,6 +83,16 @@ class Warden:
             await self._chron.append_event(
                 realm_id, EventKind.LIFECYCLE, {"event": "teardown_error", "detail": str(exc)}
             )
+        # A LAST spend reading, now that the containers are stopped so no more can accrue.
+        # Spend is otherwise sampled only from the live tick, and the proxy aggregates a few
+        # seconds behind the call that caused it — so a realm ending inside that window recorded
+        # NOTHING and its virtual keys are revoked here, making the last sample unrecoverable.
+        # fetchprobe lived 173s, posted a real message, and its chronicle held zero SPEND events
+        # (#98). Measured over 12 realms the lag is 5-17s, well inside grace + teardown.
+        # Best-effort: the report is the run's value and a proxy hiccup must not cost us it.
+        if reconcile_spend is not None:
+            with contextlib.suppress(Exception):
+                await reconcile_spend()
         # What the run produced, recorded before the realm is archived so the report and the
         # console can both see it. Metadata only — the bytes are beside the flight logs (ADR-005).
         for record in captured:
@@ -107,6 +118,7 @@ class Warden:
         stall_after_s: float = 150.0,
         max_nudges: int = 4,
         on_conclude: Callable[[], Awaitable[None]] | None = None,
+        reconcile_spend: Callable[[], Awaitable[None]] | None = None,
     ) -> ConcludeResult:
         """Poll until a termination condition fires, then conclude. `max_ticks` bounds the loop
         (defensive); a manual stop in a snapshot ends it even if `manual` wasn't declared.
@@ -136,6 +148,7 @@ class Warden:
                         realm_id, handles, commons_room,
                         TerminationFired(TerminationKind.MANUAL, f"watch loop wedged: {exc}"),
                         grace=grace, sleep=sleep, on_conclude=on_conclude,
+                        reconcile_spend=reconcile_spend,
                     )
                 tick += 1
                 await sleep(interval_s)
@@ -145,7 +158,7 @@ class Warden:
             if fired is not None:
                 return await self.conclude(
                     realm_id, handles, commons_room, fired, grace=grace, sleep=sleep,
-                    on_conclude=on_conclude,
+                    on_conclude=on_conclude, reconcile_spend=reconcile_spend,
                 )
             # Progress is ANY forward motion — new messages, new shared-folder files, or new spend
             # — not just commons chatter, so a quiet-but-working realm (a build, an analysis) is
@@ -169,5 +182,5 @@ class Warden:
         fired = TerminationFired(TerminationKind.MANUAL, "watch budget exhausted")
         return await self.conclude(
             realm_id, handles, commons_room, fired, grace=grace, sleep=sleep,
-            on_conclude=on_conclude,
+            on_conclude=on_conclude, reconcile_spend=reconcile_spend,
         )

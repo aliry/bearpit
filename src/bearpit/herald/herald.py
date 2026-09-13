@@ -19,6 +19,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from bearpit.chronicle import Chronicle
+from bearpit.core.runconfig import referee_sees_all
 from bearpit.core.schema import Project
 from bearpit.core.settings import DEFAULT_OPERATOR
 from bearpit.herald.matrix import MatrixClient
@@ -106,11 +107,10 @@ class Herald:
         ref_id = project.referee.id if project.referee else None
         # A referee in a FREE-FOR-ALL realm must see everything, because nobody @mentions it and it
         # would otherwise never receive the debate/pitches/bids it exists to score. A referee in a
-        # TURNS realm must NOT: the TurnManager already hands it the round transcript in its cue, so
-        # lifting the gate only means it wakes on every single message, replies to each, and hammers
-        # the proxy into rate-limiting (rps-1: Themis posted "⚡ Interrupting current task" and
-        # duplicate round resolutions until the provider started refusing calls).
-        ref_sees_all = project.referee is not None and project.spec.turns is None
+        # TURNS realm must NOT, and a machine realm's referee reads the MACHINE record rather than
+        # table talk — the full reasoning, clause by clause, lives with the predicate. It is
+        # shared with the run record on purpose: the two were written separately and drifted.
+        ref_sees_all = referee_sees_all(project, require_mention=require_mention)
         creds: dict[str, MatrixCreds] = {}
         for aid, (mxid, token) in users.items():
             peers = [u for u in all_ids if u != mxid]
@@ -215,6 +215,27 @@ class Herald:
         if self._system_token is None:
             raise RuntimeError("system account not initialised")
         # events_default=0 + no explicit gates = everyone may post again (system stays implicit).
+        await self._c.set_power_levels(self._system_token, room_id, {}, events_default=0)
+
+    async def mute_in_room(self, room_id: str, user_id: str) -> None:
+        """Refuse further posts from ONE member of a side room, at the bus.
+
+        The commons has floor control; a DM room had none, so a per-round message quota enforced
+        in the host's delivery loop only bound the `send_private` path — an agent posting directly
+        with its own client was unlimited (#96). A power level below `events_default` makes the
+        homeserver 403 the post whatever client sends it, which is the same physics `grant_floor`
+        uses. The record is untouched: the mirror still chronicles everything that does land.
+        """
+        if self._system_token is None:
+            raise RuntimeError("system account not initialised")
+        await self._c.set_power_levels(
+            self._system_token, room_id, {user_id: -1}, events_default=0
+        )
+
+    async def unmute_room(self, room_id: str) -> None:
+        """Lift a side-room gate — every member may post again (used when the round rolls over)."""
+        if self._system_token is None:
+            raise RuntimeError("system account not initialised")
         await self._c.set_power_levels(self._system_token, room_id, {}, events_default=0)
 
     async def announce(
@@ -358,7 +379,12 @@ class Herald:
             if event_id in seen:
                 continue  # already chronicled — mirror is polled repeatedly; dedup by event id
             seen.add(event_id)
-            ts = int(e.get("origin_server_ts", 0))
+            # An absent/zero origin_server_ts must NOT be chronicled as epoch 0: `messages()`
+            # orders by (ts_ms, id), so a 1970 row sorts to the FRONT of the transcript and the
+            # TurnManager's index cursor consumes an already-seen entry — skipping the real
+            # speaker and stalling the floor. None lets the Chronicle stamp now instead.
+            raw_ts = e.get("origin_server_ts")
+            ts = int(raw_ts) if raw_ts else None
             sender = str(e.get("sender", ""))
             body = str(e.get("content", {}).get("body", ""))
             await chronicle.record_message(realm_id, room_id, sender, body, ts_ms=ts)

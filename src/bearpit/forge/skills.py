@@ -369,13 +369,29 @@ def skill_texts(agent: AgentSpec) -> dict[str, str]:
 
 
 def skill_files(agent: AgentSpec) -> dict[str, str]:
-    """Return {relative_path: SKILL.md content} for the builtin skills to seed for this agent:
-    the neutral role core plus any builtin flavor skills the agent declares."""
+    """Return {relative_path: SKILL.md content} for every skill to seed into this agent's
+    container — the neutral role core, any builtin flavors it declares, and its LOCAL skills.
+
+    Local skills used to be omitted here, so they reached the model (`skill_texts` inlines them
+    into SOUL.md) while never existing on disk. An agent told to look in its skills folder found
+    the builtins and would have concluded its local skill was not there, and `builtin` and `local`
+    behaved differently for no reason the schema suggests. This mirrors `skill_texts` exactly,
+    including a local skill overriding a builtin of the same name, so the file an agent can open
+    always says what its prompt says.
+
+    A declared local ref with no loaded text seeds nothing: `local_skills` is filled by the package
+    loader from `agents/<id>/skills/<ref>/SKILL.md`, and inventing a file is worse than omitting
+    one."""
     role_default = "referee-basics" if agent.role == AgentRole.REFEREE else "agent-basics"
     wanted = {role_default}
     wanted |= {s.ref for s in agent.skills if s.source == SkillSource.BUILTIN}
-    return {
+    files = {
         f"skills/{name}/SKILL.md": BUILTIN_SKILLS[name]
         for name in sorted(wanted)
         if name in BUILTIN_SKILLS
     }
+    files.update({
+        f"skills/{name}/SKILL.md": text
+        for name, text in sorted(agent.local_skills.items())
+    })
+    return files

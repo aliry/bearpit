@@ -599,3 +599,83 @@ async def test_eliminating_the_tail_holder_mid_round_completes_the_round(chron):
     assert mgr.status()["round"] == 2
     evs = [e.payload for e in await chron.events("r", kind=EventKind.TURN)]
     assert any(e.get("event") == "round_complete" and e.get("completed") == 1 for e in evs)
+
+
+async def test_a_reactive_referee_can_actually_see_the_round_it_is_asked_to_judge(chron):
+    """A NON-driving referee is mention-gated like everyone else, so the only player messages it
+    ever ingests are the ones the platform hands it. Its cue handed it none — just "Round N is
+    complete — every participant has now had the floor."
+
+    So it scored blind. debate-fix-check2's judge received exactly three things in a whole realm:
+    the kickoff and two 160-char round announcements. It awarded 4/4 then 6/6 and said why in its
+    own verdict: "round-2 rebuttal content was not available in my judging context, so both sides
+    received equal rebuttal credit rather than a differentiated read." Two real, well-argued
+    rebuttals had been posted; the judge simply never saw them.
+
+    This is the defect that `require_mention: false` was reached for as a workaround — which
+    ungated everyone and produced the interrupt storm instead. `_drives` may decide how DIRECTIVE
+    the cue is; it must not decide whether the referee can see.
+    """
+    mgr, bus, _ = _mgr(chron, drives=False)
+    await mgr.start()
+    r1 = [("pro", "Remote-first scales: GitLab IPO'd all-remote."),
+          ("con", "Survivorship bias — Microsoft's own study shows 25% less cross-group time.")]
+    await mgr.observe(r1[:1])
+    await mgr.observe(r1)  # round 1 done
+    cue = bus.cues[0]
+    assert "GitLab" in cue and "Microsoft" in cue, (
+        "a referee that never sees the round can only score it by guessing"
+    )
+    # it is still the REACTIVE cue — seeing the round must not turn it into a game master
+    assert "let another round run" in cue
+    assert "Resolve the round NOW" not in cue
+
+
+async def test_a_reactive_referee_is_told_which_round_finished(chron):
+    """`turn_status.last_completed_round` is derived from a TURN event with
+    `event: round_complete`, and that event was only chronicled inside the `_drives` branch. Every
+    reactive-referee realm therefore reported 0 forever, no matter how many rounds had finished.
+
+    The referee's rubric says resolve `last_completed_round`. Reading 0, it concludes nothing has
+    completed and waits — while the rotation keeps opening rounds. Measured in the chronicle:
+
+        debate-arena-6947dc  reached round 3   round_complete events: 0
+        debate-fix-check3    reached round 11  round_complete events: 0
+        q91-check            reached round 7   round_complete events: 0
+        among-us-* (driving) rounds 3-7        round_complete events: 3-7  ✅
+
+    q91-check's judge said it in plain text: "Watching only — nothing new completed to score
+    (last_completed_round=0)". Three agents kept debating for five rounds past the rubric's two,
+    at real spend per round, because nothing ever told the judge a round had ended.
+
+    The boundary is chronicled BEFORE the next grant either way: `read_turn_status` takes `round`
+    and `current` from the LATEST event, so writing it afterwards would report a realm with nobody
+    holding the floor.
+    """
+    mgr, bus, _ = _mgr(chron, drives=False)
+    await mgr.start()
+    await mgr.observe(["pro"])
+    await mgr.observe(["pro", "con"])  # round 1 complete
+
+    events = await chron.events("r", kind=EventKind.TURN)
+    completed = [e for e in events if e.payload.get("event") == "round_complete"]
+    assert completed, "a reactive referee is never told a round ended"
+    assert completed[-1].payload["completed"] == 1
+
+    # ...and the floor must still be attributable: the boundary event may not be the last word.
+    assert events[-1].payload.get("current"), "turn_status would report nobody holding the floor"
+
+
+async def test_turn_status_reports_the_finished_round_to_a_reactive_referee(chron):
+    """End-to-end through the tool the referee actually calls, not just the event shape."""
+    from bearpit.realmtools.service import read_turn_status
+
+    mgr, _, _ = _mgr(chron, drives=False)
+    await mgr.start()
+    await mgr.observe(["pro"])
+    await mgr.observe(["pro", "con"])  # round 1 complete
+
+    status = await read_turn_status(chron, "r")
+    assert status["last_completed_round"] == 1, "the referee is asked to resolve round 0 forever"
+    assert status["round"] == 2  # the one now open
+    assert status["current"]  # somebody holds the floor
