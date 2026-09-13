@@ -1,10 +1,11 @@
 """Run the console's JavaScript smoke harness from the Python suite.
 
-`tests/ui_smoke.mjs` evaluates the real `app.js` in a small DOM shim and drives its real render
+`tests/ui_smoke.mjs` evaluates the real `app.js` in a small DOM stub and drives its real render
 functions. It lives outside pytest because it is JavaScript; it is run from pytest because a
 check nobody runs is not a check. See the harness header for what each check covers.
 """
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -16,6 +17,14 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 node = shutil.which("node")
 if node is None:
+    # Skipping locally is a courtesy; skipping in CI would be a silent hole. The runner image
+    # supplies node today, and if a future image stops doing so this must go red rather than
+    # quietly stop checking the console. GitHub Actions sets CI=true.
+    if os.environ.get("CI"):
+        raise AssertionError(
+            "node is not on PATH in CI — the console's JS checks would silently not run. "
+            "Add a pinned actions/setup-node step to .github/workflows/ci.yml."
+        )
     pytest.skip(
         "node is not installed — the console's JS is unexercised here", allow_module_level=True
     )
