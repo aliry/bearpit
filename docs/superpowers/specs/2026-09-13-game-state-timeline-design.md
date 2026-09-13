@@ -66,35 +66,23 @@ snapshot per step rather than only the final state.
 
 ### 3.3 Rendering, derived from the declaration
 
-| declared | rendered |
+| declared | change emitted |
 |---|---|
-| `{"visibility": "public"}` | `key 30 → 370` |
-| `{"visibility": "public", "type": "set"}` | `acted +vega` · `acted reset` |
-| `{"visibility": "owner"}` | per seat: `hole {vega: Ah Kh}` — only entries the lens may see |
-| `{"visibility": "referee"}` | absent unless the lens is the referee |
-| the pointer | `actor → orion`, under the reserved key `$actor` |
-| the FSM state | `state → flop`, under the reserved key `$state` |
+| `{"visibility": "public"}` | `{"kind": "value", "key": "pot", "from": 30, "to": 370}` |
+| `{"visibility": "public", "type": "set"}` | `{"kind": "set", "key": "acted", "added": [...], "removed": [...]}` |
+| `{"visibility": "owner"}` | `{"kind": "owner", "key": "hole", "owner": "vega", "from": null, "to": "Ah Kd"}` |
+| `{"visibility": "referee"}` | nothing, unless the lens is the referee |
+| the pointer | `{"kind": "actor", "from": "vega", "to": "orion"}` |
+| the FSM state | `{"kind": "state", "from": "preflop", "to": "flop"}` |
 
-`$actor` and `$state` are reserved because a declaration cannot name a key starting with `$` —
-they are the two things every machine has that are not data keys.
+The state and the pointer are discriminated by `kind` rather than by a reserved key name, so the
+platform never has to forbid a scenario from naming a data key `state` or `actor`.
 
-### 3.4 In the UI
+`actor_since` is deliberately not diffed: it moves whenever `actor` does and says nothing the
+`actor` change does not already say.
 
-GAME rows interleave into the existing transcript feed, merged by `ts_ms`, in a compact distinct
-style — the game and the table talk read as one story:
-
-```
-09:41  [vega]    Called the 20 — priced it under 20%…
-09:41  ⟐ vega    call {to: 20}        acted +vega · actor → orion
-09:43  ⟐ pitboss advance              state → flop · board = 6h 2c 3h · pot 30 → 370
-```
-
-A **Viewing as** selector re-fetches with `?as=`, so the whole page becomes what that agent knew.
-That is the debugging feature: "show me the realm as vega saw it" answers in one click what
-currently takes a hand-written query, and it is the exact payload that agent's `game_state()`
-returned.
-
-Rejections render too, and visibly — a refused act is often the most informative row on the page.
+Rendering follows from `kind` alone — the console needs no per-scenario knowledge, and a key it has
+never seen renders correctly the first time.
 
 ## 4. Boundaries
 
