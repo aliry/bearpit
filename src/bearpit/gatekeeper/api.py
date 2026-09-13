@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from fastapi import Body, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import Body, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, ValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -28,6 +28,7 @@ from bearpit.chronicle import Chronicle, EventKind
 from bearpit.chronicle.audit import audit_realm
 from bearpit.core import PackageError, Turns, load_package
 from bearpit.core.colors import resolve_agent_colors
+from bearpit.core.machine import MachineDef
 from bearpit.core.params import ParameterError
 from bearpit.core.params import bind as bind_params
 from bearpit.core.params import missing_values as missing_param_values
@@ -47,6 +48,9 @@ from bearpit.gatekeeper.auth import (
 )
 from bearpit.gatekeeper.manager import CapacityError, RealmManager
 from bearpit.gatekeeper.service import build_platform
+from bearpit.realmtools.machine import Bindings, declaration_view
+from bearpit.realmtools.machine_service import MACHINE_VERSION
+from bearpit.realmtools.timeline import build_timeline
 from bearpit.scribe.backend import DEFAULT_MODEL, LLMBackend
 from bearpit.scribe.history import HistoryStore, compact
 from bearpit.scribe.loop import ScribeLoop
@@ -1308,6 +1312,55 @@ def create_app(
             {"ts": m.ts_ms, "channel": m.channel, "sender": m.sender, "body": m.body}
             for m in msgs[-limit:]
         ]}
+
+    @app.get("/api/realms/{realm_id}/machine")
+    async def realm_machine(
+        realm_id: str, as_: str | None = Query(None, alias="as")
+    ) -> dict[str, Any]:
+        """The realm's game state and how it got there, through one seat's eyes.
+
+        Read-only, and rebuilt from the chronicle on every call rather than read from the live
+        runner: that way it works identically on a finished realm, and a live realm's growing
+        timeline can never be served from a stale cache.
+        """
+        machines = await get_chron().events(realm_id, kind=EventKind.MACHINE)
+        if not machines:
+            return {"machine": None}
+        head = machines[-1]  # LAST wins: a realm id can be reused.
+        if head.payload.get("version") != MACHINE_VERSION:
+            return {"machine": None}
+        try:
+            defn = MachineDef.model_validate(head.payload["declaration"])
+        except ValidationError:
+            # Launch validation grows stricter, so a declaration legal when chronicled can be
+            # refused by the schema that reloads it. Never let pydantic's text, which names
+            # transitions and keys, reach a caller.
+            return {"machine": None}
+        members: dict[str, list[str]] = head.payload.get("members") or {}
+        referee = head.payload.get("referee")
+        bindings = Bindings(
+            members={r: tuple(ids) for r, ids in members.items()},
+            roster=tuple(head.payload.get("roster") or ()),
+            referee=referee,
+        )
+        # Not just the role members: a declaration may bind no role's `members` to "referee" (the
+        # referee never plays a seat, only rules on it), in which case `members` alone would never
+        # contain them. The referee is always a valid `?as=`, whether or not the machine gave them
+        # a role, so a seat set built from roles alone would 400 the referee's own default view.
+        role_seats = {a for ids in members.values() for a in ids}
+        seats = sorted(role_seats | ({referee} if referee else set()))
+        caller = as_ or referee or (seats[0] if seats else "")
+        if caller not in seats:
+            # Fail closed and loudly. Falling through would silently serve the participant view
+            # for a typo'd id, which reads as "this seat saw nothing".
+            raise HTTPException(400, "unknown seat")
+        raw = await get_chron().events(realm_id, kind=EventKind.GAME)
+        events = [(e.ts_ms, e.payload) for e in raw if e.id > head.id]
+        built = build_timeline(defn, bindings, events, start_ms=head.ts_ms, caller=caller)
+        return {"machine": {
+            "declaration": declaration_view(defn, bindings, caller),
+            "as": caller, "seats": seats, **built,
+        }}
 
     @app.get("/api/realms/{realm_id}/events")
     async def realm_events(
