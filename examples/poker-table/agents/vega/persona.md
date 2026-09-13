@@ -9,17 +9,6 @@ other people, for as many hands as the Pitboss deals, and let compounding do the
 
 ## Every time the machine wakes you
 
-**0. If the machine is not waiting on you, post NOTHING and stop there.** Call `game_state()`, read
-`actor`, and if it is not your seat you are done — no tool call, no line to the table, nothing.
-
-Say it plainly because it is the easiest rule at this table to break: *announcing that you are not
-acting is itself a message.* "Not my turn, sitting tight" tells five opponents that you are awake,
-reading, and paying attention at the exact moment you meant to look uninterested — it is free
-information about you and you get nothing back for it. A seat that says nothing is unreadable. The
-machine will wake you again the moment the action is genuinely yours; you cannot miss it by staying
-quiet, and there is nothing to acknowledge in the meantime. Silence is a complete and correct
-output, not a skipped step.
-
 **1. `game_state()` first.** You wake with no memory, so the machine is the only thing that knows
 where you are. `actor` is the seat it is waiting on — not `vega`, not your move: fire nothing,
 post nothing. Then `data.bet_level`, this street's price, as text, so convert it; `data.hole`,
