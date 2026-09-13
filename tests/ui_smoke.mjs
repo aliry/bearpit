@@ -349,6 +349,28 @@ function assertNoLibraryFetch(world, what) {
     + `for ${JSON.stringify(hits)} (a local skill is not in the library — this is the bug)`);
 }
 
+/**
+ * Drive the real #/realm/<id> view through the real router and let its first poll tick finish.
+ * The view schedules itself with poll(fn, 2000); keep the first tick, drop the timer, so a throw
+ * inside it is awaited rather than lost to an unhandled rejection.
+ */
+async function mountRealm(world) {
+  let ticked = null;
+  world.sandbox.poll = (fn) => { ticked = (async () => fn())(); };
+
+  world.location.hash = `#/realm/${REALM_ID}`;
+  await world.sandbox.render();
+  assert(ticked, "the realm view never called poll() — its entry point or scheduling changed");
+  await ticked;            // a ReferenceError inside tick surfaces HERE
+  await flush();
+  return textOf(world.view);
+}
+
+/** Every feed row on the page, in the order a reader meets them, tagged by which record it came
+ *  from. "msg" is something an agent said; "game" is something the machine did. */
+const feedOrder = (world) =>
+  queryAll(world.view, ".feed-line").map((n) => (n.classList.contains("game") ? "game" : "msg"));
+
 /* ============================ fixtures ============================ */
 
 const REALM_ID = "demo-realm-a1b2c3";
@@ -396,11 +418,86 @@ const TRANSCRIPT = {
   ],
 };
 
-const REALM_ROUTES = [
+/* ---- a synthetic game machine. No scenario: three data keys, one of each shape the console has
+ * a rendering for (a scalar, an owner map, a set), and between the fixtures below every op
+ * (`set`, `act`, `reject`) and every change kind it knows — plus one kind it does not. ---- */
+const MACHINE_TRANSITION = "advance";
+const UNKNOWN_CHANGE_KEY = "orbit";
+const MACHINE = {
+  as: "vela", seats: ["arbiter", "nash", "vela"], error: null,
+  declaration: { initial: "first", terminal: ["done"], data: {}, roles: {} },
+  state: { state: "second", actor: "nash", actor_since: 35,
+    data: { phase: "second", ledger: { vela: 3, nash: 1 }, claimed: ["vela"] } },
+  timeline: [
+    { ts: 15,
+      payload: { op: "set", key: "ledger", owner: "vela", value: 3, caller: "arbiter",
+        log: "owner", wake: [], wake_actor: [] },
+      changes: [{ kind: "owner", key: "ledger", owner: "vela", from: null, to: 3 }] },
+    { ts: 35,
+      payload: { op: "act", transition: MACHINE_TRANSITION, caller: "vela", args: { slot: "3" },
+        from: "first", to: "second", actor: "nash", log: "public", wake: [], wake_actor: ["nash"] },
+      changes: [
+        { kind: "state", from: "first", to: "second" },
+        { kind: "actor", from: "vela", to: "nash" },
+        { kind: "value", key: "phase", from: "first", to: "second" },
+        { kind: "set", key: "claimed", added: ["vela"], removed: [] },
+        // A kind this console has no rendering for, carrying no from/to: a formatter that falls
+        // through to a generic template prints "undefined" here, which is the bug being guarded.
+        { kind: "wobble", key: UNKNOWN_CHANGE_KEY },
+      ] },
+    // A whole row this console cannot read: an op it does not know, whose only change is a kind
+    // it does not know either. There is nothing true to say about it, so it says nothing.
+    { ts: 55, payload: { op: "teleport", caller: "nash" },
+      changes: [{ kind: "wobble", key: UNKNOWN_CHANGE_KEY }] },
+  ],
+};
+
+// The same realm through another seat: one row, and not the one the default seat sees.
+const LENS_TRANSITION = "yield";
+const LENS_MACHINE = { ...MACHINE, as: "nash",
+  timeline: [
+    { ts: 35,
+      payload: { op: "act", transition: LENS_TRANSITION, caller: "nash", args: {},
+        from: "second", to: "done", actor: null, log: "public", wake: [], wake_actor: [] },
+      changes: [{ kind: "state", from: "second", to: "done" }] },
+  ] };
+
+/* Messages and moves that ALTERNATE in time: 10 · 20 · 30 · 40. Grouping the two records instead
+ * of merging them is the failure this shape catches, and equal timestamps could not. */
+const WOVEN_FIRST_MESSAGE = "I move first.";
+const WOVEN_SECOND_MESSAGE = "And I answer.";
+const REFUSAL_DETAIL = "it is not nash's move";
+const WOVEN_TRANSCRIPT = {
+  channels: TRANSCRIPT.channels,
+  messages: [
+    { ts: 10, channel: "!commons:realm.local", sender: `@${REALM_ID}-vela:realm.local`,
+      body: WOVEN_FIRST_MESSAGE },
+    { ts: 30, channel: "!commons:realm.local", sender: `@${REALM_ID}-nash:realm.local`,
+      body: WOVEN_SECOND_MESSAGE },
+  ],
+};
+const WOVEN_MACHINE = { ...MACHINE,
+  timeline: [
+    { ts: 20,
+      payload: { op: "act", transition: MACHINE_TRANSITION, caller: "arbiter", args: {},
+        from: "first", to: "second", actor: "nash", log: "public", wake: [], wake_actor: [] },
+      changes: [{ kind: "state", from: "first", to: "second" }] },
+    { ts: 40,
+      payload: { op: "reject", transition: MACHINE_TRANSITION, caller: "nash", args: {},
+        check: "actor", detail: REFUSAL_DETAIL, log: "public", wake: [], wake_actor: [] },
+      changes: [] },
+  ] };
+
+/** The realm view's fixtures. `machine` is the entire `/machine` body, so a check can hand it
+ *  `{ machine: null }` — the answer for a realm that runs no machine — as easily as a machine. */
+const realmRoutes = ({ machine = { machine: MACHINE }, transcript = TRANSCRIPT, lens = null } = {}) => [
+  // A lens request carries `?as=`; the view's own polling never does, so the two never collide.
+  ...(lens ? [{ match: /\/machine\?as=/, body: { machine: lens } }] : []),
   { match: /^\/api\/settings$/, body: { active: 1, capacity: 4 } },
   { match: /^\/api\/packages\/[^/?]+$/,
     body: { referee: "arbiter", agents: [{ id: "arbiter" }, { id: "vela" }, { id: "nash" }] } },
-  { match: /^\/api\/realms\/[^/?]+\/transcript/, body: TRANSCRIPT },
+  { match: /^\/api\/realms\/[^/?]+\/transcript/, body: transcript },
+  { match: /^\/api\/realms\/[^/?]+\/machine/, body: machine },
   { match: /^\/api\/realms\/[^/?]+\/outputs$/,
     body: { outputs: [{ path: "hand-history.md", bytes: 2048, available: true }] } },
   { match: /^\/api\/realms\/[^/?]+$/, body: REALM_STATUS },
@@ -516,19 +613,8 @@ const CHECKS = [
     // `node --check` and the Python suite both see nothing at all.
     name: "realm_view_renders_a_full_tick",
     async run() {
-      const world = boot(REALM_ROUTES);
-      // The view schedules itself with poll(fn, 2000); keep the first tick, drop the timer, so a
-      // throw inside it is awaited rather than lost to an unhandled rejection.
-      let ticked = null;
-      world.sandbox.poll = (fn) => { ticked = (async () => fn())(); };
-
-      world.location.hash = `#/realm/${REALM_ID}`;
-      await world.sandbox.render();
-      assert(ticked, "the realm view never called poll() — its entry point or scheduling changed");
-      await ticked;          // a ReferenceError inside tick surfaces HERE
-      await flush();
-
-      const rendered = textOf(world.view);
+      const world = boot(realmRoutes());
+      const rendered = await mountRealm(world);
       assert(!rendered.includes("Something went wrong"),
         `the realm route threw before its first tick: ${trunc(rendered)}`);
       assertIncludes(rendered, INTEGRITY_DETAIL, "the realm view's integrity banner");
@@ -558,6 +644,119 @@ const CHECKS = [
           .map((n) => trunc(String(n.value), 60))));
       assertNoLibraryFetch(world, "an agent block whose local skill text is already in hand");
       return "local skill editor prefilled from the agent, 0 API calls";
+    },
+  },
+  {
+    // A realm that runs no machine is the common case and must be untouched by all of this: no
+    // empty block, no stray selector, no "undefined" where a state would have been.
+    name: "a_realm_with_no_machine_renders_exactly_as_before",
+    async run() {
+      const world = boot(realmRoutes({ machine: { machine: null } }));
+      const rendered = await mountRealm(world);
+      assert(!queryAll(world.view, ".game-state").length,
+        "a realm with no machine rendered a game-state block");
+      assert(!queryAll(world.view, ".kind-game").length,
+        "a realm with no machine rendered game rows in its feed");
+      const selects = descendants(world.view).filter((n) => n.tagName === "SELECT");
+      assert(!selects.length, `a realm with no machine rendered ${selects.length} <select>(s) — `
+        + "the seat lens belongs to a machine realm only");
+      assert(!rendered.includes("Viewing as"), "a realm with no machine offered a seat lens");
+      assert(!rendered.includes("undefined"),
+        `"undefined" reached the page: ${trunc(rendered)}`);
+      // …and everything the page showed before is still there, in the same numbers.
+      assert(feedOrder(world).join(",") === "msg,msg",
+        `expected the feed to hold the transcript and nothing else, got ${feedOrder(world)}`);
+      assertIncludes(rendered, INTEGRITY_DETAIL, "the realm view's integrity banner");
+      assertIncludes(rendered, OUTCOME, "the realm view's outcome banner");
+      assertIncludes(rendered, FIRST_MESSAGE, "the realm view's feed");
+      return "no block, no lens, no game rows; the transcript renders unchanged";
+    },
+  },
+  {
+    // The entire point of the merge: one column of events. Two records rendered one after the
+    // other read as two logs and lose the thing worth reading — what was said BETWEEN two moves.
+    name: "game_rows_and_messages_interleave_in_timestamp_order",
+    async run() {
+      const world = boot(realmRoutes({ machine: { machine: WOVEN_MACHINE },
+        transcript: WOVEN_TRANSCRIPT }));
+      await mountRealm(world);
+      const order = feedOrder(world).join(",");
+      assert(order === "msg,game,msg,game", `messages (ts 10, 30) and moves (ts 20, 40) must `
+        + `alternate, but the feed rendered ${order} — the two records are grouped, not merged`);
+      const lines = queryAll(world.view, ".feed-line").map(textOf);
+      const wanted = [WOVEN_FIRST_MESSAGE, MACHINE_TRANSITION, WOVEN_SECOND_MESSAGE,
+        REFUSAL_DETAIL];
+      wanted.forEach((w, i) => assertIncludes(lines[i], w, `feed row ${i}`));
+      return `feed order ${order}`;
+    },
+  },
+  {
+    // Fail closed: a change kind the console has no rendering for says NOTHING. The tempting bug
+    // is a formatter that falls through to a generic template and prints "undefined → undefined".
+    name: "an_unrecognised_change_kind_renders_nothing_not_undefined",
+    async run() {
+      const world = boot(realmRoutes());
+      const rendered = await mountRealm(world);
+      assert(!rendered.includes("undefined"), '"undefined" reached the page — a change kind with '
+        + `no rendering was formatted anyway: ${trunc(rendered)}`);
+      assert(!rendered.includes(UNKNOWN_CHANGE_KEY), `the key of an unrecognised change kind `
+        + `(${UNKNOWN_CHANGE_KEY}) reached the page; it must render as nothing at all`);
+      // …and the recognised changes on that same row still rendered, so this is not passing by
+      // rendering no changes whatsoever.
+      assertIncludes(rendered, "state first → second", "the row's recognised changes");
+      assertIncludes(rendered, "claimed +vela", "the row's recognised changes");
+      // The fixture holds THREE machine rows; the third is an unknown op whose only change is an
+      // unknown kind. A row with nothing readable is no row, not a blank line under a name.
+      const order = feedOrder(world).join(",");
+      assert(order === "msg,msg,game,game", "a machine row with nothing this console can read "
+        + `must render as no row at all, but the feed rendered ${order}`);
+      return "the unknown kind rendered nothing; its four known siblings rendered";
+    },
+  },
+  {
+    // The lens re-reads the machine through another seat. It must NOT re-read the transcript:
+    // what was said is the same whoever reads it, and a second copy would be a second bill.
+    name: "the_seat_lens_refetches_the_machine_and_not_the_transcript",
+    async run() {
+      const world = boot(realmRoutes({ lens: LENS_MACHINE }));
+      await mountRealm(world);
+      const sel = descendants(world.view).find((n) => n.tagName === "SELECT");
+      assert(sel, "the realm view of a machine realm has no seat lens");
+      const transcripts = () => world.fetchLog.filter((u) => u.includes("/transcript")).length;
+      const before = transcripts();
+      sel.value = "nash";
+      fire(sel, "change");
+      await flush();
+      const asked = world.fetchLog.filter((u) => u.includes("/machine?as=nash"));
+      assert(asked.length === 1, "changing the lens must GET the machine through that seat, but "
+        + `app.js asked for ${JSON.stringify(world.fetchLog)}`);
+      assert(transcripts() === before,
+        `the lens re-fetched the transcript (${before} → ${transcripts()}); the messages do not `
+        + "change with the lens");
+      const rendered = textOf(world.view);
+      assertIncludes(rendered, LENS_TRANSITION, "the feed after the lens changed");
+      assert(!rendered.includes(MACHINE_TRANSITION), "the previous seat's rows are still on the "
+        + `page after the lens changed: ${trunc(rendered)}`);
+      assertIncludes(rendered, FIRST_MESSAGE, "the feed after the lens changed");
+      return "one GET ?as=nash, 0 extra transcript reads, the feed redrawn";
+    },
+  },
+  {
+    // A refusal is the machine saying no, and it is usually the most informative row on the page.
+    // It has to read as a refusal — what was tried, by whom, and which check said no.
+    name: "a_refusal_renders_as_a_refusal",
+    async run() {
+      const world = boot(realmRoutes({ machine: { machine: WOVEN_MACHINE },
+        transcript: WOVEN_TRANSCRIPT }));
+      await mountRealm(world);
+      const refused = queryAll(world.view, ".feed-line.refused");
+      assert(refused.length === 1, `expected exactly one row marked as a refusal, found `
+        + `${refused.length} in ${JSON.stringify(queryAll(world.view, ".feed-line").map(textOf))}`);
+      const row = textOf(refused[0]);
+      for (const want of ["refused", "nash", MACHINE_TRANSITION, "actor", REFUSAL_DETAIL]) {
+        assertIncludes(row, want, "the refusal row");
+      }
+      return "the refused row carries its caller, transition, check and detail";
     },
   },
 ];

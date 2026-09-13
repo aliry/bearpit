@@ -499,19 +499,93 @@ route(/^\/realm\/(.+)$/, async (id) => {
   const head = el("div");
   const integrityBox = el("div");  // what the run's own record says about its result (#90)
   const banner = el("div");  // prominent outcome once the realm concludes
+  const gameBox = el("div");  // a machine realm's current state + the seat it is read through
   const wrap = el("div", null,
     el("div", { class: "crumb" }, el("a", { href: "#/realms" }, "Realms"), "›",
       el("span", { class: "mono", text: id })),
-    head, integrityBox, banner, layout);
+    head, integrityBox, banner, gameBox, layout);
 
   // Fetched at most once per visit, and deliberately BEFORE the rail is rendered: realmStats
   // rebuilds the entire rail every 2s, so a card inserted asynchronously AFTER that render
   // made the whole rail jump on every single poll.
-  let seen = 0, lastState = null, lastOutcome = null, lastIntegrity = null, outputs = null;
+  let lastState = null, lastOutcome = null, lastIntegrity = null, outputs = null;
+  // The feed carries two records of the same run — what the agents SAID and what the machine
+  // DID — merged on the one field they share, `ts`. Both are held here because the lens redraws
+  // the feed from the machine alone: what was said is the same whoever reads it, so re-fetching
+  // the transcript to redraw it would be a second copy of the same conversation.
+  let feedMsgs = [], feedChannels = {}, machine = null, lens = null, lastGameSig = null;
+  let shown = [];   // the merged rows currently IN the feed, in order
+
+  // Read the timeline through another seat. The transcript is deliberately NOT re-fetched: only
+  // what the machine will show changes with the lens, never the conversation.
+  async function setLens(seat) {
+    if (!seat || seat === lens) return;
+    let next;
+    try {
+      next = await api(`/api/realms/${encodeURIComponent(id)}/machine`
+        + `?as=${encodeURIComponent(seat)}`);
+    } catch { return; }   // a lens that will not load leaves the reader on the one they had
+    lens = seat;
+    machine = next.machine || null;
+    renderGame();
+    shown = [];           // another seat is another story: every row is redrawn, not appended to
+    renderFeed();
+  }
+
+  function renderGame() {
+    const sig = machine ? JSON.stringify([machine.as, machine.seats, machine.state]) : "";
+    if (sig === lastGameSig) return;   // a <select> rebuilt under the cursor closes itself
+    lastGameSig = sig;
+    clear(gameBox);
+    if (machine) gameBox.append(gameStateBlock(machine, id, setLens));
+  }
+
+  function renderFeed() {
+    const next = mergeFeedRows(feedMsgs, machine);
+    // Appending only the tail is what keeps the reader's place across a 2s poll, and it is only
+    // sound while what is on screen is still a PREFIX of the merged rows. A lens change, or a
+    // transcript that lost its head to the fetch limit, is a redraw rather than an append.
+    let append = next.length >= shown.length;
+    if (append) {
+      for (let i = 0; i < shown.length; i++) {
+        if (shown[i].ts !== next[i].ts || shown[i].kind !== next[i].kind) { append = false; break; }
+      }
+    }
+    if (!append) shown = [];
+    const firstDraw = !shown.length;
+    if (firstDraw) clear(feedScroll);
+    if (!next.length) {
+      feedScroll.append(el("div", { class: "feed-empty" }, "Waiting for the first message…"));
+      return;
+    }
+    // capture pin state BEFORE appending — the new lines change scrollHeight
+    const wasPinned = firstDraw || atBottom();
+    const grew = next.length > shown.length;
+    for (const r of next.slice(shown.length)) {
+      // gameLine returns null for a row it cannot read; append() would render that as "null".
+      const line = r.kind === "game" ? gameLine(r, id, agentColors)
+        : feedLine(r.msg, referee, id, feedChannels, agentColors);
+      if (line) feedScroll.append(line);
+    }
+    shown = next;
+    if (grew) {
+      if (wasPinned) feedScroll.scrollTop = feedScroll.scrollHeight;
+      else jumpPill.classList.remove("hidden");  // reader is up in history — don't yank them down
+    }
+  }
+
   async function tick() {
-    let status, tr;
-    try { [status, tr] = await Promise.all([api(`/api/realms/${encodeURIComponent(id)}`),
-      api(`/api/realms/${encodeURIComponent(id)}/transcript?limit=400`)]); }
+    let status, tr, mach;
+    // The machine rides along in the same batch but cannot poison it: a realm with no machine, an
+    // older host, or a 500 must leave the rest of this page exactly as it is. `undefined` means
+    // "could not ask" and keeps whatever was already on screen; `null` means "this realm has no
+    // machine" and is the answer, not a failure.
+    const askedAs = lens;
+    const machineReq = api(`/api/realms/${encodeURIComponent(id)}/machine`
+      + (lens ? `?as=${encodeURIComponent(lens)}` : ""))
+      .then((r) => r.machine || null, () => undefined);
+    try { [status, tr, mach] = await Promise.all([api(`/api/realms/${encodeURIComponent(id)}`),
+      api(`/api/realms/${encodeURIComponent(id)}/transcript?limit=400`), machineReq]); }
     catch (e) { return; }
     // header (only rebuild on state change)
     if (status.state !== lastState) {
@@ -549,23 +623,13 @@ route(/^\/realm\/(.+)$/, async (id) => {
       catch { outputs = []; }   // a realm that cannot list outputs still renders its rail
     }
     clear(stats); stats.append(realmStats(status, id, outputs || []));
-    // feed: append only new lines
-    const msgs = tr.messages || [];
-    if (seen === 0 && !msgs.length) {
-      feedScroll.append(el("div", { class: "feed-empty" }, "Waiting for the first message…"));
-    }
-    const firstLoad = seen === 0;
-    if (firstLoad) clear(feedScroll);
-    const channels = tr.channels || {};
-    // capture pin state BEFORE appending — the new lines change scrollHeight
-    const wasPinned = firstLoad || atBottom();
-    for (const m of msgs.slice(seen))
-      feedScroll.append(feedLine(m, referee, id, channels, agentColors));
-    if (msgs.length > seen) {
-      seen = msgs.length;
-      if (wasPinned) feedScroll.scrollTop = feedScroll.scrollHeight;
-      else jumpPill.classList.remove("hidden");  // reader is up in history — don't yank them down
-    }
+    // feed: the conversation and the machine's own moves, in one order
+    feedMsgs = tr.messages || [];
+    feedChannels = tr.channels || {};
+    // A tick that started before a lens change must not put the old seat's view back on screen.
+    if (mach !== undefined && askedAs === lens) machine = mach;
+    renderGame();
+    renderFeed();
     refreshCapacity();
   }
   poll(tick, 2000);
@@ -607,6 +671,128 @@ function feedLine(m, referee, realmId, channels, agentColors) {
     el("div", { class: "msg" },
       dm && el("span", { class: "dm-tag", title: `private: ${dm}` }, `🔒 ${dm}`),
       el("span", { style: tint }, m.body || "")));
+}
+
+/* ---------- a game machine's moves, read alongside the conversation ----------
+   Nothing here knows what any scenario is about: every word on the page — the state, the actor,
+   the keys, the transitions — comes from that realm's own declaration. An op or a change kind
+   this console does not recognise renders as NOTHING, never as "undefined": a timeline is a
+   record, and a record that invents a word is worse than one that leaves a gap. */
+
+// One value, small enough to sit on a feed line. Owner maps arrive as objects and sets as arrays.
+function gmVal(v) {
+  if (v === null || v === undefined) return "—";
+  if (Array.isArray(v)) return v.length ? v.join(", ") : "∅";
+  if (typeof v === "object") {
+    return Object.entries(v).map(([k, x]) => `${k} ${gmVal(x)}`).join(" · ") || "—";
+  }
+  if (v === "") return '""';
+  return String(v);
+}
+
+// What one change did, formatted by its `kind` alone — the declaration already decided what shape
+// each key has, so this needs no schema. A kind this console does not know returns null, and a
+// null renders as nothing at all.
+function gmChange(c, emptied) {
+  if (!c || typeof c !== "object") return null;
+  if (c.kind === "state") return `state ${gmVal(c.from)} → ${gmVal(c.to)}`;
+  if (c.kind === "actor") return `actor → ${gmVal(c.to)}`;
+  if (c.kind === "value") return `${c.key} ${gmVal(c.from)} → ${gmVal(c.to)}`;
+  if (c.kind === "owner") return `${c.key} {${c.owner}: ${gmVal(c.to)}}`;
+  if (c.kind === "set") {
+    if (emptied && emptied.has(c.key)) return `${c.key} reset`;
+    const parts = [];
+    if ((c.added || []).length) parts.push("+" + c.added.join(", "));
+    if ((c.removed || []).length) parts.push("−" + c.removed.join(", "));
+    return parts.length ? `${c.key} ${parts.join(" ")}` : null;
+  }
+  return null;
+}
+
+// The transcript and the machine timeline in one order. They are merged on `ts` (both are epoch
+// milliseconds) and on nothing else. The sort is stable, so a message keeps its place ahead of the
+// move it announces when the two share a millisecond.
+function mergeFeedRows(msgs, machine) {
+  const rows = (msgs || []).map((m) => ({ ts: Number(m.ts) || 0, kind: "msg", msg: m }));
+  // A `set` change carries only the delta, so "this emptied the set" — a reset — cannot be read
+  // off a single row. Track each set forward through the timeline instead. The tracking can only
+  // fall SHORT (a row this seat may not see never arrives), and falling short renders the plain
+  // ± list: the accurate rendering, just the less compact one.
+  const held = new Map();
+  for (const r of (machine && machine.timeline) || []) {
+    const changes = Array.isArray(r && r.changes) ? r.changes : [];
+    const emptied = new Set();
+    for (const c of changes) {
+      if (!c || c.kind !== "set") continue;
+      const cur = held.get(c.key) || new Set();
+      const before = cur.size;
+      for (const m of c.removed || []) cur.delete(m);
+      if (before && !cur.size && !(c.added || []).length) emptied.add(c.key);
+      for (const m of c.added || []) cur.add(m);
+      held.set(c.key, cur);
+    }
+    rows.push({ ts: Number(r && r.ts) || 0, kind: "game", changes, emptied,
+      payload: (r && r.payload) || {} });
+  }
+  rows.sort((a, b) => a.ts - b.ts);
+  return rows;
+}
+
+// One move, on the same two-column grid as a message so the page reads as a single column of
+// events rather than two logs side by side.
+function gameLine(row, realmId, agentColors) {
+  const p = row.payload || {};
+  const op = p.op;
+  const who = p.caller ? agentLabel(p.caller, realmId) : "machine";
+  const color = agentColors ? agentColors[who] : null;
+  const head = [];
+  if (op === "act") {
+    head.push(el("b", { class: "gm-name", text: String(p.transition ?? "") }));
+    const args = Object.entries(p.args || {}).map(([k, v]) => `${k}=${gmVal(v)}`).join("  ");
+    if (args) head.push(el("span", { class: "gm-args", text: args }));
+  } else if (op === "set") {
+    head.push(el("span", { class: "gm-verb", text: "set" }),
+      el("b", { class: "gm-name", text: String(p.key ?? "") }));
+    if (p.owner) head.push(el("span", { class: "gm-args", text: `{${p.owner}}` }));
+  } else if (op === "reject") {
+    // Often the most informative row on the page: it says what an agent TRIED to do and why the
+    // machine would not let it. Never folded in with the moves that succeeded.
+    head.push(el("span", { class: "gm-verb", text: "refused" }));
+    if (p.transition) head.push(el("b", { class: "gm-name", text: String(p.transition) }));
+    const why = [p.check, p.detail].filter(Boolean).join(" · ");
+    if (why) head.push(el("span", { class: "gm-why", text: why }));
+  }
+  // an unknown op keeps its changes and says nothing else — fail closed, never guess a verb
+  const bits = (row.changes || []).map((c) => gmChange(c, row.emptied)).filter(Boolean);
+  // …and a row with nothing this console can read is no row at all, rather than a blank line
+  // under an agent's name. Unrecognised must yield LESS than recognised, never a puzzle.
+  if (!head.length && !bits.length) return null;
+  return el("div", { class: `feed-line game kind-game${op === "reject" ? " refused" : ""}` },
+    el("div", { class: "who", style: color ? `color:${color}` : "", text: who }),
+    el("div", { class: "msg gm" }, ...head,
+      ...bits.map((t) => el("span", { class: "gm-chg", text: t }))));
+}
+
+// The machine's state right now, plus the seat it is being read through. A participant's lens
+// shows strictly less than the referee's, so WHICH seat is selected is part of reading the page.
+function gameStateBlock(machine, realmId, onLens) {
+  const st = machine.state || {};
+  const kv = (k, v) => el("span", { class: "gs-kv" },
+    el("span", { class: "gs-k", text: k }), el("span", { class: "gs-v", text: v }));
+  const box = el("div", { class: "game-state" },
+    el("span", { class: "mono-micro", text: "Game state" }),
+    el("span", { class: "gs-state", text: gmVal(st.state) }),
+    kv("actor", gmVal(st.actor)));
+  for (const [k, v] of Object.entries(st.data || {})) box.append(kv(k, gmVal(v)));
+  // a chronicle that stopped replaying is served as a good prefix plus a reason; say the reason
+  if (machine.error) box.append(el("span", { class: "gs-err", text: machine.error }));
+  const sel = el("select", { class: "lens-sel", onchange: (e) => onLens(e.currentTarget.value) },
+    ...(machine.seats || []).map((s) => el("option", { value: s }, agentLabel(s, realmId))));
+  // AFTER the options exist: a <select> drops a value it has no option for.
+  sel.value = machine.as || "";
+  box.append(el("span", { class: "gs-lens" },
+    el("span", { class: "mono-micro", text: "Viewing as" }), sel));
+  return box;
 }
 
 function realmHead(id, s, referee) {
