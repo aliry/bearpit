@@ -1,6 +1,6 @@
 # Scenario resolvers — deterministic law the scenario ships and the platform never reads
 
-**Status:** reviewed design, awaiting the owner's decision. Not built.
+**Status:** reviewed and decided (owner, 2026-09-13). Not built.
 **Decides:** the question architecture §9.5 leaves open — how a scenario-specific deterministic
 check is packaged as something an agent invokes. Requires **ADR-006**.
 **Evidence:** a read of the whole chronicle (297 realms) and of the code, then five independent
@@ -426,17 +426,25 @@ the fake-based test convention cannot prove — so it gets an opt-in Docker-mark
 - A seat's lens shows a resolver refusal's `reason` and nothing another seat could not see.
 - Replay of an archived machine realm (before this change) still renders — `MACHINE_VERSION` unchanged.
 
-## 11. Decisions for the owner
+## 11. Decisions — made
 
-1. **Phase 2 serves one scenario today.** Guards are the generic mechanism for any machine scenario
-   with agent-fired transitions, and there is exactly one such scenario. Build it now on the strength
-   of the 25% figure, or hold it until a second machine scenario exists?
-2. **Verify or compute at `settle`.** The verifying guard keeps the referee doing the work and keeps
-   the measurement; a computing effect would remove the referee's arithmetic entirely but is the
-   deferred `$resolver.*` shape. This spec recommends verify.
-3. **Should the resolver image be a hard launch dependency** for every realm (simplest), or only for
-   realms that declare resolvers (one fewer container for the 12 that never will)? This spec says
-   only when declared.
+1. **Guards wait for a second machine scenario.** Phase 1 ships first. Then one more machine
+   scenario with agent-fired transitions is authored — a trade or contract game, which §5 found the
+   contract can express — and the guard is designed against both. The poker settlement guarantee
+   waits that long; in the meantime the dealer has `resolve_showdown` and every call is chronicled.
+   *Why:* a generic API shaped by a single consumer is the overfitting pattern this design exists to
+   avoid, and phase 1 already delivers the evidence benefit to 23 scenarios.
+2. **Verify, never compute.** A resolver guard refuses a wrong result; it never writes one. The
+   agent still does the work, the procedural-compliance measurement survives, there is no write
+   channel, no consent line, and no amendment to the machine spec. `$resolver.*` remains a named,
+   deferred shape (§3.5) and is not on any roadmap.
+3. **Provision only when declared; check the image every launch.** The sealed container follows the
+   shared-folder convention — present only for scenarios that declare a resolver — so half of all
+   realms carry no inert component. The `pit-resolver` staleness check runs on every launch
+   regardless, so the image cannot drift unnoticed the way `pit-realmtools` did this morning. Both
+   lifecycle branches are covered by the Docker-marked test.
+
+Phase 2 in §9 is therefore gated on the second scenario existing, and its first task is authoring it.
 
 ---
 
