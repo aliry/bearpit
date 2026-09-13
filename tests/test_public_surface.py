@@ -79,12 +79,18 @@ _SKIP_DIRS = {".git", ".venv", "__pycache__", ".mypy_cache", ".pytest_cache", ".
 def _tracked_files() -> list[str]:
     """Every file to police.
 
-    Prefers `git ls-files`, which respects .gitignore exactly. Falls back to a filesystem walk so
-    the guard also runs against a SEEDED tree — that directory is verified before `git init`, and a
-    guard that silently cannot run there would be worse than none."""
+    Prefers git, which respects .gitignore exactly. `--others` includes files that exist but are
+    not yet staged: without it a new file is invisible to this guard until the moment it is
+    committed, so the suite goes green on the run that would have caught the leak and red on the
+    next one. `--exclude-standard` keeps .gitignore honoured, so build output stays out.
+
+    Falls back to a filesystem walk so the guard also runs against a SEEDED tree — that directory
+    is verified before `git init`, and a guard that silently cannot run there would be worse than
+    none."""
     try:
         out = subprocess.run(
-            ["git", "ls-files"], cwd=REPO, capture_output=True, text=True, check=True
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+            cwd=REPO, capture_output=True, text=True, check=True,
         )
         return [line for line in out.stdout.splitlines() if line]
     except (OSError, subprocess.CalledProcessError):
