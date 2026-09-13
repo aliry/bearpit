@@ -11,6 +11,7 @@ The service in `machine_service.py` is the only place this meets the chronicle.
 """
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -430,13 +431,25 @@ class ReplayError(RuntimeError):
     """The chronicle holds a GAME event the current declaration cannot re-apply."""
 
 
-def replay(
-    defn: MachineDef, bindings: Bindings, events: list[tuple[int, dict[str, Any]]], start_ms: int,
-) -> MachineState:
+def replay_steps(
+    defn: MachineDef, bindings: Bindings,
+    events: list[tuple[int, dict[str, Any]]], start_ms: int,
+) -> Iterator[tuple[int, dict[str, Any], MachineState]]:
+    """Walk the chronicle one event at a time, yielding the state after each.
+
+    `replay` is this walk's last step. A reader that wants the state *between* events — the
+    timeline view — consumes the walk instead, so there is exactly one implementation of what a
+    GAME event means. Rejections yield the unchanged state: they never moved the machine, but
+    they are rows a reader must see.
+
+    Each yielded state is a copy. Consumers keep these snapshots to diff against one another, and
+    handing out the live object would alias every snapshot to the final state.
+    """
     state = initial_state(defn, bindings, start_ms)
     for i, (ts, p) in enumerate(events):
         op = p.get("op")
         if op == "reject":
+            yield ts, p, state.copy()
             continue
         if op == "act":
             # Escrow completion is re-checked as satisfied: the event exists because it held.
@@ -452,6 +465,15 @@ def replay(
             raise ReplayError(f"replay: event {i} ({op} {p.get('transition') or p.get('key')})"
                               f" no longer applies: {out.check} {out.detail}")
         state = out.state
+        yield ts, p, state.copy()
+
+
+def replay(
+    defn: MachineDef, bindings: Bindings, events: list[tuple[int, dict[str, Any]]], start_ms: int,
+) -> MachineState:
+    state = initial_state(defn, bindings, start_ms)
+    for _ts, _payload, stepped in replay_steps(defn, bindings, events, start_ms):
+        state = stepped
     return state
 
 
