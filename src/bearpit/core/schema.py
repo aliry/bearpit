@@ -25,7 +25,7 @@ from pydantic import (
     model_validator,
 )
 
-from bearpit.core.machine import MachineDef as MachineDef  # re-exported: see timeline.py
+from bearpit.core.machine import MachineDef
 
 # Reusable bounded string types (item-level bounds for list fields + shorthands for scalars).
 # max_length caps input to sane sizes so no field accepts, e.g., a 1000-char agent name.

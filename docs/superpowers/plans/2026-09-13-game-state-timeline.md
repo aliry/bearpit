@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - **No scenario vocabulary anywhere.** No file in this plan may contain the strings `poker`, `hole`, `pot`, `blind`, `street`, `rps`, or any other scenario-specific term, in code, comments, or identifiers. Scenario names may appear only in test fixtures, and those fixtures must be synthetic — not a copy of a shipped scenario.
-- **`tests/test_public_surface.py` forbids private-fork vocabulary.** Never write the bare words `shim`, `copilot`, `subscription`, or `ali`. Run `uv run pytest tests/test_public_surface.py` before every commit.
+- **`tests/test_public_surface.py` forbids private-fork vocabulary.** Read its `FORBIDDEN` tuple for the current list; do not reproduce that list anywhere else, including in notes to yourself — writing a term down to warn about it trips the same guard. Run `uv run pytest tests/test_public_surface.py` before every commit.
 - **Fail closed.** Anything unrecognised (an unknown op, an unknown caller, an unreadable record) yields *less* information, never more.
 - **Read-only.** No endpoint or function in this plan mutates a realm, the chronicle, or any machine state.
 - Line length 100. `uv run ruff check .` and `uv run mypy` must both be clean. Package manager is `uv`; never pip.

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from bearpit.core.schema import MachineDef
+from bearpit.core.machine import MachineDef
 from bearpit.realmtools import machine as eng
 
 
@@ -64,8 +64,7 @@ def build_timeline(
     chronicle has been damaged is exactly when someone needs to look at it.
     """
     rows: list[dict[str, Any]] = []
-    state = eng.initial_state(defn, bindings, start_ms)
-    seen = eng.view(defn, bindings, state, caller)
+    seen = eng.view(defn, bindings, eng.initial_state(defn, bindings, start_ms), caller)
     error: str | None = None
     try:
         for ts, payload, after in eng.replay_steps(defn, bindings, events, start_ms):
@@ -73,8 +72,13 @@ def build_timeline(
             visible = eng.log_row(defn, bindings, payload, caller)
             if visible is not None:
                 rows.append({"ts": ts, "payload": visible, "changes": diff_views(seen, nxt)})
-            seen, state = nxt, after
-    except (eng.ReplayError, KeyError, ValueError) as exc:
-        # `replay_steps` raises a bare KeyError on a row missing caller/key/transition.
+            # Advance past a row the caller may not see, so whatever it moved is dropped rather
+            # than folded into the next visible row. Misattributing a hidden actor's change to
+            # the next agent to act would be worse than omitting it.
+            seen = nxt
+    except (eng.ReplayError, KeyError) as exc:
+        # `replay_steps` raises a bare KeyError on a row missing caller/key/transition. Kept
+        # narrow on purpose: catching ValueError too would report a bug in this module's own
+        # diffing as 'the chronicle is damaged', sending the reader to the wrong place entirely.
         error = f"the chronicle stops replaying here: {exc}"
     return {"state": seen, "timeline": rows, "error": error}

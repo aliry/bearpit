@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from bearpit.core.schema import MachineDef
+from bearpit.core.machine import MachineDef
 from bearpit.realmtools import machine as eng
 from bearpit.realmtools import timeline as tl
 

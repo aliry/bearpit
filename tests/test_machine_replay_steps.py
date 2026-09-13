@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from bearpit.core.schema import MachineDef
+from bearpit.core.machine import MachineDef
 from bearpit.realmtools import machine as eng
 
 DECL: dict[str, Any] = {
