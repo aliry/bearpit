@@ -699,6 +699,9 @@ function gmChange(c, emptied) {
   if (c.kind === "actor") return `actor → ${gmVal(c.to)}`;
   if (c.kind === "value") return `${c.key} ${gmVal(c.from)} → ${gmVal(c.to)}`;
   if (c.kind === "owner") return `${c.key} {${c.owner}: ${gmVal(c.to)}}`;
+  // A public key that holds an object. Same per-entry delta a reader wants, without the braces
+  // that would read as ownership — `stacks vega 2000 → 1940`, not `stacks {vega: 1940}`.
+  if (c.kind === "map") return `${c.key} ${c.entry} ${gmVal(c.from)} → ${gmVal(c.to)}`;
   if (c.kind === "set") {
     if (emptied && emptied.has(c.key)) return `${c.key} reset`;
     const parts = [];

@@ -481,7 +481,10 @@ const WOVEN_MACHINE = { ...MACHINE,
     { ts: 20,
       payload: { op: "act", transition: MACHINE_TRANSITION, caller: "arbiter", args: {},
         from: "first", to: "second", actor: "nash", log: "public", wake: [], wake_actor: [] },
-      changes: [{ kind: "state", from: "first", to: "second" }] },
+      changes: [{ kind: "state", from: "first", to: "second" },
+        // A public key holding an object. It must read as a per-entry delta and must NOT wear
+        // the braces that mean ownership — #123, found on a live run.
+        { kind: "map", key: "ledger", entry: "vela", from: 10, to: 40 }] },
     { ts: 40,
       payload: { op: "reject", transition: MACHINE_TRANSITION, caller: "nash", args: {},
         check: "actor", detail: REFUSAL_DETAIL, log: "public", wake: [], wake_actor: [] },
@@ -693,6 +696,22 @@ const CHECKS = [
   {
     // Fail closed: a change kind the console has no rendering for says NOTHING. The tempting bug
     // is a formatter that falls through to a generic template and prints "undefined → undefined".
+    // A public object-valued key is not owner data. The engine now says so (#123); the console
+    // must render it as a plain per-entry delta, or the fabricated-ownership bug simply moves
+    // from the differ into the page.
+    name: "a_public_map_change_renders_without_claiming_ownership",
+    async run() {
+      const world = boot(realmRoutes({ machine: { machine: WOVEN_MACHINE },
+        transcript: WOVEN_TRANSCRIPT }));
+      const rendered = await mountRealm(world);
+      assertIncludes(rendered, "ledger vela 10 → 40", "the public map change");
+      assert(!rendered.includes("{vela:"), "a public map rendered with ownership braces — "
+        + `\`{vela: …}\` means an owner entry: ${trunc(rendered)}`);
+      assert(!rendered.includes("undefined"), `"undefined" reached the page: ${trunc(rendered)}`);
+      return "a public map reads as a per-entry delta, with no ownership braces";
+    },
+  },
+  {
     name: "an_unrecognised_change_kind_renders_nothing_not_undefined",
     async run() {
       const world = boot(realmRoutes());

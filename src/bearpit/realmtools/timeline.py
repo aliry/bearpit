@@ -17,11 +17,26 @@ from bearpit.core.machine import MachineDef
 from bearpit.realmtools import machine as eng
 
 
-def diff_views(before: dict[str, Any], after: dict[str, Any]) -> list[dict[str, Any]]:
-    """What moved between two `eng.view` results.
+def diff_views(
+    defn: MachineDef, before: dict[str, Any], after: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """What moved between two `eng.view` results, each change named by its DECLARATION.
 
-    Shape is driven by what the view holds: a list is a set, a dict is an owner map, anything else
-    is a scalar. The declaration already decided which is which, so this needs no schema.
+    The kind of a key is a property of what the scenario declared, never of what the value happens
+    to look like at one moment. An earlier version dispatched on the runtime value — a list was a
+    set, an object was owner data — and it was wrong for every public key that holds an object:
+    rps-machine's `score` and poker's `stacks` both reported `kind: "owner"` with an `owner` field
+    naming something that is not an owner at all (#123). It rendered plausibly, which is why the
+    fixtures missed it: every one of them paired an object value with owner visibility, so the
+    wrong branch produced the right-looking row.
+
+    So the four kinds come from the declaration:
+
+      * a declared set          -> `set`, with what was added and removed
+      * owner visibility        -> `owner`, one change per owner entry
+      * a value holding an object -> `map`, one change per entry — the same readable per-entry
+        delta, making no claim about ownership
+      * anything else           -> `value`
 
     `actor_since` is deliberately absent: it moves whenever `actor` does and adds nothing.
     """
@@ -37,17 +52,31 @@ def diff_views(before: dict[str, Any], after: dict[str, Any]) -> list[dict[str, 
         bv, av = b_data.get(key), a_data.get(key)
         if bv == av:
             continue
-        if isinstance(bv, list) or isinstance(av, list):
+        declared = defn.data.get(key)
+        # An undeclared key cannot reach here through `view()`, which only emits declared keys.
+        # If one ever does, fall back on shape — but never to `owner`, which would fabricate the
+        # one field a reader is entitled to trust.
+        is_set = declared.type == "set" if declared else isinstance(bv or av, list)
+        is_owner = declared.visibility == "owner" if declared else False
+
+        if is_set:
             bs, as_ = set(bv or []), set(av or [])
             out.append({"kind": "set", "key": key,
                         "added": sorted(as_ - bs), "removed": sorted(bs - as_)})
-        elif isinstance(bv, dict) or isinstance(av, dict):
+        elif is_owner:
             bd: dict[str, Any] = bv or {}
             ad: dict[str, Any] = av or {}
             for owner in sorted(set(bd) | set(ad)):
                 if bd.get(owner) != ad.get(owner):
                     out.append({"kind": "owner", "key": key, "owner": owner,
                                 "from": bd.get(owner), "to": ad.get(owner)})
+        elif isinstance(bv, dict) or isinstance(av, dict):
+            bm: dict[str, Any] = bv or {}
+            am: dict[str, Any] = av or {}
+            for entry in sorted(set(bm) | set(am)):
+                if bm.get(entry) != am.get(entry):
+                    out.append({"kind": "map", "key": key, "entry": entry,
+                                "from": bm.get(entry), "to": am.get(entry)})
         else:
             out.append({"kind": "value", "key": key, "from": bv, "to": av})
     return out
@@ -71,7 +100,8 @@ def build_timeline(
             nxt = eng.view(defn, bindings, after, caller)
             visible = eng.log_row(defn, bindings, payload, caller)
             if visible is not None:
-                rows.append({"ts": ts, "payload": visible, "changes": diff_views(seen, nxt)})
+                rows.append({"ts": ts, "payload": visible,
+                             "changes": diff_views(defn, seen, nxt)})
             # Advance past a row the caller may not see, so whatever it moved is dropped rather
             # than folded into the next visible row. Misattributing a hidden actor's change to
             # the next agent to act would be worse than omitting it.
