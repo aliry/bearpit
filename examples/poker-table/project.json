@@ -316,8 +316,8 @@
                     "key": "actor",
                     "value": "$args.player"
                   }
-                }
-              ],
+                },
+                     {"members_count": {"over": "player", "minus": ["out"], "at_least": 2}}],
               "effects": [
                 {
                   "add_to": {
