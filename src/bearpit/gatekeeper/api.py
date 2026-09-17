@@ -329,6 +329,33 @@ def _allowed_hosts() -> list[str]:
     return ["localhost", "127.0.0.1", "[::1]", "testserver"]
 
 
+class SafeJSONResponse(JSONResponse):
+    r"""A response that cannot be made unserialisable by anything an agent wrote.
+
+    Starlette renders with `ensure_ascii=False` and encodes the result as UTF-8, which raises on an
+    unpaired surrogate. A surrogate stores perfectly well in a `jsonb` column and round-trips
+    identically, so an agent can put one in a transition argument, a note, a ruling or a sealed
+    submission — and from then on every endpoint that returns that realm answers 500. The chronicle
+    is append-only, so there is no un-storing it: the console view of that realm would be gone for
+    good.
+
+    The fallback escapes instead of encoding. `\ud800` is valid JSON (RFC 8259 §7 admits unpaired
+    surrogate escapes) and every parser, including the browser's, accepts it. It runs only when the
+    normal path raises, so ordinary payloads are byte-for-byte what they were and pay nothing.
+
+    This is the outer half of the guard. `chronicle.safety.unstorable` is the inner half: it lets
+    the ingress refuse such a value and tell the agent, which this layer cannot do.
+    """
+
+    def render(self, content: Any) -> bytes:
+        try:
+            return super().render(content)
+        except UnicodeEncodeError:
+            return json.dumps(
+                content, ensure_ascii=True, allow_nan=False, indent=None, separators=(",", ":"),
+            ).encode("utf-8")
+
+
 def create_app(
     *,
     chron: Chronicle | None = None,
@@ -380,7 +407,8 @@ def create_app(
                     platform.forge.reap_orphans(active=())
                 await platform.close()
 
-    app = FastAPI(title="Bearpit", lifespan=lifespan)
+    app = FastAPI(title="Bearpit", lifespan=lifespan,
+                  default_response_class=SafeJSONResponse)
 
     # This origin has no authentication (see #105) and can start realms, spend money, and read
     # every transcript, private note and revealed submission. It binds to loopback by default, but

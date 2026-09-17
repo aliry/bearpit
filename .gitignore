@@ -46,3 +46,7 @@ htmlcov/
 # browser-automation scratch (screenshots, snapshots) — never part of the repo
 /.playwright-mcp/
 /*.png
+
+# Worktrees created for parallel branch work (superpowers convention). Never tracked: each is a
+# full checkout of this same repo, and committing one embeds a repository inside itself.
+.worktrees/
