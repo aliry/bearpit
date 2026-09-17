@@ -9,6 +9,7 @@ of its own and the engine stays pure.
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -17,6 +18,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from bearpit.chronicle import Chronicle, EventKind
+from bearpit.chronicle.safety import oversized, unstorable
 from bearpit.core.machine import Guard, MachineDef
 from bearpit.realmtools import machine as eng
 from bearpit.realmtools.machine import ReplayError
@@ -25,6 +27,23 @@ from bearpit.realmtools.service import Identity
 # Must not hang: it is awaited while the realm lock is held, so a stuck lookup blocks every act
 # on the realm. The injection site owns the timeout.
 EscrowLookup = Callable[[str, str], Awaitable[set[str]]]
+
+def _refuse(label: str, value: Any) -> str | None:
+    """Why this write must be refused before it reaches the chronicle, or None.
+
+    Refused HERE, and not left to the chronicle, for one reason: the chronicle is append-only. A
+    value that stores but can never be serialised back out takes the realm's whole console view
+    with it, permanently, and the agent that wrote it is never told. Answering the agent costs one
+    walk of a small dict.
+    """
+    if (why := unstorable(value)) is not None:
+        return f"{label} {why}"
+    try:  # depth is already bounded above, so dumps cannot recurse away
+        n = len(json.dumps(value, ensure_ascii=True, default=str))
+    except (TypeError, ValueError):
+        return f"{label} is not serialisable"
+    return None if (why := oversized(n)) is None else f"{label} {why}"
+
 MACHINE_VERSION = 1
 # `log_limit` arrives from an agent's tool call. CLAMPED, never rejected: a caller that asks for
 # too much gets the maximum rather than an error it has to learn to handle — and one agent can no
@@ -177,6 +196,8 @@ class MachineService:
         self, who: Identity, transition: str, args: dict[str, Any] | None
     ) -> dict[str, Any]:
         args = dict(args or {})
+        if (why := _refuse("args", args)) is not None:
+            return {"error": why}
         async with self._lock(who.realm_id):
             live = await self._get(who.realm_id)
             if live is None or self._chron is None:
@@ -197,6 +218,9 @@ class MachineService:
     async def set(
         self, who: Identity, key: str, value: Any, owner: str | None = None
     ) -> dict[str, Any]:
+        for label, v in (("key", key), ("owner", owner), ("value", value)):
+            if (why := _refuse(label, v)) is not None:
+                return {"error": why}
         async with self._lock(who.realm_id):
             live = await self._get(who.realm_id)
             if live is None or self._chron is None:
