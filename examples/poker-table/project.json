@@ -84,11 +84,11 @@
               "acted"
             ]
           },
-          "participant_effects": [
+        "participant_effects": [
             "reset",
             "set"
           ],
-          "referee_reads_commons": false,
+          "referee_reads_commons": true,
           "data": {
             "hole": {
               "visibility": "owner"
