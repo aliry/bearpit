@@ -317,7 +317,8 @@ function makeWorld(routes = []) {
  *  script-scoped `const`s do not, so an epilogue hands out the one the checks need. */
 function loadApp(world) {
   const src = readFileSync(APP_JS, "utf8");
-  vm.runInContext(`${src}\n;globalThis.__ROUTES = ROUTES;\n`, world.sandbox, { filename: APP_JS });
+  vm.runInContext(`${src}\n;globalThis.__ROUTES = ROUTES;\n;globalThis.__fail = fail;\n;globalThis.__ok = ok;\n`,
+    world.sandbox, { filename: APP_JS });
   return world;
 }
 
@@ -776,6 +777,60 @@ const CHECKS = [
         assertIncludes(row, want, "the refusal row");
       }
       return "the refused row carries its caller, transition, check and detail";
+    },
+  },
+  {
+    // An error the operator has to act on must not erase itself. The realmtools staleness
+    // refusal is the case that proved it: it names the rebuild command, and it was gone before
+    // it could be read.
+    name: "an_error_toast_stays_until_dismissed",
+    async run() {
+      const world = boot();
+      const before = world.timers.size;
+      world.sandbox.__fail("Launch failed", "the realmtools container is not running this code");
+      const scheduled = world.timers.size - before;
+      assert(scheduled === 0, `an error toast scheduled ${scheduled} timer(s); it must schedule `
+        + `none, or it erases itself before it can be read`);
+      const toasts = queryAll(world.toasts, ".toast");
+      assert(toasts.length === 1, `expected one toast, found ${toasts.length}`);
+      const close = queryAll(world.toasts, ".t-close");
+      assert(close.length === 1, `an error toast must carry exactly one dismiss control, `
+        + `found ${close.length} — otherwise it can never be got rid of`);
+      fire(close[0], "click");
+      const after = queryAll(world.toasts, ".toast");
+      assert(after.length === 0, `dismissing left ${after.length} toast(s) on screen`);
+      return "no expiry timer, one dismiss control, and clicking it removes the toast";
+    },
+  },
+  {
+    // The other half: a confirmation of something you just did on purpose SHOULD vanish.
+    // Making every toast sticky would trade one annoyance for a worse one.
+    name: "a_success_toast_still_expires_on_its_own",
+    async run() {
+      const world = boot();
+      const before = world.timers.size;
+      world.sandbox.__ok("Realm launched", "poker-table-1");
+      assert(world.timers.size > before, "a success toast scheduled no expiry timer — it would "
+        + "now sit on screen forever");
+      assert(queryAll(world.toasts, ".t-close").length === 0,
+        "a success toast grew a dismiss control it does not need");
+      return "success still fades on a timer and needs no dismiss control";
+    },
+  },
+  {
+    // `api` attaches the refusal's structured detail to the Error. The API writes a `hint` that
+    // names the fix; for a long time nothing rendered it, so the one field written to be
+    // actionable was the one field thrown away.
+    name: "an_error_toast_shows_the_hint_that_names_the_fix",
+    async run() {
+      const world = boot();
+      const HINT = "Rebuild it: docker compose -f deploy/docker-compose.yaml build realmtools";
+      world.sandbox.__fail("Launch failed", "the realmtools container is not running this code",
+        { error: "the realmtools container is not running this code",
+          host: "907b609cf5fc", container: "15b5beb6a322", hint: HINT });
+      const shown = textOf(world.toasts);
+      assertIncludes(shown, HINT, "the error toast");
+      return "the hint naming the remedy reaches the person who has to apply it";
     },
   },
 ];

@@ -147,16 +147,38 @@ const FINISHED = new Set(["archived", "failed"]);
 const stateChip = (st) => el("span", { class: `chip state-${st}` }, el("span", { class: "dot" }), st || "—");
 
 /* ---------- toasts ---------- */
-function toast(title, body, kind = "") {
-  const t = el("div", { class: `toast ${kind}` },
+/* An error does NOT time out; everything else does.
+
+   A message that erases itself after four seconds is useless for anything the operator has to act
+   on. The realmtools staleness refusal is the case that proved it: it names the rebuild command
+   that fixes the realm, and it was gone before it could be read — leaving the operator knowing
+   only that something was wrong. A success toast can vanish, because it confirms something you
+   just did on purpose.
+
+   Dismissal is the × alone, deliberately. The hint often carries a command to copy, and
+   click-anywhere-to-dismiss would delete the text mid-selection. */
+function toast(title, body, kind = "", detail = null) {
+  const sticky = kind === "err";
+  const t = el("div", { class: `toast ${kind}${sticky ? " sticky" : ""}` },
     el("div", { class: "t-title", text: title }),
-    body && el("div", { class: "t-body", text: body }));
+    body && el("div", { class: "t-body", text: body }),
+    // The API sends `hint` for precisely this — what to DO about the refusal. Nothing read it,
+    // so the one field written to be actionable was the one field thrown away.
+    detail && detail.hint && el("div", { class: "t-hint", text: detail.hint }),
+    sticky && el("button", {
+      class: "t-close", title: "Dismiss", "aria-label": "Dismiss",
+      onclick: (ev) => ev.currentTarget.parentElement.remove(),
+    }, "\u00d7"));
   $("#toasts").append(t);
+  if (sticky) return t;
   setTimeout(() => { t.style.opacity = "0"; t.style.transform = "translateX(30px)"; }, 3600);
   setTimeout(() => t.remove(), 4000);
+  return t;
 }
 const ok = (t, b) => toast(t, b, "ok");
-const fail = (t, b) => toast(t, b || "", "err");
+/* `detail` is the structured body of an API refusal (see `api`), carried through so a hint that
+   names the fix reaches the person who has to apply it. */
+const fail = (t, b, detail) => toast(t, b || "", "err", detail);
 
 /* ---------- modal ---------- */
 function modal({ title, body, actions, wide }) {
@@ -1354,7 +1376,7 @@ function launchModal(packages, preselect) {
               return;
             }
             const fb = e.detail && e.detail.provider_fallback;
-            if (!fb) { fail("Launch failed", e.message); return; }
+            if (!fb) { fail("Launch failed", e.message, e.detail); return; }
             // Not a mistake the operator made, and not one they can fix from this dialog — so it
             // explains the substitution and asks, rather than failing them out of the flow.
             providerConsent = true;
