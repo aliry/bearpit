@@ -546,15 +546,21 @@ def test_free_for_all_realm_reports_no_turns_and_a_seeing_referee():
     assert cfg["referee_sees_all"] is True      # the judge is exempt from the mention gate here
 
 
-def test_referee_sees_all_honours_referee_reads_commons():
+def test_a_machine_realms_referee_is_never_in_the_firehose():
+    """`referee_reads_commons` no longer lifts the mention gate, and this pins that it cannot.
+
+    The flag used to mean both "may read the floor" and "is woken by every word on it". Buying the
+    second to get the first put the dealer at ~50% of all messages and ~90% of spend in two live
+    runs, narrating its own inaction. It now grants `table_talk` — a pull — and a machine realm's
+    referee stays gated whichever way the flag is set."""
     from test_core_schema import _machine_spec, _project
 
     from bearpit.core.runconfig import run_config
 
-    p = _project({"mechanics": [_machine_spec()]})   # referee_reads_commons defaults False
-    assert run_config(p, provider="x", require_mention=True)["referee_sees_all"] is False
-    p2 = _project({"mechanics": [_machine_spec(referee_reads_commons=True)]})
-    assert run_config(p2, provider="x", require_mention=True)["referee_sees_all"] is True
+    for reads in (False, True):
+        p = _project({"mechanics": [_machine_spec(referee_reads_commons=reads)]})
+        cfg = run_config(p, provider="x", require_mention=True)
+        assert cfg["referee_sees_all"] is False, f"referee_reads_commons={reads} lifted the gate"
 
 
 def test_rerun_snapshot_replays_the_run_and_ignores_later_edits(seeded):

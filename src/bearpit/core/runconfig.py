@@ -53,8 +53,20 @@ def referee_sees_all(project: Project, *, require_mention: bool) -> bool:
       * turns — the TurnManager already hands the referee the round transcript in its cue, so
         lifting the gate only makes it wake on every message (rps-1: duplicate round resolutions
         until the provider began refusing calls);
-      * a machine realm — the referee's information source is the MACHINE record, not table talk,
-        unless the declaration opts back in with `referee_reads_commons: true`.
+      * a machine realm — the referee's information source is the MACHINE record, not the floor.
+
+    `referee_reads_commons` deliberately does NOT appear here, though it used to. It conflated two
+    different things: MAY the referee read the table, and IS it woken by every word said at it.
+    Granting the first by lifting the mention gate bought the second, and the second is ruinous —
+    two live poker runs put the dealer at ~50% of all messages (10% in three prior runs) and ~90%
+    of spend, narrating its own inaction:
+
+        "Silent — table talk, no card named, nothing for the dealer to do."
+
+    Two prompt rewrites failed to stop it, because wake a model and give it nothing to do and it
+    will say so. So the flag now grants a PULL — `table_talk`, which the referee calls when it is
+    already awake — and a machine realm's referee is never in the firehose. Same information, no
+    wake, and the rps-1 hazard in the clause above can no longer be opted back into by accident.
     """
     if project.referee is None:
         return False
@@ -62,8 +74,7 @@ def referee_sees_all(project: Project, *, require_mention: bool) -> bool:
         return True
     if project.spec.turns is not None:
         return False
-    machine = project.spec.machine
-    return machine is None or machine.referee_reads_commons
+    return project.spec.machine is None
 
 
 def _agent_row(project: Project, agent: Any) -> dict[str, Any]:
