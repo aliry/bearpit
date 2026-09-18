@@ -35,7 +35,7 @@
       },
       {
         "type": "duration",
-        "limit": "5h"
+        "limit": "12h"
       },
       {
         "type": "stall",
@@ -46,8 +46,8 @@
       "hands": {
         "type": "int",
         "min": 1,
-        "max": 50,
-        "description": "How many hands the table plays"
+        "max": 24,
+        "description": "How many hands the table plays (the realm's 12h cap fits about 24 at the observed 25-30 min per hand)"
       }
     },
     "mechanics": [
