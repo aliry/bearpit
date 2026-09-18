@@ -38,6 +38,7 @@ from bearpit.realmtools.service import (
     TallyError,
     TurnReader,
 )
+from bearpit.realmtools.table import TableService
 from bearpit.realmtools.tokens import verify_token
 from bearpit.realmtools.toolcall import ToolCallService
 
@@ -112,6 +113,7 @@ def build_app(
     notes = NoteService(chronicle)
     coder = CodeService(chronicle)
     manifests = ManifestReader(chronicle)
+    table = TableService(chronicle)
     granted = ToolCallService(chronicle, manifests=manifests)
 
     async def _sealed(realm_id: str, round_id: str) -> set[str]:
@@ -121,7 +123,8 @@ def build_app(
     machine = MachineService(chronicle, escrow_lookup=_sealed)
 
     def _wire(chron: Chronicle) -> None:
-        for svc in (service, arbiter, turns, private, notes, coder, granted, manifests, machine):
+        for svc in (service, arbiter, turns, private, notes, coder, granted, manifests,
+                    machine, table):
             svc.set_chronicle(chron)
 
     # NOT FastMCP's own lifespan. That one runs inside `app.run()`, which the streamable-http
@@ -399,6 +402,25 @@ def build_app(
             return await arbiter.flag(who(ctx), agent, reason)
         except PermissionError as exc:
             return {"error": str(exc)}
+
+    @mcp.tool()
+    async def table_talk(
+        ctx: ToolContext, since: int | None = None, limit: int = 50
+    ) -> dict[str, Any]:
+        """Referee only: read what has been said on the commons floor.
+
+        For a realm whose machine keeps you out of the feed — your record is the machine, not the
+        chatter — but whose rules still govern what agents SAY. Call it when you are already awake
+        and want to check conduct; pass back the `cursor` you were given so you see only what is
+        new. Reading decides nothing: act on what you find with `penalize`, `flag` or `rule`."""
+        ident = _identity(ctx, secret)
+        try:
+            res = await table.read(who(ctx), since_ms=since, limit=limit)
+        except PermissionError as exc:
+            _audit("table_talk", ident, str(exc))
+            return {"error": str(exc)}
+        _audit("table_talk", ident, result={"messages": len(res["messages"])})
+        return res
 
     @mcp.tool()
     async def scoreboard(ctx: ToolContext) -> dict[str, Any]:

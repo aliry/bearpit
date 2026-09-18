@@ -466,9 +466,11 @@ async def test_a_referee_in_a_TURNS_realm_stays_mention_gated():
     assert bus.creds["themis"].require_mention is True
 
 
-async def test_a_machine_realm_gates_the_referee_unless_it_declares_otherwise():
-    """A dealer's information source is the machine; table talk would only interrupt it. A judge
-    that must weigh speech opts back in with referee_reads_commons: true."""
+async def test_a_machine_realm_gates_the_referee_whatever_the_declaration_says():
+    """A dealer's information source is the machine; table talk would only interrupt it — and
+    "only interrupt" is measured: lifting this gate put the dealer at ~50% of all messages and
+    ~90% of spend in two live poker runs. A judge that must weigh speech now reads it with
+    `table_talk`, which `referee_reads_commons` grants, and stays gated on the bus either way."""
     from bearpit.core.schema import AgentRole
 
     def agent(aid, role=AgentRole.PARTICIPANT):
@@ -498,7 +500,8 @@ async def test_a_machine_realm_gates_the_referee_unless_it_declares_otherwise():
     gated = await provision(machine_project(False))
     assert gated.creds["ref"].require_mention is True
     reads = await provision(machine_project(True))
-    assert reads.creds["ref"].require_mention is False
+    assert reads.creds["ref"].require_mention is True, \
+        "referee_reads_commons lifted the mention gate; it grants `table_talk`, not the firehose"
 
 
 def _machine_project(referee_reads_commons):
@@ -529,7 +532,10 @@ async def test_the_referee_gate_reads_the_same_in_the_run_record_and_on_the_bus(
     whenever the machine had not opted into commons. A run record that contradicts the realm it
     describes is worse than no record: every question anyone asks a finished realm is asked of it.
 
-    The machine conjunct only ever meant something when mention gating was ON."""
+    The machine conjunct only ever meant something when mention gating was ON — and it is gone
+    now: `referee_reads_commons` grants `table_talk` (a pull) rather than lifting the gate, so for
+    a MACHINE realm the only thing that exempts the referee is nothing being gated at all. The loop
+    below still runs both settings of the flag, to pin that it no longer moves either reading."""
     from bearpit.core.runconfig import referee_sees_all, run_config
 
     for require_mention in (True, False):
@@ -540,7 +546,8 @@ async def test_the_referee_gate_reads_the_same_in_the_run_record_and_on_the_bus(
             await herald.ensure_system("syspw")
             bus = await herald.provision_bus("r1", project, require_mention=require_mention)
             case = (require_mention, reads_commons)
-            sees = not require_mention or reads_commons
+            # A machine realm: exempt only when nothing is gated. The flag must not appear here.
+            sees = not require_mention
             assert referee_sees_all(project, require_mention=require_mention) is sees, case
             cfg = run_config(project, "x", require_mention=require_mention)
             assert cfg["referee_sees_all"] is sees, case

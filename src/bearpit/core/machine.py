@@ -130,6 +130,10 @@ class MachineDef(_Base):
     terminal: list[str] = Field(default_factory=list)
     actor: PointerDef | None = None
     participant_effects: list[str] = Field(default_factory=list)
+    # Grants the referee `table_talk` — a PULL of the commons, on a wake it already has. It does
+    # NOT put the referee in the message feed: doing that was the old meaning, and it cost two
+    # live poker runs where the dealer hit ~50% of all messages and ~90% of spend narrating its
+    # own inaction. See `runconfig.referee_sees_all`.
     referee_reads_commons: bool = False
     data: dict[str, DataDef] = Field(default_factory=dict)
     transitions: dict[str, TransitionDef]
